@@ -1,4 +1,3 @@
-import { FundDataService } from '@ghostfolio/api/services/signals/fund-data.service';
 import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
 import { PropertyService } from '@ghostfolio/api/services/property/property.service';
 import { FUND_CATALOG } from '@ghostfolio/common/fund-catalog';
@@ -8,11 +7,12 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { AssetSubClass, DataSource } from '@prisma/client';
 
-const AVANZA_CHART_URL = 'https://www.avanza.se/_api/fund-guide/chart';
-const AVANZA_GUIDE_URL = 'https://www.avanza.se/_api/fund-guide/guide';
 const NORDNET_BASE_URL = 'https://www.nordnet.se';
+// Nordnet's public price-time-series CDN (the fund chart's own data source).
+const NORDNET_CDN_URL =
+  'https://api.prod.nntech.io/market-data/v3/price-time-series';
 // Below this many local closes a fund has no usable daily curve for the
-// technical indicators, so we try to backfill one from Avanza (verified).
+// technical indicators, so we backfill one from Nordnet's price CDN.
 const MIN_CLOSES_FOR_INDICATORS = 30;
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
@@ -101,6 +101,8 @@ export interface NordnetFundDetails {
   latestNav?: { date: string; value: number };
   /** Management fee % (förvaltningsavgift). */
   managementFeePct?: number;
+  /** orderBook UUID — the identifier for Nordnet's price-time-series CDN. */
+  orderbookId?: string;
   owners?: number;
   rating?: number;
   /** Period returns (DAY_1/WEEK_1/MONTH_1/MONTH_3/MONTH_6/YTD/YEAR_1/YEAR_3/...). */
@@ -157,6 +159,12 @@ export function parseNordnetFundDetails(html: string): NordnetFundDetails {
       latestNav = { date: navMatch[1], value };
     }
   }
+
+  // orderBook UUID — the identifier Nordnet's price-time-series CDN keys on.
+  const orderbookMatch = html.match(
+    /\\"orderBook\\":\{\\"id\\":\\"([0-9a-f-]{36})\\"/
+  );
+  const orderbookId = orderbookMatch?.[1];
 
   const returnsStart = html.indexOf('\\"returns\\":[');
 
@@ -248,6 +256,7 @@ export function parseNordnetFundDetails(html: string): NordnetFundDetails {
     isin,
     latestNav,
     managementFeePct: numberAfter('managementFee'),
+    orderbookId,
     owners: Number.isFinite(owners) ? owners : undefined,
     rating: ratingMatch ? parseInt(ratingMatch[1], 10) : undefined,
     returns,
@@ -437,7 +446,6 @@ export class FundHistoryService implements OnApplicationBootstrap {
   private syncRunning = false;
 
   public constructor(
-    private readonly fundDataService: FundDataService,
     private readonly prismaService: PrismaService,
     private readonly propertyService: PropertyService
   ) {}
@@ -629,19 +637,16 @@ export class FundHistoryService implements OnApplicationBootstrap {
         };
 
         // The technical indicators (RSI/MACD/Bollinger/score) need a DAILY
-        // curve, which Nordnet gates behind login. When a fund still lacks
-        // enough local history, backfill a one-year daily series from Avanza —
-        // but ONLY when Avanza is verifiably the SAME fund (ISIN + currency
-        // match Nordnet's authoritative values). This is the guard that was
-        // missing when a SEK share class poisoned SEB C USD; with it, a wrong
-        // match is rejected rather than written. Nordnet-own funds are not on
-        // Avanza and simply accumulate forward.
-        if (details.isin && details.latestNav) {
-          await this.backfillDailyFromAvanza({
+        // curve. Nordnet's own price-time-series CDN serves it anonymously
+        // (the fund page's chart reads from it), keyed by the orderBook UUID —
+        // the authoritative Nordnet daily series for EVERY fund, including its
+        // own index funds. Backfill it when a fund still lacks local history.
+        if (details.orderbookId && details.latestNav) {
+          await this.backfillDailyFromNordnetCdn({
             currency: fund.currency,
-            isin: details.isin,
             officialNav: details.latestNav.value,
             officialNavDate: details.latestNav.date,
+            orderbookId: details.orderbookId,
             summary,
             symbol: fund.symbol
           });
@@ -725,29 +730,26 @@ export class FundHistoryService implements OnApplicationBootstrap {
   }
 
   /**
-   * Backfills a one-year daily NAV series from Avanza for the technical
-   * indicators — but ONLY when Avanza is verifiably the SAME fund as Nordnet
-   * (ISIN + currency match; wrong share classes rejected, no poison).
-   *
-   * Avanza only supplies the daily %-movement SHAPE; the absolute SCALE comes
-   * from Nordnet's official NAV — the two providers can quote the same fund at
-   * very different NAV levels (e.g. SEB Global All Countries: Avanza 35.7 vs
-   * Nordnet 3.67, a ~10x unit difference), so the series is anchored to
-   * Nordnet's authoritative NAV, giving Avanza's day-to-day shape at Nordnet's
-   * correct scale. Skips once the fund already has enough local history.
+   * Backfills a one-year daily NAV series from Nordnet's own public
+   * price-time-series CDN (the same source the fund page's chart reads from),
+   * keyed by the fund's orderBook UUID. The CDN returns %-development points;
+   * they are anchored to Nordnet's authoritative official NAV, using the
+   * fund's currency as `fundType=FUND_<CCY>`. This is the authoritative daily
+   * series for EVERY fund, including Nordnet's own index funds. Skips once the
+   * fund already has enough local history; never throws.
    */
-  private async backfillDailyFromAvanza({
+  private async backfillDailyFromNordnetCdn({
     currency,
-    isin,
     officialNav,
     officialNavDate,
+    orderbookId,
     summary,
     symbol
   }: {
     currency: string;
-    isin: string;
     officialNav: number;
     officialNavDate?: string;
+    orderbookId: string;
     summary: FundSyncSummary;
     symbol: string;
   }): Promise<void> {
@@ -759,36 +761,25 @@ export class FundHistoryService implements OnApplicationBootstrap {
       return;
     }
 
-    const orderbookId = await this.fundDataService.resolveOrderbookId({ isin });
+    const url =
+      `${NORDNET_CDN_URL}/period/YEAR_1/identifier/${orderbookId}` +
+      `?fundType=FUND_${currency}`;
 
-    if (!orderbookId) {
+    const payload = await this.fetchJson(url, {
+      Referer: 'https://www.nordnet.se/',
+      'x-locale': 'sv-SE'
+    });
+
+    const pricePoints: { timeStamp: number; value: number }[] =
+      payload?.pricePoints ?? [];
+
+    if (pricePoints.length === 0) {
       return;
     }
 
-    const [guide, chart] = await Promise.all([
-      this.fetchJson(`${AVANZA_GUIDE_URL}/${orderbookId}`),
-      this.fetchJson(`${AVANZA_CHART_URL}/${orderbookId}/one_year`)
-    ]);
-
-    // Same-fund verification against Nordnet's authoritative ISIN + currency.
-    if (
-      !guide ||
-      (guide.isin && guide.isin !== isin) ||
-      (guide.currency && guide.currency !== currency)
-    ) {
-      if (guide) {
-        this.logger.warn(
-          `${symbol}: Avanza history rejected (ISIN ${guide.isin} / ${guide.currency} vs Nordnet ${isin} / ${currency})`
-        );
-      }
-
-      return;
-    }
-
-    // Anchor the %-series to Nordnet's official NAV (the correct scale), NOT
-    // Avanza's guide.nav (which can be a different unit for the same fund).
+    // The CDN series is %-development; reuse the anchor-to-NAV reconstruction.
     const rows = reconstructNavSeries(
-      chart?.dataSerie ?? [],
+      pricePoints.map(({ timeStamp, value }) => ({ x: timeStamp, y: value })),
       officialNav,
       officialNavDate
     );
@@ -809,17 +800,24 @@ export class FundHistoryService implements OnApplicationBootstrap {
 
     summary.navRowsInserted += count;
     this.logger.log(
-      `${symbol}: backfilled ${count} verified Avanza daily NAVs (ISIN ${isin})`
+      `${symbol}: backfilled ${count} Nordnet daily NAVs from the price-time-series CDN`
     );
   }
 
-  private async fetchJson(url: string): Promise<any | null> {
+  private async fetchJson(
+    url: string,
+    extraHeaders: Record<string, string> = {}
+  ): Promise<any | null> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
 
     try {
       const response = await fetch(url, {
-        headers: { Accept: 'application/json', 'User-Agent': USER_AGENT },
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': USER_AGENT,
+          ...extraHeaders
+        },
         signal: controller.signal
       });
 

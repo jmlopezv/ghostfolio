@@ -30,6 +30,7 @@ describe('parseNordnetFundDetails', () => {
     '{\\"development\\":16.42,\\"period\\":\\"YEAR_1\\"}]},',
     '\\"fees\\":{\\"managementFee\\":0.4,\\"ongoingCost\\":0.45,\\"totalFee\\":0.45},',
     '\\"standardDeviation\\":13.51,\\"sharpeRatio\\":0.83,',
+    '\\"instrument\\":{\\"orderBook\\":{\\"id\\":\\"52540035-e3f9-46a1-945a-aa7b72e811ad\\"}},',
     '\\"holdings\\":[{\\"name\\":\\"NVIDIA\\",\\"instrumentClass\\":\\"STOCK\\",\\"weight\\":5.53},',
     '{\\"name\\":\\"Apple\\",\\"instrumentClass\\":\\"STOCK\\",\\"weight\\":4.2}]")</script>'
   ].join('');
@@ -58,6 +59,7 @@ describe('parseNordnetFundDetails', () => {
       { name: 'NVIDIA', weight: 0.0553 },
       { name: 'Apple', weight: 0.042 }
     ]);
+    expect(details.orderbookId).toBe('52540035-e3f9-46a1-945a-aa7b72e811ad');
   });
 
   it('returns empty fields on unrelated HTML', () => {
