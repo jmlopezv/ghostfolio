@@ -26,6 +26,10 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatDialog } from '@angular/material/dialog';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { DeviceDetectorService } from 'ngx-device-detector';
+import { forkJoin, timer } from 'rxjs';
+
+/** Refresh the live watchlist metrics (score/RSI/reach/...) every 30 minutes. */
+const WATCHLIST_METRICS_REFRESH_MS = 30 * 60 * 1000;
 
 import { GfCreateWatchlistItemDialogComponent } from './create-watchlist-item-dialog/create-watchlist-item-dialog.component';
 import { CreateWatchlistItemDialogParams } from './create-watchlist-item-dialog/interfaces/interfaces';
@@ -44,6 +48,7 @@ import { CreateWatchlistItemDialogParams } from './create-watchlist-item-dialog/
   templateUrl: './home-watchlist.html'
 })
 export class GfHomeWatchlistComponent implements OnInit {
+  protected assetTypeFilter: 'ALL' | 'ETF' | 'FUND' | 'STOCK' = 'ALL';
   protected hasImpersonationId: boolean;
   protected hasPermissionToCreateWatchlistItem: boolean;
   protected hasPermissionToDeleteWatchlistItem: boolean;
@@ -107,7 +112,58 @@ export class GfHomeWatchlistComponent implements OnInit {
   }
 
   public ngOnInit() {
-    this.loadWatchlistData();
+    timer(0, WATCHLIST_METRICS_REFRESH_MS)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        this.loadWatchlistData();
+      });
+  }
+
+  protected get filteredWatchlist(): Benchmark[] {
+    if (!this.watchlist || this.assetTypeFilter === 'ALL') {
+      return this.watchlist;
+    }
+
+    if (this.assetTypeFilter === 'FUND') {
+      return this.watchlist.filter(this.isFund);
+    }
+
+    return this.watchlist.filter((item) => {
+      return item.assetSubClass === this.assetTypeFilter;
+    });
+  }
+
+  protected get etfCount(): number {
+    return (
+      this.watchlist?.filter((item) => item.assetSubClass === 'ETF').length ??
+      0
+    );
+  }
+
+  protected get fundCount(): number {
+    return this.watchlist?.filter(this.isFund).length ?? 0;
+  }
+
+  protected get stockCount(): number {
+    return (
+      this.watchlist?.filter((item) => item.assetSubClass === 'STOCK')
+        .length ?? 0
+    );
+  }
+
+  protected onSelectAssetTypeFilter(
+    assetTypeFilter: 'ALL' | 'ETF' | 'FUND' | 'STOCK'
+  ) {
+    this.assetTypeFilter = assetTypeFilter;
+    this.changeDetectorRef.markForCheck();
+  }
+
+  // Mutual funds are MANUAL-datasource assets (Nordnet/Avanza-priced), some
+  // older profiles lack assetSubClass — dataSource is the robust marker.
+  private isFund(item: Benchmark): boolean {
+    return (
+      item.dataSource === 'MANUAL' || item.assetSubClass === 'MUTUALFUND'
+    );
   }
 
   protected onWatchlistItemDeleted({
@@ -125,11 +181,15 @@ export class GfHomeWatchlistComponent implements OnInit {
   }
 
   private loadWatchlistData() {
-    this.dataService
-      .fetchWatchlist()
+    forkJoin({
+      metrics: this.dataService.fetchWatchlistMetrics(),
+      watchlist: this.dataService.fetchWatchlist()
+    })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(({ watchlist }) => {
-        this.watchlist = watchlist;
+      .subscribe(({ metrics, watchlist: { watchlist } }) => {
+        this.watchlist = watchlist.map((item) => {
+          return { ...item, ...metrics[item.symbol] };
+        });
 
         this.changeDetectorRef.markForCheck();
       });

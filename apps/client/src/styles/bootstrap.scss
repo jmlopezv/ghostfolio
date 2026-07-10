@@ -6,6 +6,19 @@
  */
 
 @import 'bootstrap/scss/functions';
+
+// Widen `.container` beyond Bootstrap's defaults (540/720/960/1140px) — this
+// app is desktop-table/chart-heavy (Watchlist, Analytics, Simulation), and
+// every Home page uses plain `.container` with no per-page override, so this
+// single map (before the `variables` import, since Bootstrap's own values are
+// `!default`) is the one clean point that widens every page consistently.
+$container-max-widths: (
+  sm: 540px,
+  md: 720px,
+  lg: 1140px,
+  xl: 1600px
+) !default;
+
 @import 'bootstrap/scss/variables';
 @import 'bootstrap/scss/mixins';
 @import 'bootstrap/scss/root';

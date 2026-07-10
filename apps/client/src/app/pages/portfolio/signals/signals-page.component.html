@@ -1,0 +1,102 @@
+<div class="container">
+  <div class="row">
+    <div class="col">
+      <div class="align-items-center d-flex justify-content-between mb-3">
+        <h1 class="h3 m-0" i18n>Trading signals</h1>
+        <button
+          class="btn btn-light"
+          type="button"
+          (click)="onRefresh()"
+          [disabled]="isLoading"
+        >
+          <ion-icon name="refresh-circle-outline" />
+          <span class="ms-1" i18n>Refresh</span>
+        </button>
+      </div>
+
+      @if (isLoading) {
+        <ngx-skeleton-loader
+          animation="pulse"
+          [theme]="{ height: '5rem', width: '100%' }"
+        />
+        <ngx-skeleton-loader
+          animation="pulse"
+          [theme]="{ height: '5rem', width: '100%' }"
+        />
+      } @else {
+        @if (!hasSignals) {
+          <div class="text-center text-muted py-5" i18n>
+            No signals yet. Add holdings and watchlist symbols, then refresh.
+          </div>
+        }
+
+        @for (group of groups; track group.key) {
+          @if (group.signals.length > 0) {
+            <div class="mb-4">
+              <h2 class="h5 d-flex align-items-center mb-2" [ngClass]="group.color">
+                <ion-icon [name]="group.iconName" />
+                <span class="ms-2">{{ group.label }}</span>
+                <span class="badge bg-secondary ms-2">{{
+                  group.signals.length
+                }}</span>
+              </h2>
+
+              @for (signal of group.signals; track signal.symbol) {
+                <div class="card mb-2">
+                  <div class="card-body py-2">
+                    <div
+                      class="d-flex justify-content-between align-items-start"
+                    >
+                      <div>
+                        <div class="font-weight-bold">
+                          {{ signal.name }}
+                          <span class="text-muted">({{ signal.symbol }})</span>
+                        </div>
+                        <div class="small text-muted">{{ signal.reason }}</div>
+                      </div>
+                      <div class="text-right ms-2">
+                        @if (signal.category !== 'REINVEST') {
+                          <div class="font-weight-bold">
+                            {{ signal.livePrice | number: '1.2-2' }}
+                            {{ signal.currency }}
+                          </div>
+                        }
+                        @if (signal.score != null) {
+                          <div class="small text-muted" i18n>
+                            Score {{ signal.score }}
+                          </div>
+                        }
+                      </div>
+                    </div>
+
+                    <div class="d-flex flex-wrap small text-muted mt-1">
+                      @if (signal.hitTargetProbability != null) {
+                        <span class="me-3" i18n>
+                          ~{{ signal.hitTargetProbability * 100 | number: '1.0-0' }}%
+                          chance of hitting target
+                        </span>
+                      }
+                      @if (signal.forecastBand) {
+                        <span class="me-3" i18n>
+                          Expected range
+                          {{ signal.forecastBand.lower | number: '1.2-2' }}–{{
+                            signal.forecastBand.upper | number: '1.2-2'
+                          }}
+                        </span>
+                      }
+                      @if (signal.suggestedAmount != null) {
+                        <span class="me-3" i18n>
+                          Suggested {{ signal.suggestedAmount | number: '1.0-2' }}
+                        </span>
+                      }
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        }
+      }
+    </div>
+  </div>
+</div>

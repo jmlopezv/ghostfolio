@@ -1,0 +1,34 @@
+<div class="container">
+  <div class="row">
+    <div class="col">
+      <h1 class="h3 mb-1" i18n>Metric glossary</h1>
+      <p class="text-muted small mb-4" i18n>
+        Exactly what each number means and how it is computed. These mirror
+        <code>docs/TRADING_SIGNALS.md</code>.
+      </p>
+
+      <div class="row">
+        @for (metric of glossary; track metric.id) {
+          <div class="col-12 col-lg-6 mb-3">
+            <div class="card h-100" [id]="'metric-' + metric.id">
+              <div class="card-body">
+                <h3 class="align-items-baseline d-flex h5 mb-2">
+                  <span>{{ metric.label }}</span>
+                  <a
+                    class="gf-metric-anchor ms-2 text-decoration-none text-muted"
+                    [fragment]="'metric-' + metric.id"
+                    [routerLink]="['/home', 'metrics']"
+                    [title]="'Permalink to ' + metric.label"
+                  >
+                    <ion-icon name="link-outline" />
+                  </a>
+                </h3>
+                <markdown [data]="toMarkdown(metric)" />
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+</div>

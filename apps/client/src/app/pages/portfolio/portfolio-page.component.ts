@@ -12,6 +12,7 @@ import { addIcons } from 'ionicons';
 import {
   analyticsOutline,
   calculatorOutline,
+  notificationsOutline,
   pieChartOutline,
   scanOutline,
   swapVerticalOutline
@@ -61,6 +62,11 @@ export class PortfolioPageComponent {
               routerLink: internalRoutes.portfolio.subRoutes.fire.routerLink
             },
             {
+              iconName: 'notifications-outline',
+              label: internalRoutes.portfolio.subRoutes.signals.title,
+              routerLink: internalRoutes.portfolio.subRoutes.signals.routerLink
+            },
+            {
               iconName: 'scan-outline',
               label: internalRoutes.portfolio.subRoutes.xRay.title,
               routerLink: internalRoutes.portfolio.subRoutes.xRay.routerLink
@@ -75,6 +81,7 @@ export class PortfolioPageComponent {
     addIcons({
       analyticsOutline,
       calculatorOutline,
+      notificationsOutline,
       pieChartOutline,
       scanOutline,
       swapVerticalOutline

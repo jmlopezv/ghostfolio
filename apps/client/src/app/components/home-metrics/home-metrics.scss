@@ -1,0 +1,48 @@
+:host {
+  display: block;
+
+  .card {
+    scroll-margin-top: 1rem;
+    transition: box-shadow 0.3s ease-out;
+
+    &.gf-metric-highlight {
+      box-shadow: 0 0 0 2px rgba(var(--palette-primary-500), 0.6);
+    }
+  }
+
+  .gf-metric-anchor {
+    font-size: 0.9rem;
+    opacity: 0;
+    transition: opacity 0.15s ease-out;
+
+    ion-icon {
+      vertical-align: -0.1em;
+    }
+  }
+
+  h3:hover .gf-metric-anchor {
+    opacity: 1;
+  }
+
+  markdown {
+    ::ng-deep {
+      h3 {
+        font-size: 1rem;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+      }
+
+      pre {
+        background: rgba(var(--palette-foreground-base-rgb), 0.05);
+        border-radius: 0.25rem;
+        font-size: 0.8rem;
+        overflow-x: auto;
+        padding: 0.5rem 0.75rem;
+      }
+
+      p {
+        margin-bottom: 0.5rem;
+      }
+    }
+  }
+}

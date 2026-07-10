@@ -4,6 +4,7 @@ import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-
 import { PropertyService } from '@ghostfolio/api/services/property/property.service';
 import { DataGatheringService } from '@ghostfolio/api/services/queues/data-gathering/data-gathering.service';
 import { StatisticsGatheringService } from '@ghostfolio/api/services/queues/statistics-gathering/statistics-gathering.service';
+import { TradingSignalsService } from '@ghostfolio/api/services/queues/trading-signals/trading-signals.service';
 import { TwitterBotService } from '@ghostfolio/api/services/twitter-bot/twitter-bot.service';
 import {
   DATA_GATHERING_QUEUE_PRIORITY_LOW,
@@ -15,10 +16,12 @@ import { getAssetProfileIdentifier } from '@ghostfolio/common/helper';
 
 import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { isWeekend } from 'date-fns';
 
 @Injectable()
 export class CronService {
   private static readonly EVERY_HOUR_AT_RANDOM_MINUTE = `${new Date().getMinutes()} * * * *`;
+  private static readonly EVERY_MONDAY_AT_LUNCH_TIME = '0 12 * * 1';
   private static readonly EVERY_SUNDAY_AT_LUNCH_TIME = '0 12 * * 0';
 
   public constructor(
@@ -27,9 +30,36 @@ export class CronService {
     private readonly exchangeRateDataService: ExchangeRateDataService,
     private readonly propertyService: PropertyService,
     private readonly statisticsGatheringService: StatisticsGatheringService,
+    private readonly tradingSignalsService: TradingSignalsService,
     private readonly twitterBotService: TwitterBotService,
     private readonly userService: UserService
   ) {}
+
+  @Cron(CronExpression.EVERY_30_MINUTES)
+  public async runEvery30Minutes() {
+    // Skip weekends - markets are closed and prices do not move.
+    if (isWeekend(new Date())) {
+      return;
+    }
+
+    await this.tradingSignalsService.addEvaluationToQueue();
+  }
+
+  @Cron(CronExpression.EVERY_4_HOURS)
+  public async runEvery4Hours() {
+    // Heartbeat portfolio report - skip weekends (markets closed).
+    if (isWeekend(new Date())) {
+      return;
+    }
+
+    await this.tradingSignalsService.addReportToQueue();
+  }
+
+  @Cron(CronService.EVERY_MONDAY_AT_LUNCH_TIME)
+  public async runEveryMondayAtLunch() {
+    // Weekly fund recommendation (which funds to buy for monthly accumulation).
+    await this.tradingSignalsService.addFundSignalToQueue();
+  }
 
   @Cron(CronExpression.EVERY_HOUR)
   public async runEveryHour() {

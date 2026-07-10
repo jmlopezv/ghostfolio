@@ -8,6 +8,7 @@ import { WatchlistResponse } from '@ghostfolio/common/interfaces';
 
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource, Prisma } from '@prisma/client';
+import { subDays } from 'date-fns';
 
 @Injectable()
 export class WatchlistService {
@@ -51,9 +52,14 @@ export class WatchlistService {
       );
     }
 
+    // Explicit 1-year floor: gatherSymbol otherwise falls back to this
+    // symbol's own first activity date (or a global earliest-order date),
+    // which for a freshly-watchlisted, not-yet-held symbol can resolve to
+    // just a few days ago - too short for SMA200/momentum12M to compute.
     await this.dataGatheringService.gatherSymbol({
       dataSource,
-      symbol
+      symbol,
+      date: subDays(new Date(), 365)
     });
 
     await this.prismaService.user.update({
@@ -101,14 +107,28 @@ export class WatchlistService {
       where: { id: userId }
     });
 
-    const [assetProfiles, quotes] = await Promise.all([
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const [assetProfiles, quotes, recentBuyLogs] = await Promise.all([
       this.symbolProfileService.getSymbolProfiles(user.watchlist),
       this.dataProviderService.getQuotes({
         items: user.watchlist.map(({ dataSource, symbol }) => {
           return { dataSource, symbol };
         })
+      }),
+      // Symbols with a BUY signal logged in the last 30 days → watchlist flag.
+      this.prismaService.signalLog.findMany({
+        distinct: ['symbol'],
+        select: { symbol: true },
+        where: {
+          userId,
+          category: 'BUY',
+          createdAt: { gte: thirtyDaysAgo }
+        }
       })
     ]);
+
+    const recentBuySymbols = new Set(recentBuyLogs.map(({ symbol }) => symbol));
 
     const watchlist = await Promise.all(
       user.watchlist.map(async ({ dataSource, symbol }) => {
@@ -133,8 +153,12 @@ export class WatchlistService {
         return {
           dataSource,
           symbol,
+          assetSubClass: assetProfile?.assetSubClass,
+          currency: assetProfile?.currency,
+          hasRecentBuySignal: recentBuySymbols.has(symbol),
           marketCondition:
             this.benchmarkService.getMarketCondition(performancePercent),
+          marketPrice: quotes[symbol]?.marketPrice,
           name: assetProfile?.name,
           performances: {
             allTimeHigh: {

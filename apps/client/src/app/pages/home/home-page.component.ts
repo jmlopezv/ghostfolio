@@ -20,8 +20,12 @@ import {
   albumsOutline,
   analyticsOutline,
   bookmarkOutline,
+  calculatorOutline,
+  flaskOutline,
   newspaperOutline,
-  readerOutline
+  readerOutline,
+  schoolOutline,
+  statsChartOutline
 } from 'ionicons/icons';
 
 @Component({
@@ -70,6 +74,26 @@ export class GfHomePageComponent implements OnInit {
               routerLink: internalRoutes.home.subRoutes.watchlist.routerLink
             },
             {
+              iconName: 'stats-chart-outline',
+              label: internalRoutes.home.subRoutes.analytics.title,
+              routerLink: internalRoutes.home.subRoutes.analytics.routerLink
+            },
+            {
+              iconName: 'calculator-outline',
+              label: internalRoutes.home.subRoutes.metrics.title,
+              routerLink: internalRoutes.home.subRoutes.metrics.routerLink
+            },
+            {
+              iconName: 'flask-outline',
+              label: internalRoutes.home.subRoutes.simulation.title,
+              routerLink: internalRoutes.home.subRoutes.simulation.routerLink
+            },
+            {
+              iconName: 'school-outline',
+              label: internalRoutes.home.subRoutes.academy.title,
+              routerLink: internalRoutes.home.subRoutes.academy.routerLink
+            },
+            {
               iconName: 'newspaper-outline',
               label: hasPermission(
                 this.user?.permissions,
@@ -94,8 +118,12 @@ export class GfHomePageComponent implements OnInit {
       albumsOutline,
       analyticsOutline,
       bookmarkOutline,
+      calculatorOutline,
+      flaskOutline,
       newspaperOutline,
-      readerOutline
+      readerOutline,
+      schoolOutline,
+      statsChartOutline
     });
   }
 

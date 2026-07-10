@@ -1,5 +1,14 @@
 import type { Access } from './access.interface';
 import type { AccountBalance } from './account-balance.interface';
+import type {
+  AcademyExampleResponse,
+  AcademyLessonProgress,
+  AcademyMarketHeadline,
+  AcademyMarketIndexQuote,
+  AcademyMarketPulseResponse,
+  AcademyProgressResponse,
+  AcademyQuizSubmissionResult
+} from './academy.interface';
 import type { Activity, ActivityError } from './activities.interface';
 import type { AdminData } from './admin-data.interface';
 import type { AdminJobs } from './admin-jobs.interface';
@@ -92,6 +101,32 @@ import type { SymbolItem } from './symbol-item.interface';
 import type { SymbolMetrics } from './symbol-metrics.interface';
 import type { SystemMessage } from './system-message.interface';
 import type { ToggleOption } from './toggle-option.interface';
+import type {
+  BacktestAllResponse,
+  BacktestResult,
+  BacktestRow,
+  BacktestTrade,
+  FundMetric,
+  FundMetricsResponse,
+  FundPick,
+  FundRecommendationResponse,
+  InvestmentStrategiesResponse,
+  InvestmentStrategy,
+  PortfolioReport,
+  PortfolioReportRow,
+  RebalancePlan,
+  SignalLogEntry,
+  SignalLogResponse,
+  SimulatedTrade,
+  SimulationResponse,
+  SimulationSummary,
+  StrategyLeg,
+  TradingSignal,
+  TradingSignalCategory,
+  TradingSignalsResponse,
+  WatchlistMetric,
+  WatchlistMetricsResponse
+} from './trading-signal.interface';
 import type { UserItem } from './user-item.interface';
 import type { UserSettings } from './user-settings.interface';
 import type { User } from './user.interface';
@@ -99,8 +134,27 @@ import type { XRayRulesSettings } from './x-ray-rules-settings.interface';
 
 export {
   Access,
+  AcademyExampleResponse,
+  AcademyLessonProgress,
+  AcademyMarketHeadline,
+  AcademyMarketIndexQuote,
+  AcademyMarketPulseResponse,
+  AcademyProgressResponse,
+  AcademyQuizSubmissionResult,
   AccessTokenResponse,
   AccountBalance,
+  BacktestAllResponse,
+  BacktestResult,
+  BacktestRow,
+  BacktestTrade,
+  FundMetric,
+  FundMetricsResponse,
+  FundPick,
+  FundRecommendationResponse,
+  InvestmentStrategiesResponse,
+  InvestmentStrategy,
+  RebalancePlan,
+  StrategyLeg,
   AccountBalancesResponse,
   AccountResponse,
   AccountsResponse,
@@ -186,9 +240,21 @@ export {
   SymbolMetrics,
   SystemMessage,
   ToggleOption,
+  PortfolioReport,
+  PortfolioReportRow,
+  SignalLogEntry,
+  SignalLogResponse,
+  SimulatedTrade,
+  SimulationResponse,
+  SimulationSummary,
+  TradingSignal,
+  TradingSignalCategory,
+  TradingSignalsResponse,
   User,
   UserItem,
   UserSettings,
+  WatchlistMetric,
+  WatchlistMetricsResponse,
   WatchlistResponse,
   XRayRulesSettings
 };

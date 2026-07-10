@@ -1,0 +1,199 @@
+<div class="container">
+  <div class="row">
+    <div class="col">
+      <h1 class="h3 mb-1" i18n>Academy</h1>
+      <p class="text-muted small mb-4" i18n>
+        Levels and lessons covering everything the trading-signal engine
+        computes — theory, a real worked example, and a quiz with answers
+        revealed after you submit. Progress is saved as you go.
+      </p>
+
+      <!-- Market Pulse -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="align-items-center d-flex justify-content-between mb-2">
+            <h2 class="h5 m-0" i18n>Market Pulse</h2>
+            <a class="small" href="https://www.perplexity.ai/finance" target="_blank" rel="noopener" i18n
+              >Open Perplexity Finance →</a
+            >
+          </div>
+
+          @if (isLoadingMarketPulse) {
+            <ngx-skeleton-loader animation="pulse" [theme]="{ height: '8rem', width: '100%' }" />
+          } @else if (marketPulse) {
+            <div class="row g-2 mb-3">
+              @for (index of marketPulse.indices; track index.symbol) {
+                <div class="col-6 col-md-3">
+                  <div class="border rounded p-2 h-100">
+                    <div class="small text-muted">{{ index.name }}</div>
+                    @if (index.price != null) {
+                      <div class="fw-bold">{{ index.price | number: '1.2-2' }}</div>
+                      <div
+                        class="small"
+                        [class.text-success]="(index.changePercent ?? 0) >= 0"
+                        [class.text-danger]="(index.changePercent ?? 0) < 0"
+                      >
+                        {{ index.changePercent != null ? (index.changePercent > 0 ? '+' : '') + (index.changePercent | number: '1.2-2') + '%' : '—' }}
+                      </div>
+                    } @else {
+                      <div class="text-muted small" i18n>n/a</div>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+
+            <h3 class="h6" i18n>Market Summary</h3>
+            @if (marketPulse.headlines && marketPulse.headlines.length > 0) {
+              <div class="list-group list-group-flush">
+                @for (headline of marketPulse.headlines; track headline.title) {
+                  <a
+                    class="list-group-item list-group-item-action px-0"
+                    [href]="headline.url"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <div class="fw-bold small">{{ headline.title }}</div>
+                    @if (headline.summary) {
+                      <div class="text-muted small">{{ headline.summary }}</div>
+                    }
+                    @if (headline.source) {
+                      <div class="text-muted small fst-italic">{{ headline.source }}</div>
+                    }
+                  </a>
+                }
+              </div>
+            } @else {
+              <p class="text-muted small" i18n>
+                Configure NEWS_SENTIMENT_API_KEY (Alpha Vantage or Finnhub) to
+                show live market headlines here — see the
+                <a [routerLink]="['/home', 'metrics']">Metrics</a> glossary's
+                news-gate entry for setup details. In the meantime, see
+                <a href="https://www.perplexity.ai/finance" target="_blank" rel="noopener">Perplexity Finance</a>
+                for a live market summary.
+              </p>
+            }
+          }
+        </div>
+      </div>
+
+      <!-- Reading Sources -->
+      <div class="card mb-4">
+        <div class="card-body">
+          <h2 class="h5 mb-2" i18n>Reading Sources</h2>
+          <div class="row g-2">
+            @for (source of readingSources; track source.url) {
+              <div class="col-12 col-md-6">
+                <a class="gf-lesson-tile d-block border rounded p-2 h-100 text-decoration-none" [href]="source.url" target="_blank" rel="noopener">
+                  <div class="fw-bold small">{{ source.name }}</div>
+                  <div class="text-muted small">{{ source.description }}</div>
+                </a>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+
+      @if (isLoading) {
+        <ngx-skeleton-loader animation="pulse" [theme]="{ height: '20rem', width: '100%' }" />
+      } @else {
+        <div class="row">
+          <div class="col-12 col-lg-4">
+            @for (level of levels; track level.id) {
+              <div class="card gf-level-card mb-4">
+                <div class="card-body">
+                  <h2 class="h5 mb-1">{{ level.title }}</h2>
+                  <p class="text-muted small mb-2">{{ level.description }}</p>
+                  <div class="d-flex flex-column gap-2">
+                    @for (lesson of level.lessons; track lesson.id) {
+                      <button
+                        class="gf-lesson-tile border rounded p-2 d-flex justify-content-between align-items-center text-start"
+                        type="button"
+                        [class.gf-lesson-tile-active]="selectedLesson?.id === lesson.id"
+                        [disabled]="lessonStatus(lesson) === 'coming-soon'"
+                        (click)="onSelectLesson(lesson)"
+                      >
+                        <span class="small">{{ lesson.title }}</span>
+                        @switch (lessonStatus(lesson)) {
+                          @case ('completed') {
+                            <span class="badge bg-success">✓</span>
+                          }
+                          @case ('coming-soon') {
+                            <span class="badge bg-secondary" i18n>Coming soon</span>
+                          }
+                          @default {
+                            <span class="badge bg-light text-dark" i18n>Start</span>
+                          }
+                        }
+                      </button>
+                    }
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+
+          <div class="col-12 col-lg-8">
+            @if (selectedLesson; as lesson) {
+              <div class="card mb-4">
+                <div class="card-body">
+                  <h2 class="h5 mb-3">{{ lesson.title }}</h2>
+                  <markdown [data]="lesson.theory" />
+
+                  @if (lesson.glossaryRef) {
+                    <p class="small">
+                      <a [routerLink]="['/home', 'metrics']" [fragment]="'metric-' + lesson.glossaryRef" i18n>
+                        See the full formula in the Metrics glossary →
+                      </a>
+                    </p>
+                  }
+
+                  <hr />
+
+                  <h3 class="h6" i18n>Practice — a real example</h3>
+                  @if (isLoadingExample) {
+                    <ngx-skeleton-loader animation="pulse" [theme]="{ height: '10rem', width: '100%' }" />
+                  } @else if (exampleChart && exampleMeta) {
+                    <p class="small text-muted">
+                      {{ exampleMeta.name || exampleMeta.symbol }} — current score:
+                      {{ exampleMeta.score ?? '—' }}/100, RSI:
+                      {{ exampleMeta.snapshot.rsi | number: '1.0-1' }}
+                    </p>
+                    <gf-line-chart
+                      [historicalDataItems]="exampleChart"
+                      [locale]="'en-US'"
+                      [showYAxis]="true"
+                    />
+                  }
+
+                  <hr />
+
+                  <h3 class="h6" i18n>Quiz</h3>
+                  <gf-academy-quiz
+                    [questions]="lesson.quiz"
+                    [result]="quizResult"
+                    (submitAnswers)="onSubmitQuiz($event)"
+                  />
+
+                  @if (lesson.furtherReading && lesson.furtherReading.length > 0) {
+                    <hr />
+                    <h3 class="h6" i18n>Further reading</h3>
+                    <ul class="small mb-0">
+                      @for (source of lesson.furtherReading; track source.url) {
+                        <li>
+                          <a [href]="source.url" target="_blank" rel="noopener">{{ source.title }}</a>
+                        </li>
+                      }
+                    </ul>
+                  }
+                </div>
+              </div>
+            } @else {
+              <p class="text-muted" i18n>Select a lesson to get started.</p>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</div>

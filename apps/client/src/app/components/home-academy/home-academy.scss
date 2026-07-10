@@ -1,0 +1,57 @@
+:host {
+  display: block;
+
+  // A small accent-color rotation per level card so the 8 levels read as a
+  // distinct progression at a glance, rather than 8 visually-identical boxes.
+  .gf-level-card {
+    border-left: 3px solid transparent;
+
+    &:nth-of-type(8n + 1) {
+      border-left-color: rgba(var(--palette-primary-500), 0.8);
+    }
+    &:nth-of-type(8n + 2) {
+      border-left-color: #4dabf7;
+    }
+    &:nth-of-type(8n + 3) {
+      border-left-color: #38d9a9;
+    }
+    &:nth-of-type(8n + 4) {
+      border-left-color: #ffa94d;
+    }
+    &:nth-of-type(8n + 5) {
+      border-left-color: #da77f2;
+    }
+    &:nth-of-type(8n + 6) {
+      border-left-color: #ff8787;
+    }
+    &:nth-of-type(8n + 7) {
+      border-left-color: #74c0fc;
+    }
+    &:nth-of-type(8n + 8) {
+      border-left-color: #e599f7;
+    }
+  }
+
+  .gf-lesson-tile {
+    background: transparent;
+    transition:
+      background-color 0.15s ease-out,
+      border-color 0.15s ease-out;
+    width: 100%;
+
+    &:hover:not(:disabled) {
+      background-color: rgba(var(--palette-foreground-base-rgb), 0.04);
+      border-color: rgba(var(--palette-primary-500), 0.4);
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+  }
+
+  .gf-lesson-tile-active {
+    background-color: rgba(var(--palette-primary-500), 0.08);
+    border-color: rgba(var(--palette-primary-500), 0.8) !important;
+  }
+}

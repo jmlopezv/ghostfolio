@@ -1,0 +1,395 @@
+<div class="container">
+  <div class="row">
+    <div class="col">
+      <div class="align-items-center d-flex justify-content-between mb-3">
+        <h1 class="h3 m-0" i18n>Signal simulation</h1>
+        <button
+          class="btn btn-light"
+          type="button"
+          [disabled]="isLoading"
+          (click)="onRefresh()"
+        >
+          <ion-icon name="refresh-outline" />
+          <span class="ms-1" i18n>Refresh</span>
+        </button>
+      </div>
+
+      <p class="text-muted small mb-4" i18n>
+        Every BUY signal ever logged, paper-traded as if bought and tracked
+        until a matching SELL fires. The table and charts assume a
+        {{ assumedNotionalUsd }} USD position per trade; use the calculator
+        to test your own amount.
+      </p>
+
+      @if (isLoading) {
+        <ngx-skeleton-loader
+          animation="pulse"
+          [theme]="{ height: '5rem', width: '100%' }"
+        />
+        <ngx-skeleton-loader
+          animation="pulse"
+          [theme]="{ height: '20rem', width: '100%' }"
+        />
+      } @else {
+        <!-- Summary cards -->
+        <div class="row g-2 mb-4">
+          <div class="col-6 col-md-3">
+            <div class="card h-100">
+              <div class="card-body py-2">
+                <div class="small text-muted text-uppercase" i18n>Closed</div>
+                <div class="h4 m-0">{{ simulation?.summary?.closedTrades ?? 0 }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="card h-100">
+              <div class="card-body py-2">
+                <div class="small text-muted text-uppercase" i18n>Open</div>
+                <div class="h4 m-0">{{ simulation?.summary?.openTrades ?? 0 }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="card h-100">
+              <div class="card-body py-2">
+                <div class="small text-muted text-uppercase" i18n>Win rate</div>
+                <div class="h4 m-0">
+                  {{ (simulation?.summary?.winRate ?? 0) | percent: '1.0-0' }}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="card h-100">
+              <div class="card-body py-2">
+                <div class="small text-muted text-uppercase" i18n>
+                  Avg. effective annual rate
+                </div>
+                <div class="h4 m-0">
+                  {{ simulation?.summary?.avgEffectiveAnnualRatePct ?? 0 | number: '1.1-1' }}%
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts + calculator -->
+        <div class="row g-3 mb-4">
+          <div class="col-12 col-lg-8">
+            <div class="card mb-3">
+              <div class="card-body">
+                <div class="small text-muted text-uppercase mb-2" i18n>
+                  BUY (DIP) signals — effective annual rate over time
+                </div>
+                @if (dipSeries.length === 0) {
+                  <div class="text-center text-muted py-4 small" i18n>
+                    No closed DIP trades yet.
+                  </div>
+                } @else {
+                  <gf-line-chart
+                    unit="%"
+                    [colorScheme]="user?.settings?.colorScheme"
+                    [historicalDataItems]="dipSeries"
+                    [locale]="user?.settings?.locale || undefined"
+                    [showXAxis]="true"
+                    [showYAxis]="true"
+                  />
+                }
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-body">
+                <div class="small text-muted text-uppercase mb-2" i18n>
+                  ⚠️ REVERSAL (bear-market) signals — effective annual rate over time
+                </div>
+                @if (reversalSeries.length === 0) {
+                  <div class="text-center text-muted py-4 small" i18n>
+                    No closed REVERSAL trades yet.
+                  </div>
+                } @else {
+                  <gf-line-chart
+                    unit="%"
+                    [colorScheme]="user?.settings?.colorScheme"
+                    [historicalDataItems]="reversalSeries"
+                    [locale]="user?.settings?.locale || undefined"
+                    [showXAxis]="true"
+                    [showYAxis]="true"
+                  />
+                }
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-lg-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h2 class="h6" i18n>Calculator</h2>
+                <p class="small text-muted" i18n>
+                  Pick a signal, enter a USD amount, and see what you'd have
+                  after the $5 buy + $5 sell fee.
+                </p>
+
+                <div class="mb-2">
+                  <label class="form-label small" for="simulation-trade-select" i18n
+                    >Signal</label
+                  >
+                  <select
+                    class="form-select form-select-sm"
+                    id="simulation-trade-select"
+                    [(ngModel)]="selectedTradeIndex"
+                  >
+                    <option [ngValue]="null" i18n>Select a signal…</option>
+                    @for (
+                      trade of trades;
+                      track trade.symbol + trade.buyDate;
+                      let i = $index
+                    ) {
+                      <option [ngValue]="i">{{ tradeLabel(trade) }}</option>
+                    }
+                  </select>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label small" for="simulation-amount" i18n
+                    >Amount (USD)</label
+                  >
+                  <input
+                    class="form-control form-control-sm"
+                    id="simulation-amount"
+                    min="0"
+                    type="number"
+                    [(ngModel)]="investedUsd"
+                  />
+                </div>
+
+                @if (calculatorResult) {
+                  <div class="small">
+                    <div class="d-flex justify-content-between">
+                      <span class="text-muted" i18n>Gross proceeds</span>
+                      <span>{{ calculatorResult.grossProceedsUsd | number: '1.2-2' }} USD</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                      <span class="text-muted" i18n>Fees</span>
+                      <span>-{{ calculatorResult.feesUsd | number: '1.2-2' }} USD</span>
+                    </div>
+                    <div class="d-flex justify-content-between fw-bold">
+                      <span i18n>Net proceeds</span>
+                      <span>{{ calculatorResult.netProceedsUsd | number: '1.2-2' }} USD</span>
+                    </div>
+                    <div
+                      class="d-flex justify-content-between"
+                      [ngClass]="{
+                        'text-success': calculatorResult.netGainUsd >= 0,
+                        'text-danger': calculatorResult.netGainUsd < 0
+                      }"
+                    >
+                      <span i18n>Net gain/loss</span>
+                      <span>{{ calculatorResult.netGainUsd | number: '1.2-2' }} USD</span>
+                    </div>
+                    @if (selectedTrade?.status === 'OPEN') {
+                      <div class="mt-2 small text-muted" i18n>
+                        Unrealized — this trade hasn't sold yet, valued at
+                        today's price.
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <div class="small text-muted" i18n>
+                    Pick a signal and an amount to calculate.
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trade table -->
+        @if (trades.length === 0) {
+          <div class="text-center text-muted py-5" i18n>
+            No paper trades yet. They appear here the moment a BUY signal is
+            logged.
+          </div>
+        } @else {
+          <p class="small text-muted" i18n>
+            Target/Stop are the take-profit/stop-loss levels set at the moment
+            the BUY fired. For an OPEN trade, Current shows where price sits
+            between them today — that's why it hasn't sold yet.
+          </p>
+          <div class="overflow-x-auto mb-5">
+            <table
+              class="gf-table table table-sm table-hover align-middle w-100"
+              mat-table
+              matSort
+              matSortActive="buyDate"
+              matSortDirection="desc"
+              [dataSource]="dataSource"
+            >
+              <ng-container matColumnDef="symbol">
+                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Symbol</th>
+                <td *matCellDef="let trade" class="font-weight-bold text-nowrap" mat-cell>
+                  {{ trade.symbol }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="name">
+                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Name</th>
+                <td
+                  *matCellDef="let trade"
+                  class="small text-muted text-truncate"
+                  mat-cell
+                  style="max-width: 12rem"
+                >
+                  {{ trade.name }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="signalType">
+                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Type</th>
+                <td *matCellDef="let trade" class="text-nowrap" mat-cell>
+                  <span
+                    class="badge"
+                    [ngClass]="{
+                      'bg-success': trade.signalType === 'DIP',
+                      'bg-warning text-dark': trade.signalType === 'REVERSAL'
+                    }"
+                    >{{ trade.signalType }}</span
+                  >
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="status">
+                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Status</th>
+                <td *matCellDef="let trade" class="text-nowrap" mat-cell>
+                  <span
+                    class="badge"
+                    [ngClass]="{
+                      'bg-secondary': trade.status === 'OPEN',
+                      'bg-primary': trade.status === 'CLOSED'
+                    }"
+                    >{{ trade.status }}</span
+                  >
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="buyDate">
+                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Buy date</th>
+                <td *matCellDef="let trade" class="small text-nowrap text-muted" mat-cell>
+                  {{ trade.buyDate | date: 'MMM d, y' }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="buyPrice">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Buy price</th>
+                <td *matCellDef="let trade" class="text-end text-nowrap" mat-cell>
+                  {{ trade.buyPrice | number: '1.2-2' }}
+                  <span class="small text-muted">{{ trade.currency }}</span>
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="takeProfit">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Target</th>
+                <td *matCellDef="let trade" class="text-end text-nowrap text-success" mat-cell>
+                  @if (trade.takeProfit != null) {
+                    {{ trade.takeProfit | number: '1.2-2' }}
+                  } @else {
+                    —
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="stopLoss">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Stop</th>
+                <td *matCellDef="let trade" class="text-end text-nowrap text-danger" mat-cell>
+                  @if (trade.stopLoss != null) {
+                    {{ trade.stopLoss | number: '1.2-2' }}
+                  } @else {
+                    —
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="currentOrSellPrice">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Current/Sell</th>
+                <td *matCellDef="let trade" class="text-end text-nowrap" mat-cell>
+                  @if (trade.sellPrice != null) {
+                    {{ trade.sellPrice | number: '1.2-2' }}
+                    <span class="small text-muted">{{ trade.currency }}</span>
+                  } @else if (trade.currentPrice != null) {
+                    {{ trade.currentPrice | number: '1.2-2' }}
+                    <span class="small text-muted">{{ trade.currency }}</span>
+                  } @else {
+                    —
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="sellSignal">
+                <th *matHeaderCellDef class="text-center" mat-header-cell mat-sort-header i18n>Sell signal</th>
+                <td *matCellDef="let trade" class="text-center" mat-cell>
+                  @if (sellSignalReached(trade); as reached) {
+                    <span class="badge bg-danger" title="Current price has crossed the target or stop level" i18n
+                      >Yes</span
+                    >
+                  } @else if (trade.status === 'OPEN') {
+                    <span class="badge bg-light text-dark" i18n>No</span>
+                  } @else {
+                    <span class="text-muted">—</span>
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="sellDate">
+                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Sell date</th>
+                <td *matCellDef="let trade" class="small text-nowrap text-muted" mat-cell>
+                  @if (trade.sellDate) {
+                    {{ trade.sellDate | date: 'MMM d, y' }}
+                  } @else {
+                    —
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="holdingDays">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Days</th>
+                <td *matCellDef="let trade" class="text-end" mat-cell>{{ trade.holdingDays }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="netReturnPct">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Net return</th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end"
+                  mat-cell
+                  [ngClass]="{
+                    'text-success': trade.netReturnPct >= 0,
+                    'text-danger': trade.netReturnPct < 0
+                  }"
+                >
+                  {{ trade.netReturnPct >= 0 ? '+' : '' }}{{ trade.netReturnPct | number: '1.1-1' }}%
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="effectiveAnnualRatePct">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Eff. annual rate</th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end"
+                  mat-cell
+                  [ngClass]="{
+                    'text-success': trade.effectiveAnnualRatePct >= 0,
+                    'text-danger': trade.effectiveAnnualRatePct < 0
+                  }"
+                >
+                  {{ trade.effectiveAnnualRatePct >= 0 ? '+' : '' }}{{ trade.effectiveAnnualRatePct | number: '1.1-1' }}%
+                </td>
+              </ng-container>
+
+              <tr *matHeaderRowDef="displayedColumns" class="small text-muted" mat-header-row></tr>
+              <tr *matRowDef="let row; columns: displayedColumns" mat-row></tr>
+            </table>
+          </div>
+        }
+      }
+    </div>
+  </div>
+</div>

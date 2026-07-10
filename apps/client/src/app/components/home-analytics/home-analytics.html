@@ -1,0 +1,256 @@
+<div class="container-fluid">
+  <div class="row">
+    <div class="col">
+      <div class="align-items-center d-flex justify-content-between mb-3">
+        <h1 class="h3 m-0" i18n>Signal analytics</h1>
+        <button
+          class="btn btn-light"
+          type="button"
+          [disabled]="isLoading"
+          (click)="onRefresh()"
+        >
+          <ion-icon name="refresh-outline" />
+          <span class="ms-1" i18n>Refresh</span>
+        </button>
+      </div>
+
+      <p class="text-muted small mb-4" i18n>
+        Every triggered signal over the last {{ days }} days, with the exact
+        numbers behind it. Metric headers link to definitions in the
+        <a [routerLink]="['/home', 'metrics']">Metrics</a> tab.
+      </p>
+
+      @if (isLoading) {
+        <ngx-skeleton-loader
+          animation="pulse"
+          [theme]="{ height: '5rem', width: '100%' }"
+        />
+        <ngx-skeleton-loader
+          animation="pulse"
+          [theme]="{ height: '20rem', width: '100%' }"
+        />
+      } @else {
+        <!-- Summary cards -->
+        <div class="row g-2 mb-4">
+          @for (card of summaryCards; track card.category) {
+            <div class="col-6 col-md-3">
+              <div
+                class="card h-100 cursor-pointer"
+                [class.border-primary]="selectedCategory === card.category"
+                (click)="onSelectCategory(card.category)"
+              >
+                <div class="card-body py-2">
+                  <div class="small text-muted text-uppercase">
+                    {{ card.category }}
+                  </div>
+                  <div class="h4 m-0">{{ card.last30d }}</div>
+                  <div class="small text-muted">
+                    <span i18n>last 30d</span> ·
+                    <span>{{ card.last7d }}</span> <span i18n>in 7d</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+
+        @if (selectedCategory) {
+          <div class="mb-2 small">
+            <span i18n>Filtered by</span>
+            <span class="badge bg-primary ms-1">{{ selectedCategory }}</span>
+            <button
+              class="btn btn-sm btn-link p-0 ms-2"
+              type="button"
+              (click)="onSelectCategory(null)"
+              i18n
+            >
+              clear
+            </button>
+          </div>
+        }
+
+        <!-- Signal log table -->
+        @if (filteredEntries.length === 0) {
+          <div class="text-center text-muted py-5" i18n>
+            No signals logged yet. They appear here the moment the engine
+            triggers a BUY, SELL, REINVEST or REVERSAL.
+          </div>
+        } @else {
+          <div class="overflow-x-auto mb-5">
+            <table
+              class="gf-table table table-sm table-hover align-middle w-100"
+              mat-table
+              matSort
+              matSortActive="date"
+              matSortDirection="desc"
+              [dataSource]="dataSource"
+            >
+              <ng-container matColumnDef="date">
+                <th *matHeaderCellDef [attr.rowspan]="2" mat-header-cell mat-sort-header i18n>Date</th>
+                <td *matCellDef="let entry" class="small text-nowrap text-muted" mat-cell>
+                  {{ entry.createdAt | date: 'MMM d' }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="symbol">
+                <th *matHeaderCellDef [attr.rowspan]="2" mat-header-cell mat-sort-header i18n>Symbol</th>
+                <td *matCellDef="let entry" class="text-nowrap" mat-cell>
+                  <span class="font-weight-bold">{{ entry.symbol }}</span>
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="name">
+                <th *matHeaderCellDef [attr.rowspan]="2" mat-header-cell mat-sort-header i18n>Name</th>
+                <td
+                  *matCellDef="let entry"
+                  class="small text-muted text-truncate"
+                  mat-cell
+                  style="max-width: 12rem"
+                >
+                  {{ entry.name }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="signal">
+                <th *matHeaderCellDef [attr.rowspan]="2" mat-header-cell mat-sort-header i18n>Signal</th>
+                <td *matCellDef="let entry" class="text-nowrap" mat-cell>
+                  <span
+                    class="badge"
+                    [ngClass]="{
+                      'bg-success': entry.category === 'BUY',
+                      'bg-danger': entry.category === 'SELL',
+                      'bg-primary': entry.category === 'REINVEST'
+                    }"
+                    >{{ entry.category }}</span
+                  >
+                  @if (entry.signalType === 'REVERSAL') {
+                    <span class="badge bg-warning text-dark ms-1" i18n>⚠️ REVERSAL</span>
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="atSignalGroup">
+                <th *matHeaderCellDef [attr.colspan]="5" class="border-start text-center" mat-header-cell i18n>
+                  At signal
+                </th>
+              </ng-container>
+
+              <ng-container matColumnDef="nowGroup">
+                <th *matHeaderCellDef [attr.colspan]="6" class="border-start text-center" mat-header-cell i18n>
+                  Now
+                </th>
+              </ng-container>
+
+              <ng-container matColumnDef="reason">
+                <th
+                  *matHeaderCellDef
+                  [attr.rowspan]="2"
+                  class="gf-reason-header"
+                  mat-header-cell
+                  mat-sort-header
+                  i18n
+                >
+                  Why
+                </th>
+                <td *matCellDef="let entry" class="gf-reason-cell small text-muted" mat-cell>
+                  {{ entry.reason }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="score">
+                <th *matHeaderCellDef class="border-start text-end" mat-header-cell mat-sort-header>
+                  <a [routerLink]="['/home', 'metrics']" fragment="metric-composite-score" i18n>Score</a>
+                </th>
+                <td *matCellDef="let entry" class="border-start text-end" mat-cell>
+                  {{ entry.score != null ? (entry.score | number: '1.0-0') : '—' }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="rsi">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header>
+                  <a [routerLink]="['/home', 'metrics']" fragment="metric-rsi">RSI</a>
+                </th>
+                <td *matCellDef="let entry" class="text-end" mat-cell>
+                  {{ entry.rsi != null ? (entry.rsi | number: '1.0-0') : '—' }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="reach">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header>
+                  <a [routerLink]="['/home', 'metrics']" fragment="metric-reach-probability" i18n>Reach</a>
+                </th>
+                <td *matCellDef="let entry" class="text-end" mat-cell>{{ percent(entry.reachProbability) }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="conv">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header>
+                  <a [routerLink]="['/home', 'metrics']" fragment="metric-conviction" i18n>Conv.</a>
+                </th>
+                <td *matCellDef="let entry" class="text-end" mat-cell>
+                  {{ entry.conviction != null ? (entry.conviction | number: '1.0-0') : '—' }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="price">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Price</th>
+                <td *matCellDef="let entry" class="text-end text-nowrap" mat-cell>
+                  {{ entry.livePrice | number: '1.2-2' }}
+                  <span class="small text-muted">{{ entry.currency }}</span>
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="currentScore">
+                <th *matHeaderCellDef class="border-start text-end" mat-header-cell mat-sort-header i18n>Score</th>
+                <td *matCellDef="let entry" class="border-start text-end" mat-cell>
+                  {{ entry.currentScore != null ? (entry.currentScore | number: '1.0-0') : '—' }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="currentRsi">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header>RSI</th>
+                <td *matCellDef="let entry" class="text-end" mat-cell>
+                  {{ entry.currentRsi != null ? (entry.currentRsi | number: '1.0-0') : '—' }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="currentReach">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Reach</th>
+                <td *matCellDef="let entry" class="text-end" mat-cell>{{ percent(entry.currentReachProbability) }}</td>
+              </ng-container>
+
+              <ng-container matColumnDef="currentConv">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Conv.</th>
+                <td *matCellDef="let entry" class="text-end" mat-cell>
+                  {{ entry.currentConviction != null ? (entry.currentConviction | number: '1.0-0') : '—' }}
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="currentPrice">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Price</th>
+                <td *matCellDef="let entry" class="text-end text-nowrap" mat-cell>
+                  @if (entry.currentPrice != null) {
+                    {{ entry.currentPrice | number: '1.2-2' }}
+                    <span class="small text-muted">{{ entry.currency }}</span>
+                  } @else {
+                    —
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="days">
+                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Days</th>
+                <td *matCellDef="let entry" class="text-end text-nowrap" mat-cell>
+                  {{ entry.daysSinceSignal }}<span class="small text-muted" i18n>d</span>
+                </td>
+              </ng-container>
+
+              <tr *matHeaderRowDef="headerRow1" class="small text-muted" mat-header-row></tr>
+              <tr *matHeaderRowDef="headerRow2" class="small text-muted" mat-header-row></tr>
+              <tr *matRowDef="let row; columns: displayedColumns" mat-row></tr>
+            </table>
+          </div>
+        }
+      }
+    </div>
+  </div>
+</div>

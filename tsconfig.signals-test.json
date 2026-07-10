@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist-test-signals",
+    "rootDir": ".",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "es2021",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "skipLibCheck": true,
+    "noEmit": false,
+    "noEmitOnError": false,
+    "types": ["node"]
+  },
+  "include": [
+    "apps/api/src/services/signals/buy-calibration.spec.ts",
+    "apps/api/src/services/signals/fund-history.service.spec.ts",
+    "apps/api/src/services/signals/market-regime.service.spec.ts",
+    "apps/api/src/services/signals/indicators.service.spec.ts",
+    "apps/api/src/services/signals/forecast.service.spec.ts",
+    "apps/api/src/services/signals/strategies.service.spec.ts",
+    "apps/api/src/services/signals/fundamentals.service.spec.ts",
+    "apps/api/src/app/endpoints/academy/academy.service.spec.ts"
+  ]
+}

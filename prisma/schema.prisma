@@ -182,6 +182,96 @@ model Settings {
   userId    String   @id
 }
 
+// Per-symbol trading-signal configuration (thresholds, core vs active-trade).
+model SignalConfig {
+  buyDropPct    Float      @default(0.1)
+  cashThreshold Float?
+  createdAt     DateTime   @default(now())
+  dataSource    DataSource
+  id            String     @id @default(uuid())
+  isActiveTrade Boolean    @default(false)
+  symbol        String
+  takeProfitPct Float      @default(0.3)
+  updatedAt     DateTime   @updatedAt
+  user          User       @relation(fields: [userId], onDelete: Cascade, references: [id])
+  userId        String
+
+  @@unique([userId, dataSource, symbol])
+  @@index([userId])
+}
+
+// Last fired signal per key ("DATASOURCE:SYMBOL" or "REINVEST") for notification de-duplication.
+model SignalState {
+  createdAt      DateTime  @default(now())
+  id             String    @id @default(uuid())
+  key            String
+  lastNotifiedAt DateTime?
+  lastPrice      Float?
+  lastSignal     String
+  // Highest price seen since the take-profit target was reached. null = position
+  // is not yet trailing (WATCHING phase); non-null = TRAILING phase (exit on pullback).
+  trailingPeak   Float?
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], onDelete: Cascade, references: [id])
+  userId         String
+
+  @@unique([userId, key])
+  @@index([userId])
+}
+
+// Append-only audit trail: one row per actionable signal at the moment it is
+// triggered/notified (BUY, SELL, REINVEST, REVERSAL, trailing transition). Never
+// routine HOLD. Backs the Analytics dashboard and the watchlist recent-BUY flag.
+model SignalLog {
+  adaptiveLevel    Float?
+  bearMarket       Boolean    @default(false)
+  bollingerPctB    Float?
+  category         String // BUY | SELL | REINVEST | HOLD
+  conviction       Float?
+  createdAt        DateTime   @default(now())
+  currency         String?
+  dataSource       DataSource
+  expectedValue    Float?
+  forecastLower    Float?
+  forecastUpper    Float?
+  id               String     @id @default(uuid())
+  livePrice        Float?
+  macdHistogram    Float?
+  metrics          Json? // forward-compat catch-all
+  name             String?
+  newsScore        Float?
+  reachProbability Float?
+  reason           String?
+  rsi              Float?
+  score            Float?
+  signalType       String? // DIP | REVERSAL
+  stopLoss         Float?
+  suggestedAmount  Float?
+  symbol           String
+  takeProfit       Float?
+  trailingStop     Float?
+  user             User       @relation(fields: [userId], onDelete: Cascade, references: [id])
+  userId           String
+
+  @@index([userId, createdAt])
+  @@index([userId, category, symbol, createdAt])
+}
+
+model AcademyProgress {
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  id          String    @id @default(uuid())
+  lessonId    String
+  quizAnswers Json?
+  score       Float?
+  status      String // in-progress | completed
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], onDelete: Cascade, references: [id])
+  userId      String
+
+  @@unique([userId, lessonId])
+}
+
 model SymbolProfile {
   activities             Order[]
   assetClass             AssetClass?
@@ -260,26 +350,30 @@ model Tag {
 }
 
 model User {
-  accessesGet   Access[]        @relation("accessGet")
-  accessesGive  Access[]        @relation("accessGive")
-  accessToken   String?
-  accounts      Account[]
-  activities    Order[]
-  analytics     Analytics?
-  apiKeys       ApiKey[]
-  authChallenge String?
-  authDevices   AuthDevice[]
-  createdAt     DateTime        @default(now())
-  id            String          @id @default(uuid())
-  provider      Provider        @default(ANONYMOUS)
-  role          Role            @default(USER)
-  settings      Settings?
-  subscriptions Subscription[]
-  tags          Tag[]
-  thirdPartyId  String?
-  updatedAt     DateTime        @updatedAt
-  watchlist     SymbolProfile[] @relation("UserWatchlist")
-  SymbolProfile SymbolProfile[]
+  accessesGet     Access[]          @relation("accessGet")
+  accessesGive    Access[]          @relation("accessGive")
+  academyProgress AcademyProgress[]
+  accessToken     String?
+  accounts        Account[]
+  activities      Order[]
+  analytics       Analytics?
+  apiKeys         ApiKey[]
+  authChallenge   String?
+  authDevices     AuthDevice[]
+  createdAt       DateTime          @default(now())
+  id              String            @id @default(uuid())
+  provider        Provider          @default(ANONYMOUS)
+  role            Role              @default(USER)
+  settings        Settings?
+  signalConfigs   SignalConfig[]
+  signalLogs      SignalLog[]
+  signalStates    SignalState[]
+  subscriptions   Subscription[]
+  tags            Tag[]
+  thirdPartyId    String?
+  updatedAt       DateTime          @updatedAt
+  watchlist       SymbolProfile[]   @relation("UserWatchlist")
+  SymbolProfile   SymbolProfile[]
 
   @@index([accessToken])
   @@index([createdAt])

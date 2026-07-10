@@ -46,3 +46,8 @@ testem.log
 # System Files
 .DS_Store
 Thumbs.db
+
+# Local logs and generated test/build output (never commit — may contain runtime data)
+*.log
+/dist-test-signals
+/_npm_install*.log

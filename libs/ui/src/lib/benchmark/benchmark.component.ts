@@ -11,6 +11,7 @@ import {
 } from '@ghostfolio/common/interfaces';
 import { NotificationService } from '@ghostfolio/ui/notifications';
 
+import { DecimalPipe, PercentPipe } from '@angular/common';
 import {
   CUSTOM_ELEMENTS_SCHEMA,
   ChangeDetectionStrategy,
@@ -21,6 +22,7 @@ import {
   inject,
   input,
   output,
+  signal,
   viewChild
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -46,6 +48,7 @@ import { BenchmarkDetailDialogParams } from './benchmark-detail-dialog/interface
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    DecimalPipe,
     GfEntityLogoComponent,
     GfTrendIndicatorComponent,
     GfValueComponent,
@@ -55,6 +58,7 @@ import { BenchmarkDetailDialogParams } from './benchmark-detail-dialog/interface
     MatSortModule,
     MatTableModule,
     NgxSkeletonLoaderModule,
+    PercentPipe,
     RouterModule
   ],
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
@@ -68,7 +72,11 @@ export class GfBenchmarkComponent {
   public readonly hasPermissionToDeleteItem = input<boolean>();
   public readonly locale = input(getLocale());
   public readonly showIcon = input(false);
+  /** Watchlist-only: show the latest-price + recent-BUY-signal columns. */
+  public readonly showSignalColumns = input(false);
   public readonly showSymbol = input(true);
+  public readonly sortActive = input('name');
+  public readonly sortDirection = input<'asc' | 'desc'>('asc');
   public readonly user = input<User>();
 
   public readonly itemDeleted = output<AssetProfileIdentifier>();
@@ -76,15 +84,41 @@ export class GfBenchmarkComponent {
   protected readonly sort = viewChild(MatSort);
 
   protected readonly dataSource = new MatTableDataSource<Benchmark>([]);
+  // Period the "Return" column shows; toggled by the buttons under the table.
+  protected readonly returnPeriods = [
+    { key: 'return1wPct', label: '1W' },
+    { key: 'return1mPct', label: '1M' },
+    { key: 'return3mPct', label: '3M' },
+    { key: 'return6mPct', label: '6M' },
+    { key: 'return1yPct', label: '1Y' }
+  ] as const;
+  protected readonly selectedReturnPeriod =
+    signal<(typeof this.returnPeriods)[number]['key']>('return1yPct');
+
   protected readonly displayedColumns = computed(() => {
     return [
       ...(this.showIcon() ? ['icon'] : []),
       'name',
+      ...(this.showSignalColumns()
+        ? ['marketPrice', 'currency', 'feePct']
+        : []),
       ...(this.user()?.settings?.isExperimentalFeatures
         ? ['trend50d', 'trend200d']
         : []),
       'date',
       'change',
+      ...(this.showSignalColumns()
+        ? [
+            'periodReturn',
+            'score',
+            'rsi',
+            'macdHistogram',
+            'bollingerPctB',
+            'reachProbability',
+            'conviction',
+            'recentBuySignal'
+          ]
+        : []),
       'marketCondition',
       'actions'
     ];
@@ -106,7 +140,18 @@ export class GfBenchmarkComponent {
 
       if (benchmarks) {
         this.dataSource.data = benchmarks;
-        this.dataSource.sortingDataAccessor = getLowercase;
+        this.dataSource.sortingDataAccessor = (item, property) => {
+          if (property === 'hasRecentBuySignal') {
+            return (item as Benchmark).hasRecentBuySignal ? 1 : 0;
+          }
+          if (property === 'periodReturn') {
+            return this.periodReturn(item as Benchmark) ?? -Infinity;
+          }
+          if (property === 'feePct') {
+            return (item as Benchmark).feePct ?? Infinity;
+          }
+          return getLowercase(item, property);
+        };
 
         this.dataSource.sort = this.sort() ?? null;
 
@@ -130,6 +175,17 @@ export class GfBenchmarkComponent {
       });
 
     addIcons({ ellipsisHorizontal, trashOutline });
+  }
+
+  /** The trailing return for the currently-selected period, or undefined. */
+  protected periodReturn(item: Benchmark): number | undefined {
+    return item[this.selectedReturnPeriod()];
+  }
+
+  protected onSelectReturnPeriod(
+    key: (typeof this.returnPeriods)[number]['key']
+  ) {
+    this.selectedReturnPeriod.set(key);
   }
 
   protected onDeleteItem({ dataSource, symbol }: AssetProfileIdentifier) {

@@ -3,8 +3,8 @@
     class="gf-table w-100"
     mat-table
     matSort
-    matSortActive="name"
-    matSortDirection="asc"
+    [matSortActive]="sortActive()"
+    [matSortDirection]="sortDirection()"
     [dataSource]="dataSource"
   >
     <ng-container matColumnDef="icon" sticky>
@@ -31,6 +31,210 @@
             <small class="text-muted">{{ element?.symbol }}</small>
           </div>
         }
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="marketPrice">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="marketPrice"
+      >
+        <ng-container i18n>Price</ng-container>
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right" mat-cell>
+        @if (isNumber(element?.marketPrice)) {
+          <gf-value
+            class="d-inline-block justify-content-end"
+            [locale]="locale()"
+            [value]="element?.marketPrice"
+          />
+        }
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="currency">
+      <th *matHeaderCellDef class="px-1" mat-header-cell></th>
+      <td *matCellDef="let element" class="px-1 small text-muted" mat-cell>
+        {{ element?.currency }}
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="feePct">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="feePct"
+        i18n
+      >
+        Fee
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right small" mat-cell>
+        {{
+          isNumber(element?.feePct)
+            ? (element?.feePct | number: '1.2-2') + '%'
+            : '—'
+        }}
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="periodReturn">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="periodReturn"
+        i18n
+      >
+        Return
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right small" mat-cell>
+        @if (isNumber(periodReturn(element))) {
+          <span
+            [class.text-danger]="periodReturn(element) < 0"
+            [class.text-success]="periodReturn(element) > 0"
+          >
+            {{ periodReturn(element) | number: '1.2-2' }}%
+          </span>
+        } @else {
+          —
+        }
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="score">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="score"
+      >
+        <a
+          [fragment]="'metric-composite-score'"
+          [routerLink]="['/home', 'metrics']"
+          (click)="$event.stopPropagation()"
+          i18n
+          >Score</a
+        >
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right" mat-cell>
+        {{ isNumber(element?.score) ? (element?.score | number: '1.0-0') : '—' }}
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="rsi">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="rsi"
+      >
+        <a
+          [fragment]="'metric-rsi'"
+          [routerLink]="['/home', 'metrics']"
+          (click)="$event.stopPropagation()"
+          >RSI</a
+        >
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right" mat-cell>
+        {{ isNumber(element?.rsi) ? (element?.rsi | number: '1.0-0') : '—' }}
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="macdHistogram">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="macdHistogram"
+      >
+        <a
+          [fragment]="'metric-macd'"
+          [routerLink]="['/home', 'metrics']"
+          (click)="$event.stopPropagation()"
+          i18n
+          >MACD</a
+        >
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right" mat-cell>
+        {{
+          isNumber(element?.macdHistogram)
+            ? (element?.macdHistogram | number: '1.2-2')
+            : '—'
+        }}
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="bollingerPctB">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="bollingerPctB"
+      >
+        <a
+          [fragment]="'metric-bollinger-pctb'"
+          [routerLink]="['/home', 'metrics']"
+          (click)="$event.stopPropagation()"
+          >%B</a
+        >
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right" mat-cell>
+        {{
+          isNumber(element?.bollingerPctB)
+            ? (element?.bollingerPctB | number: '1.2-2')
+            : '—'
+        }}
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="reachProbability">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="reachProbability"
+      >
+        <a
+          [fragment]="'metric-reach-probability'"
+          [routerLink]="['/home', 'metrics']"
+          (click)="$event.stopPropagation()"
+          i18n
+          >Reach</a
+        >
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right" mat-cell>
+        {{
+          isNumber(element?.reachProbability)
+            ? (element?.reachProbability | percent: '1.0-0')
+            : '—'
+        }}
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="conviction">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="conviction"
+      >
+        <a
+          [fragment]="'metric-conviction'"
+          [routerLink]="['/home', 'metrics']"
+          (click)="$event.stopPropagation()"
+          i18n
+          >Conv.</a
+        >
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right" mat-cell>
+        {{
+          isNumber(element?.conviction)
+            ? (element?.conviction | number: '1.0-0')
+            : '—'
+        }}
       </td>
     </ng-container>
 
@@ -147,6 +351,33 @@
       </td>
     </ng-container>
 
+    <ng-container matColumnDef="recentBuySignal">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-center"
+        mat-header-cell
+        mat-sort-header="hasRecentBuySignal"
+        arrowPosition="before"
+      >
+        <ng-container i18n>Buy signal</ng-container>
+      </th>
+      <td
+        *matCellDef="let element"
+        class="px-1 text-center"
+        mat-cell
+      >
+        @if (element?.hasRecentBuySignal) {
+          <span
+            title="BUY signal in the last 30 days"
+            i18n-title
+            >🟢</span
+          >
+        } @else {
+          <span class="text-muted">—</span>
+        }
+      </td>
+    </ng-container>
+
     <ng-container matColumnDef="marketCondition">
       <th *matHeaderCellDef mat-header-cell></th>
       <td *matCellDef="let element" class="px-0" mat-cell>
@@ -205,6 +436,27 @@
     ></tr>
   </table>
 </div>
+
+@if (showSignalColumns() && !isLoading && benchmarks()?.length > 0) {
+  <div
+    class="align-items-center d-flex justify-content-end gap-2 mt-2 px-2 small text-muted"
+  >
+    <span i18n>Return column:</span>
+    <div class="btn-group btn-group-sm" role="group">
+      @for (period of returnPeriods; track period.key) {
+        <button
+          class="btn"
+          type="button"
+          [class.btn-outline-secondary]="selectedReturnPeriod() !== period.key"
+          [class.btn-primary]="selectedReturnPeriod() === period.key"
+          (click)="onSelectReturnPeriod(period.key)"
+        >
+          {{ period.label }}
+        </button>
+      }
+    </div>
+  </div>
+}
 
 @if (isLoading) {
   <ngx-skeleton-loader

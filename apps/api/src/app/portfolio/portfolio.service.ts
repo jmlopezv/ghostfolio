@@ -654,11 +654,17 @@ export class PortfolioService {
           dataSource: assetProfile.dataSource,
           holdings: assetProfile.holdings.map(
             ({ allocationInPercentage, name }) => {
+              // Guard against malformed holdings data; a single invalid
+              // allocation must not crash the whole portfolio response
+              const allocation = Number.isFinite(allocationInPercentage)
+                ? allocationInPercentage
+                : 0;
+
               return {
-                allocationInPercentage,
                 name,
+                allocationInPercentage: allocation,
                 valueInBaseCurrency: valueInBaseCurrency
-                  .mul(allocationInPercentage)
+                  .mul(allocation)
                   .toNumber()
               };
             }

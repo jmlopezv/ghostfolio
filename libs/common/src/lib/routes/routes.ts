@@ -84,6 +84,16 @@ export const internalRoutes = {
     path: 'home',
     routerLink: ['/home'],
     subRoutes: {
+      academy: {
+        path: 'academy',
+        routerLink: ['/home', 'academy'],
+        title: $localize`Academy`
+      },
+      analytics: {
+        path: 'analytics',
+        routerLink: ['/home', 'analytics'],
+        title: $localize`Analytics`
+      },
       holdings: {
         path: 'holdings',
         routerLink: ['/home', 'holdings'],
@@ -94,10 +104,20 @@ export const internalRoutes = {
         routerLink: ['/home', 'markets'],
         title: $localize`Markets`
       },
+      metrics: {
+        path: 'metrics',
+        routerLink: ['/home', 'metrics'],
+        title: $localize`Metrics`
+      },
       marketsPremium: {
         path: 'markets-premium',
         routerLink: ['/home', 'markets-premium'],
         title: $localize`Markets`
+      },
+      simulation: {
+        path: 'simulation',
+        routerLink: ['/home', 'simulation'],
+        title: $localize`Simulation`
       },
       summary: {
         path: 'summary',
@@ -141,6 +161,11 @@ export const internalRoutes = {
         path: 'fire',
         routerLink: ['/portfolio', 'fire'],
         title: 'FIRE'
+      },
+      signals: {
+        path: 'signals',
+        routerLink: ['/portfolio', 'signals'],
+        title: $localize`Signals`
       },
       xRay: {
         path: 'x-ray',

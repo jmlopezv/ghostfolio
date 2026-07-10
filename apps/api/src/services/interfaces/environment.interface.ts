@@ -34,6 +34,8 @@ export interface Environment extends CleanedEnvAccessors {
   JWT_SECRET_KEY: string;
   MAX_ACTIVITIES_TO_IMPORT: number;
   MAX_CHART_ITEMS: number;
+  NEWS_SENTIMENT_API_KEY: string;
+  NEWS_SENTIMENT_PROVIDER: string;
   OIDC_AUTHORIZATION_URL: string;
   OIDC_CALLBACK_URL: string;
   OIDC_CLIENT_ID: string;
@@ -42,6 +44,8 @@ export interface Environment extends CleanedEnvAccessors {
   OIDC_SCOPE: string[];
   OIDC_TOKEN_URL: string;
   OIDC_USER_INFO_URL: string;
+  OLLAMA_API_URL: string;
+  OLLAMA_MODEL: string;
   PORT: number;
   PROCESSOR_GATHER_ASSET_PROFILE_CONCURRENCY: number;
   PROCESSOR_GATHER_HISTORICAL_MARKET_DATA_CONCURRENCY: number;
@@ -54,6 +58,9 @@ export interface Environment extends CleanedEnvAccessors {
   REQUEST_TIMEOUT: number;
   ROOT_URL: string;
   STRIPE_SECRET_KEY: string;
+  TELEGRAM_BOT_TOKEN: string;
+  TELEGRAM_CHAT_ID: string;
+  TELEGRAM_POLLING_ENABLED: boolean;
   TWITTER_ACCESS_TOKEN: string;
   TWITTER_ACCESS_TOKEN_SECRET: string;
   TWITTER_API_KEY: string;

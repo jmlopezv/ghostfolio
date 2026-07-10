@@ -8,13 +8,54 @@
     </span>
   </h1>
   <div class="row">
-    <div class="col-xs-12 col-md-10 offset-md-1">
+    <div class="col-12">
+      <div class="btn-group mb-3" role="group">
+        <button
+          class="btn"
+          type="button"
+          [class.btn-primary]="assetTypeFilter === 'ALL'"
+          [class.btn-outline-secondary]="assetTypeFilter !== 'ALL'"
+          (click)="onSelectAssetTypeFilter('ALL')"
+        >
+          <span i18n>All</span> ({{ watchlist?.length ?? 0 }})
+        </button>
+        <button
+          class="btn"
+          type="button"
+          [class.btn-primary]="assetTypeFilter === 'STOCK'"
+          [class.btn-outline-secondary]="assetTypeFilter !== 'STOCK'"
+          (click)="onSelectAssetTypeFilter('STOCK')"
+        >
+          <span i18n>Stocks</span> ({{ stockCount }})
+        </button>
+        <button
+          class="btn"
+          type="button"
+          [class.btn-primary]="assetTypeFilter === 'ETF'"
+          [class.btn-outline-secondary]="assetTypeFilter !== 'ETF'"
+          (click)="onSelectAssetTypeFilter('ETF')"
+        >
+          <span i18n>ETFs</span> ({{ etfCount }})
+        </button>
+        <button
+          class="btn"
+          type="button"
+          [class.btn-primary]="assetTypeFilter === 'FUND'"
+          [class.btn-outline-secondary]="assetTypeFilter !== 'FUND'"
+          (click)="onSelectAssetTypeFilter('FUND')"
+        >
+          <span i18n>Funds</span> ({{ fundCount }})
+        </button>
+      </div>
       <gf-benchmark
-        [benchmarks]="watchlist"
+        [benchmarks]="filteredWatchlist"
         [deviceType]="deviceType()"
         [hasPermissionToDeleteItem]="hasPermissionToDeleteWatchlistItem"
         [locale]="user?.settings?.locale || undefined"
         [showIcon]="true"
+        [showSignalColumns]="true"
+        [sortActive]="'hasRecentBuySignal'"
+        [sortDirection]="'desc'"
         [user]="user"
         (itemDeleted)="onWatchlistItemDeleted($event)"
       />

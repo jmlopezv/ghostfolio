@@ -19,6 +19,10 @@ import {
 import { DATE_FORMAT } from '@ghostfolio/common/helper';
 import {
   Access,
+  AcademyExampleResponse,
+  AcademyMarketPulseResponse,
+  AcademyProgressResponse,
+  AcademyQuizSubmissionResult,
   AccessTokenResponse,
   AccountBalancesResponse,
   AccountResponse,
@@ -51,9 +55,13 @@ import {
   PortfolioPerformanceResponse,
   PortfolioReportResponse,
   PublicPortfolioResponse,
+  SignalLogResponse,
+  SimulationResponse,
   SymbolItem,
+  TradingSignalsResponse,
   User,
   UserItem,
+  WatchlistMetric,
   WatchlistResponse
 } from '@ghostfolio/common/interfaces';
 import { filterGlobalPermissions } from '@ghostfolio/common/permissions';
@@ -674,6 +682,50 @@ export class DataService {
     return this.http.get<PortfolioReportResponse>('/api/v1/portfolio/report');
   }
 
+  public fetchTradingSignals() {
+    return this.http.get<TradingSignalsResponse>('/api/v1/signals');
+  }
+
+  public fetchSignalLog({
+    category,
+    days
+  }: { category?: string; days?: number } = {}) {
+    let params = new HttpParams();
+
+    if (category) {
+      params = params.append('category', category);
+    }
+
+    if (days) {
+      params = params.append('days', days.toString());
+    }
+
+    return this.http.get<SignalLogResponse>('/api/v1/signals/log', { params });
+  }
+
+  public fetchAcademyProgress() {
+    return this.http.get<AcademyProgressResponse>('/api/v1/academy/progress');
+  }
+
+  public submitAcademyQuiz(lessonId: string, answers: Record<string, string>) {
+    return this.http.post<AcademyQuizSubmissionResult>(
+      `/api/v1/academy/progress/${lessonId}`,
+      answers
+    );
+  }
+
+  public fetchAcademyExample(dataSource: DataSource, symbol: string) {
+    return this.http.get<AcademyExampleResponse>(
+      `/api/v1/academy/example/${dataSource}/${symbol}`
+    );
+  }
+
+  public fetchAcademyMarketPulse() {
+    return this.http.get<AcademyMarketPulseResponse>(
+      '/api/v1/academy/market-pulse'
+    );
+  }
+
   public fetchPrompt({
     filters,
     mode
@@ -760,8 +812,18 @@ export class DataService {
     return this.http.get<Tag[]>('/api/v1/tags');
   }
 
+  public fetchSimulation() {
+    return this.http.get<SimulationResponse>('/api/v1/signals/simulation');
+  }
+
   public fetchWatchlist() {
     return this.http.get<WatchlistResponse>('/api/v1/watchlist');
+  }
+
+  public fetchWatchlistMetrics() {
+    return this.http.get<Record<string, WatchlistMetric>>(
+      '/api/v1/signals/watchlist-metrics'
+    );
   }
 
   public loginAnonymous(accessToken: string) {

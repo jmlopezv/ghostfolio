@@ -26,6 +26,7 @@ import { WatchlistService } from './watchlist.service';
     TransformDataSourceInRequestModule,
     TransformDataSourceInResponseModule
   ],
+  exports: [WatchlistService],
   providers: [WatchlistService]
 })
 export class WatchlistModule {}

@@ -21,6 +21,7 @@ import { UpdateOrderDto } from './update-order.dto';
 import { UpdateOwnAccessTokenDto } from './update-own-access-token.dto';
 import { UpdatePlatformDto } from './update-platform.dto';
 import { UpdatePropertyDto } from './update-property.dto';
+import { UpdateSignalConfigDto } from './update-signal-config.dto';
 import { UpdateTagDto } from './update-tag.dto';
 import { UpdateUserSettingDto } from './update-user-setting.dto';
 
@@ -48,6 +49,7 @@ export {
   UpdateOwnAccessTokenDto,
   UpdatePlatformDto,
   UpdatePropertyDto,
+  UpdateSignalConfigDto,
   UpdateTagDto,
   UpdateUserSettingDto
 };

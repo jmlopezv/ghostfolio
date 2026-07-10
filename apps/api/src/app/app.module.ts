@@ -10,6 +10,7 @@ import { PrismaModule } from '@ghostfolio/api/services/prisma/prisma.module';
 import { PropertyModule } from '@ghostfolio/api/services/property/property.module';
 import { DataGatheringQueueModule } from '@ghostfolio/api/services/queues/data-gathering/data-gathering.module';
 import { PortfolioSnapshotQueueModule } from '@ghostfolio/api/services/queues/portfolio-snapshot/portfolio-snapshot.module';
+import { TradingSignalsQueueModule } from '@ghostfolio/api/services/queues/trading-signals/trading-signals.module';
 import {
   BULL_BOARD_ROUTE,
   DEFAULT_LANGUAGE_CODE,
@@ -36,6 +37,7 @@ import { AssetModule } from './asset/asset.module';
 import { AuthDeviceModule } from './auth-device/auth-device.module';
 import { AuthModule } from './auth/auth.module';
 import { CacheModule } from './cache/cache.module';
+import { AcademyModule } from './endpoints/academy/academy.module';
 import { AiModule } from './endpoints/ai/ai.module';
 import { ApiKeysModule } from './endpoints/api-keys/api-keys.module';
 import { AssetProfilesModule } from './endpoints/asset-profiles/asset-profiles.module';
@@ -45,6 +47,7 @@ import { GhostfolioModule } from './endpoints/data-providers/ghostfolio/ghostfol
 import { MarketDataModule } from './endpoints/market-data/market-data.module';
 import { PlatformsModule } from './endpoints/platforms/platforms.module';
 import { PublicModule } from './endpoints/public/public.module';
+import { SignalsEndpointModule } from './endpoints/signals/signals.module';
 import { SitemapModule } from './endpoints/sitemap/sitemap.module';
 import { TagsModule } from './endpoints/tags/tags.module';
 import { WatchlistModule } from './endpoints/watchlist/watchlist.module';
@@ -65,6 +68,7 @@ import { UserModule } from './user/user.module';
   controllers: [AppController],
   imports: [
     AdminModule,
+    AcademyModule,
     AccessModule,
     AccountModule,
     ActivitiesModule,
@@ -162,10 +166,12 @@ import { UserModule } from './user/user.module';
       rootPath: join(__dirname, '..', 'client', '.well-known'),
       serveRoot: '/.well-known'
     }),
+    SignalsEndpointModule,
     SitemapModule,
     SubscriptionModule,
     SymbolModule,
     TagsModule,
+    TradingSignalsQueueModule,
     UserModule,
     WatchlistModule
   ],

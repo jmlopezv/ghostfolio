@@ -1,0 +1,14 @@
+:host {
+  display: block;
+
+  .cursor-pointer {
+    cursor: pointer;
+  }
+
+  // The reason text is long prose — give it real width so it wraps across
+  // only 1-2 lines instead of forcing every row tall to fit a narrow column.
+  .gf-reason-header,
+  .gf-reason-cell {
+    min-width: 24rem;
+  }
+}

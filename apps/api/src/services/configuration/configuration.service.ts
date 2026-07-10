@@ -82,6 +82,10 @@ export class ConfigurationService {
       OIDC_SCOPE: json({ default: ['openid'] }),
       OIDC_TOKEN_URL: str({ default: '' }),
       OIDC_USER_INFO_URL: str({ default: '' }),
+      NEWS_SENTIMENT_API_KEY: str({ default: '' }),
+      NEWS_SENTIMENT_PROVIDER: str({ default: 'ALPHA_VANTAGE' }),
+      OLLAMA_API_URL: str({ default: 'http://localhost:11434' }),
+      OLLAMA_MODEL: str({ default: 'gemma4:e4b' }),
       PORT: port({ default: DEFAULT_PORT }),
       PROCESSOR_GATHER_ASSET_PROFILE_CONCURRENCY: num({
         default: DEFAULT_PROCESSOR_GATHER_ASSET_PROFILE_CONCURRENCY
@@ -104,6 +108,9 @@ export class ConfigurationService {
         default: environment.rootUrl
       }),
       STRIPE_SECRET_KEY: str({ default: '' }),
+      TELEGRAM_BOT_TOKEN: str({ default: '' }),
+      TELEGRAM_CHAT_ID: str({ default: '' }),
+      TELEGRAM_POLLING_ENABLED: bool({ default: false }),
       TWITTER_ACCESS_TOKEN: str({ default: 'dummyAccessToken' }),
       TWITTER_ACCESS_TOKEN_SECRET: str({ default: 'dummyAccessTokenSecret' }),
       TWITTER_API_KEY: str({ default: 'dummyApiKey' }),
