@@ -1,5 +1,3 @@
-import type { Access } from './access.interface';
-import type { AccountBalance } from './account-balance.interface';
 import type {
   AcademyExampleResponse,
   AcademyLessonProgress,
@@ -9,6 +7,8 @@ import type {
   AcademyProgressResponse,
   AcademyQuizSubmissionResult
 } from './academy.interface';
+import type { Access } from './access.interface';
+import type { AccountBalance } from './account-balance.interface';
 import type { Activity, ActivityError } from './activities.interface';
 import type { AdminData } from './admin-data.interface';
 import type { AdminJobs } from './admin-jobs.interface';
@@ -102,10 +102,16 @@ import type { SymbolMetrics } from './symbol-metrics.interface';
 import type { SystemMessage } from './system-message.interface';
 import type { ToggleOption } from './toggle-option.interface';
 import type {
+  AssetDetailResponse,
+  AssetHolding,
+  AssetOverlap,
+  AssetPeriodReturn,
+  AssetStyleBox,
   BacktestAllResponse,
   BacktestResult,
   BacktestRow,
   BacktestTrade,
+  CorrelationMatrixResponse,
   FundMetric,
   FundMetricsResponse,
   FundPick,
@@ -143,10 +149,16 @@ export {
   AcademyQuizSubmissionResult,
   AccessTokenResponse,
   AccountBalance,
+  AssetDetailResponse,
+  AssetHolding,
+  AssetOverlap,
+  AssetPeriodReturn,
+  AssetStyleBox,
   BacktestAllResponse,
   BacktestResult,
   BacktestRow,
   BacktestTrade,
+  CorrelationMatrixResponse,
   FundMetric,
   FundMetricsResponse,
   FundPick,

@@ -86,14 +86,11 @@ export class TelegramBotService {
     const token = this.configurationService.get('TELEGRAM_BOT_TOKEN');
 
     try {
-      await fetch(
-        `https://api.telegram.org/bot${token}/answerCallbackQuery`,
-        {
-          body: JSON.stringify({ callback_query_id: callbackQueryId }),
-          headers: { 'Content-Type': 'application/json' },
-          method: 'POST'
-        }
-      );
+      await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+        body: JSON.stringify({ callback_query_id: callbackQueryId }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST'
+      });
     } catch (error) {
       this.logger.error(error);
     }
@@ -139,7 +136,9 @@ export class TelegramBotService {
         // Telegram rate-limits at 1 msg/sec per chat (HTTP 429). Wait for the
         // retry_after hint (or 2 s default) then try again.
         if (response.status === 429 && attempt < 3) {
-          const body = await response.json().catch(() => ({})) as { parameters?: { retry_after?: number } };
+          const body = (await response.json().catch(() => ({}))) as {
+            parameters?: { retry_after?: number };
+          };
           const retryAfter = body?.parameters?.retry_after ?? 2;
 
           this.logger.warn(

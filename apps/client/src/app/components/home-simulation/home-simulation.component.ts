@@ -6,8 +6,8 @@ import {
   SimulationResponse,
   User
 } from '@ghostfolio/common/interfaces';
-import { DataService } from '@ghostfolio/ui/services';
 import { GfLineChartComponent } from '@ghostfolio/ui/line-chart';
+import { DataService } from '@ghostfolio/ui/services';
 
 import { CommonModule } from '@angular/common';
 import {
@@ -43,6 +43,10 @@ const DISPLAYED_COLUMNS = [
   'status',
   'buyDate',
   'buyPrice',
+  'scoreAtBuy',
+  'rsiAtBuy',
+  'reachProbabilityAtBuy',
+  'convictionAtBuy',
   'takeProfit',
   'stopLoss',
   'currentOrSellPrice',
@@ -70,7 +74,8 @@ const DISPLAYED_COLUMNS = [
   templateUrl: './home-simulation.html'
 })
 export class GfHomeSimulationComponent implements OnInit {
-  protected readonly assumedNotionalUsd = SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD;
+  protected readonly assumedNotionalUsd =
+    SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD;
   protected readonly dataSource = new MatTableDataSource<SimulatedTrade>([]);
   protected readonly displayedColumns = DISPLAYED_COLUMNS;
   protected dipSeries: LineChartItem[] = [];
@@ -138,7 +143,10 @@ export class GfHomeSimulationComponent implements OnInit {
   protected get calculatorResult(): CalculatorResult | null {
     const trade = this.selectedTrade;
 
-    if (!trade || !this.investedUsd) {
+    // grossReturnPct is only undefined when no price is known yet (a
+    // transient live-quote hiccup on an OPEN trade) — the calculator has
+    // nothing to compute against until then.
+    if (!trade || !this.investedUsd || trade.grossReturnPct == null) {
       return null;
     }
 
@@ -183,9 +191,11 @@ export class GfHomeSimulationComponent implements OnInit {
 
   protected tradeLabel(trade: SimulatedTrade): string {
     const outcome =
-      trade.status === 'CLOSED'
+      trade.status === 'CLOSED' && trade.netReturnPct != null
         ? `${trade.netReturnPct >= 0 ? '+' : ''}${trade.netReturnPct.toFixed(1)}%`
-        : 'unrealized';
+        : trade.status === 'OPEN' && trade.grossReturnPct != null
+          ? 'unrealized'
+          : 'price unavailable';
 
     return `${trade.symbol} · ${trade.signalType} · ${trade.status} (${outcome})`;
   }

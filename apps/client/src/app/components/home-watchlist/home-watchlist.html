@@ -13,8 +13,8 @@
         <button
           class="btn"
           type="button"
-          [class.btn-primary]="assetTypeFilter === 'ALL'"
           [class.btn-outline-secondary]="assetTypeFilter !== 'ALL'"
+          [class.btn-primary]="assetTypeFilter === 'ALL'"
           (click)="onSelectAssetTypeFilter('ALL')"
         >
           <span i18n>All</span> ({{ watchlist?.length ?? 0 }})
@@ -22,8 +22,8 @@
         <button
           class="btn"
           type="button"
-          [class.btn-primary]="assetTypeFilter === 'STOCK'"
           [class.btn-outline-secondary]="assetTypeFilter !== 'STOCK'"
+          [class.btn-primary]="assetTypeFilter === 'STOCK'"
           (click)="onSelectAssetTypeFilter('STOCK')"
         >
           <span i18n>Stocks</span> ({{ stockCount }})
@@ -31,8 +31,8 @@
         <button
           class="btn"
           type="button"
-          [class.btn-primary]="assetTypeFilter === 'ETF'"
           [class.btn-outline-secondary]="assetTypeFilter !== 'ETF'"
+          [class.btn-primary]="assetTypeFilter === 'ETF'"
           (click)="onSelectAssetTypeFilter('ETF')"
         >
           <span i18n>ETFs</span> ({{ etfCount }})
@@ -40,8 +40,8 @@
         <button
           class="btn"
           type="button"
-          [class.btn-primary]="assetTypeFilter === 'FUND'"
           [class.btn-outline-secondary]="assetTypeFilter !== 'FUND'"
+          [class.btn-primary]="assetTypeFilter === 'FUND'"
           (click)="onSelectAssetTypeFilter('FUND')"
         >
           <span i18n>Funds</span> ({{ fundCount }})

@@ -6,7 +6,15 @@ import {
 } from '@ghostfolio/common/interfaces';
 import { RequestWithUser } from '@ghostfolio/common/types';
 
-import { Body, Controller, Get, Inject, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  Post,
+  UseGuards
+} from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { DataSource } from '@prisma/client';

@@ -218,7 +218,9 @@ export class TelegramAssistantService {
       await this.redisCacheService.remove(key);
 
       if (decision === 'cancel') {
-        await this.telegramBotService.sendMessage('Cancelled. Nothing changed.');
+        await this.telegramBotService.sendMessage(
+          'Cancelled. Nothing changed.'
+        );
 
         return;
       }
@@ -436,9 +438,7 @@ export class TelegramAssistantService {
 
     const relevant = activities
       .filter((activity) => activity.SymbolProfile?.symbol === symbol)
-      .sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     let net = 0;
     let since: Date | null = null;

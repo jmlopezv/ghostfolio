@@ -22,6 +22,7 @@ import {
   bookmarkOutline,
   calculatorOutline,
   flaskOutline,
+  gridOutline,
   newspaperOutline,
   readerOutline,
   schoolOutline,
@@ -79,6 +80,11 @@ export class GfHomePageComponent implements OnInit {
               routerLink: internalRoutes.home.subRoutes.analytics.routerLink
             },
             {
+              iconName: 'grid-outline',
+              label: internalRoutes.home.subRoutes.correlation.title,
+              routerLink: internalRoutes.home.subRoutes.correlation.routerLink
+            },
+            {
               iconName: 'calculator-outline',
               label: internalRoutes.home.subRoutes.metrics.title,
               routerLink: internalRoutes.home.subRoutes.metrics.routerLink
@@ -120,6 +126,7 @@ export class GfHomePageComponent implements OnInit {
       bookmarkOutline,
       calculatorOutline,
       flaskOutline,
+      gridOutline,
       newspaperOutline,
       readerOutline,
       schoolOutline,

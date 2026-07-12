@@ -146,7 +146,9 @@ export class NewsSentimentService {
   }
 
   /** Alpha Vantage NEWS_SENTIMENT with a broad topic instead of a ticker. */
-  private async fetchAlphaVantageMarketNews(): Promise<MarketHeadline[] | null> {
+  private async fetchAlphaVantageMarketNews(): Promise<
+    MarketHeadline[] | null
+  > {
     const apiKey = this.resolveApiKey();
     const url =
       `https://www.alphavantage.co/query?function=NEWS_SENTIMENT` +
@@ -161,9 +163,7 @@ export class NewsSentimentService {
     const feed: any[] = Array.isArray(payload.feed) ? payload.feed : [];
 
     return feed.slice(0, 10).map((article) => ({
-      publishedAt: this.parseAlphaVantageTime(
-        article.time_published
-      )
+      publishedAt: this.parseAlphaVantageTime(article.time_published)
         ? new Date(
             this.parseAlphaVantageTime(article.time_published)
           ).toISOString()
@@ -367,7 +367,9 @@ export class NewsSentimentService {
   private ageWeight(timePublished: string, nowMs: number): number {
     const parsed = this.parseAlphaVantageTime(timePublished);
     const ageDays =
-      parsed === null ? 0 : Math.max(0, (nowMs - parsed) / (24 * 60 * 60 * 1000));
+      parsed === null
+        ? 0
+        : Math.max(0, (nowMs - parsed) / (24 * 60 * 60 * 1000));
 
     return Math.exp(-DECAY_PER_DAY * ageDays);
   }

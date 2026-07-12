@@ -1,5 +1,6 @@
 import { GfHomeAcademyComponent } from '@ghostfolio/client/components/home-academy/home-academy.component';
 import { GfHomeAnalyticsComponent } from '@ghostfolio/client/components/home-analytics/home-analytics.component';
+import { GfHomeCorrelationComponent } from '@ghostfolio/client/components/home-correlation/home-correlation.component';
 import { GfHomeHoldingsComponent } from '@ghostfolio/client/components/home-holdings/home-holdings.component';
 import { GfHomeMarketComponent } from '@ghostfolio/client/components/home-market/home-market.component';
 import { GfHomeMetricsComponent } from '@ghostfolio/client/components/home-metrics/home-metrics.component';
@@ -27,6 +28,11 @@ export const routes: Routes = [
         path: internalRoutes.home.subRoutes.analytics.path,
         component: GfHomeAnalyticsComponent,
         title: internalRoutes.home.subRoutes.analytics.title
+      },
+      {
+        path: internalRoutes.home.subRoutes.correlation.path,
+        component: GfHomeCorrelationComponent,
+        title: internalRoutes.home.subRoutes.correlation.title
       },
       {
         path: internalRoutes.home.subRoutes.holdings.path,

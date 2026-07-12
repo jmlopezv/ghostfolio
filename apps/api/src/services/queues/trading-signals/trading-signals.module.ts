@@ -1,6 +1,6 @@
-import { SignalsModule } from '@ghostfolio/api/services/signals/signals.module';
 import { TradingSignalsProcessor } from '@ghostfolio/api/services/queues/trading-signals/trading-signals.processor';
 import { TradingSignalsService } from '@ghostfolio/api/services/queues/trading-signals/trading-signals.service';
+import { SignalsModule } from '@ghostfolio/api/services/signals/signals.module';
 import { TRADING_SIGNALS_QUEUE } from '@ghostfolio/common/config';
 
 import { BullAdapter } from '@bull-board/api/bullAdapter';

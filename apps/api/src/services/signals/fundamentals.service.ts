@@ -40,7 +40,9 @@ export class FundamentalsService {
 
   public constructor(private readonly redisCacheService: RedisCacheService) {}
 
-  public async getSnapshot(symbol: string): Promise<FundamentalsSnapshot | null> {
+  public async getSnapshot(
+    symbol: string
+  ): Promise<FundamentalsSnapshot | null> {
     const cacheKey = `fundamentals:${symbol}`;
 
     const cached = await this.safeGet(cacheKey);
@@ -199,7 +201,11 @@ export class FundamentalsService {
     }
   }
 
-  private async safeSet(key: string, value: string, ttl: number): Promise<void> {
+  private async safeSet(
+    key: string,
+    value: string,
+    ttl: number
+  ): Promise<void> {
     try {
       await this.redisCacheService.set(key, value, ttl);
     } catch {

@@ -28,7 +28,7 @@ describe('AcademyService', () => {
       const result = await service.submitQuiz('user-1', 'l1-sma-ema', {
         q1: '102.4',
         q2: 'Not a confirmed downtrend (price ≥ SMA200 fails that half of the AND) — a DIP buy could still fire if the other conditions hold',
-        q3: "The trend-regime question (\"is this a genuine long-term trend or a recent wiggle\") specifically wants a slow, steady reference that is hard to fake with a short-term price spike — EMA's faster reaction is a liability here, not an asset"
+        q3: 'The trend-regime question ("is this a genuine long-term trend or a recent wiggle") specifically wants a slow, steady reference that is hard to fake with a short-term price spike — EMA\'s faster reaction is a liability here, not an asset'
       });
 
       expect(result.score).toBe(100);

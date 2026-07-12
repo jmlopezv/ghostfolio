@@ -94,6 +94,11 @@ export const internalRoutes = {
         routerLink: ['/home', 'analytics'],
         title: $localize`Analytics`
       },
+      correlation: {
+        path: 'correlation',
+        routerLink: ['/home', 'correlation'],
+        title: $localize`Correlation`
+      },
       holdings: {
         path: 'holdings',
         routerLink: ['/home', 'holdings'],

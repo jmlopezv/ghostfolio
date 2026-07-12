@@ -31,10 +31,12 @@ import {
   ActivityResponse,
   AiPromptResponse,
   ApiKeyResponse,
+  AssetDetailResponse,
   AssetProfileIdentifier,
   AssetResponse,
   BenchmarkMarketDataDetailsResponse,
   BenchmarkResponse,
+  CorrelationMatrixResponse,
   CreateStripeCheckoutSessionResponse,
   DataProviderHealthResponse,
   DataProviderHistoricalResponse,
@@ -814,6 +816,18 @@ export class DataService {
 
   public fetchSimulation() {
     return this.http.get<SimulationResponse>('/api/v1/signals/simulation');
+  }
+
+  public fetchAssetDetail({ dataSource, symbol }: AssetProfileIdentifier) {
+    return this.http.get<AssetDetailResponse>(
+      `/api/v1/signals/asset-detail/${dataSource}/${symbol}`
+    );
+  }
+
+  public fetchCorrelationMatrix() {
+    return this.http.get<CorrelationMatrixResponse>(
+      '/api/v1/signals/correlation-matrix'
+    );
   }
 
   public fetchWatchlist() {

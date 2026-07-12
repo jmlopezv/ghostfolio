@@ -3,9 +3,9 @@
     class="gf-table w-100"
     mat-table
     matSort
+    [dataSource]="dataSource"
     [matSortActive]="sortActive()"
     [matSortDirection]="sortDirection()"
-    [dataSource]="dataSource"
   >
     <ng-container matColumnDef="icon" sticky>
       <th *matHeaderCellDef class="px-1" mat-header-cell></th>
@@ -65,9 +65,9 @@
       <th
         *matHeaderCellDef
         class="px-1 text-right"
+        i18n
         mat-header-cell
         mat-sort-header="feePct"
-        i18n
       >
         Fee
       </th>
@@ -84,9 +84,9 @@
       <th
         *matHeaderCellDef
         class="px-1 text-right"
+        i18n
         mat-header-cell
         mat-sort-header="periodReturn"
-        i18n
       >
         Return
       </th>
@@ -112,15 +112,17 @@
         mat-sort-header="score"
       >
         <a
+          i18n
           [fragment]="'metric-composite-score'"
           [routerLink]="['/home', 'metrics']"
           (click)="$event.stopPropagation()"
-          i18n
           >Score</a
         >
       </th>
       <td *matCellDef="let element" class="px-1 text-right" mat-cell>
-        {{ isNumber(element?.score) ? (element?.score | number: '1.0-0') : '—' }}
+        {{
+          isNumber(element?.score) ? (element?.score | number: '1.0-0') : '—'
+        }}
       </td>
     </ng-container>
 
@@ -151,10 +153,10 @@
         mat-sort-header="macdHistogram"
       >
         <a
+          i18n
           [fragment]="'metric-macd'"
           [routerLink]="['/home', 'metrics']"
           (click)="$event.stopPropagation()"
-          i18n
           >MACD</a
         >
       </th>
@@ -198,10 +200,10 @@
         mat-sort-header="reachProbability"
       >
         <a
+          i18n
           [fragment]="'metric-reach-probability'"
           [routerLink]="['/home', 'metrics']"
           (click)="$event.stopPropagation()"
-          i18n
           >Reach</a
         >
       </th>
@@ -222,10 +224,10 @@
         mat-sort-header="conviction"
       >
         <a
+          i18n
           [fragment]="'metric-conviction'"
           [routerLink]="['/home', 'metrics']"
           (click)="$event.stopPropagation()"
-          i18n
           >Conv.</a
         >
       </th>
@@ -354,24 +356,16 @@
     <ng-container matColumnDef="recentBuySignal">
       <th
         *matHeaderCellDef
+        arrowPosition="before"
         class="px-1 text-center"
         mat-header-cell
         mat-sort-header="hasRecentBuySignal"
-        arrowPosition="before"
       >
         <ng-container i18n>Buy signal</ng-container>
       </th>
-      <td
-        *matCellDef="let element"
-        class="px-1 text-center"
-        mat-cell
-      >
+      <td *matCellDef="let element" class="px-1 text-center" mat-cell>
         @if (element?.hasRecentBuySignal) {
-          <span
-            title="BUY signal in the last 30 days"
-            i18n-title
-            >🟢</span
-          >
+          <span i18n-title title="BUY signal in the last 30 days">🟢</span>
         } @else {
           <span class="text-muted">—</span>
         }

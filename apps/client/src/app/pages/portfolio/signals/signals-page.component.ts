@@ -1,9 +1,12 @@
+import {
+  TradingSignal,
+  TradingSignalsResponse
+} from '@ghostfolio/common/interfaces';
 import { DataService } from '@ghostfolio/ui/services';
 
 import { CommonModule } from '@angular/common';
 import { ChangeDetectorRef, Component, DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { TradingSignal, TradingSignalsResponse } from '@ghostfolio/common/interfaces';
 import { IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {

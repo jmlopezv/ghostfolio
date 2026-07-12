@@ -6,31 +6,415 @@
 />
 
 <div class="flex-grow-1" mat-dialog-content>
-  <div class="container p-0">
-    <div class="row">
-      <div class="col-12 d-flex justify-content-center mb-3">
-        <gf-value
-          size="large"
+  <div class="d-flex justify-content-end">
+    <button
+      class="gf-widescreen-toggle"
+      title="Toggle widescreen"
+      type="button"
+      (click)="onToggleWidescreen()"
+    >
+      <ion-icon [name]="isWidescreen ? 'contract-outline' : 'expand-outline'" />
+    </button>
+  </div>
+
+  <!--
+    All four tabs are ALWAYS present structurally (never conditionally
+    added/removed) — mat-tab-group queries its <mat-tab> children once at
+    init, and asynchronously adding tabs after the fund/ETF data loads caused
+    the tab bodies to render blank/empty. Only the CONTENT inside each tab is
+    gated on the async data, which is safe.
+  -->
+  <mat-tab-group animationDuration="0ms" [mat-stretch-tabs]="false">
+    <!-- Overview / price chart -->
+    <mat-tab>
+      <ng-template mat-tab-label>
+        <ion-icon name="trending-up-outline" />
+        <span class="d-none d-sm-block ms-2" i18n>Chart</span>
+      </ng-template>
+
+      <div class="container mt-3 p-0">
+        <div class="row">
+          <div
+            class="col-12 d-flex align-items-baseline justify-content-center gap-2 mb-3"
+          >
+            <gf-value
+              size="large"
+              [locale]="data.locale"
+              [precision]="2"
+              [value]="value"
+            />
+            @if (oneYearReturnPct !== undefined) {
+              <span
+                class="small"
+                [class.text-danger]="oneYearReturnPct < 0"
+                [class.text-success]="oneYearReturnPct >= 0"
+              >
+                {{ oneYearReturnPct >= 0 ? '+' : ''
+                }}{{ oneYearReturnPct | number: '1.1-2' }}%
+                <span class="text-muted">1Y</span>
+              </span>
+            }
+          </div>
+        </div>
+
+        <gf-line-chart
+          benchmarkLabel="Average Unit Price"
+          class="mb-4"
+          [colorScheme]="data.colorScheme"
+          [historicalDataItems]="historicalDataItems"
+          [isAnimated]="true"
+          [label]="data.symbol"
           [locale]="data.locale"
-          [precision]="2"
-          [value]="value"
+          [showGradient]="true"
+          [showXAxis]="true"
+          [showYAxis]="true"
         />
       </div>
-    </div>
+    </mat-tab>
 
-    <gf-line-chart
-      benchmarkLabel="Average Unit Price"
-      class="mb-4"
-      [colorScheme]="data.colorScheme"
-      [historicalDataItems]="historicalDataItems"
-      [isAnimated]="true"
-      [label]="data.symbol"
-      [locale]="data.locale"
-      [showGradient]="true"
-      [showXAxis]="true"
-      [showYAxis]="true"
-    />
-  </div>
+    <!-- Morningstar-style box -->
+    <mat-tab>
+      <ng-template mat-tab-label>
+        <ion-icon name="grid-outline" />
+        <span class="d-none d-sm-block ms-2" i18n>Style</span>
+      </ng-template>
+
+      <div class="container mt-3 p-0">
+        @if (!detailLoaded) {
+          <p class="text-muted" i18n>Loading…</p>
+        } @else if (detailLoadError) {
+          <p class="text-danger" i18n>
+            Could not load this asset's details. Please try again.
+          </p>
+        } @else if (!isFundOrEtf) {
+          <p class="text-muted" i18n>
+            Style data is only available for funds and ETFs.
+          </p>
+        } @else if (detail?.styleBox; as sb) {
+          <div class="align-items-center d-flex flex-wrap gap-2 mb-3">
+            @if (sb.category) {
+              <span class="badge bg-primary">{{ sb.category }}</span>
+            }
+            @if (sb.morningStarRating) {
+              <span class="text-warning"
+                >{{ '★★★★★'.slice(0, sb.morningStarRating)
+                }}<span class="text-muted">{{
+                  '☆☆☆☆☆'.slice(0, 5 - sb.morningStarRating)
+                }}</span></span
+              >
+            }
+            @if (data.dataSource === 'YAHOO') {
+              <a
+                class="small ms-auto"
+                i18n
+                rel="noopener noreferrer"
+                target="_blank"
+                [href]="
+                  'https://finance.yahoo.com/quote/' + data.symbol + '/profile/'
+                "
+                >View on Yahoo Finance ↗</a
+              >
+            }
+          </div>
+
+          @if (hasStyleGrid) {
+            <!--
+              Mirrors Yahoo Finance's own Profile-page Morningstar Style Box
+              layout exactly: plain bordered cells, at most ONE filled cell
+              (only rendered when we have the REAL Morningstar classification
+              — both size and style — so it's always exactly one cell, never
+              a whole row/column), size labels (Large/Medium/Small) to the
+              right of the grid, style labels (Value/Blend/Growth) below it.
+            -->
+            <div class="gf-stylebox-wrapper mb-2">
+              <div class="gf-stylebox">
+                @for (size of styleSizes; track size) {
+                  @for (kind of styleKinds; track kind) {
+                    <div
+                      class="gf-stylebox-cell"
+                      [class.gf-stylebox-active]="isStyleCell(size, kind)"
+                      [title]="styleCellLabel(size, kind)"
+                    ></div>
+                  }
+                }
+              </div>
+              <div class="gf-stylebox-axis-x small text-muted">
+                <span i18n>Value</span><span i18n>Blend</span
+                ><span i18n>Growth</span>
+              </div>
+              <div class="gf-stylebox-axis-y small text-muted">
+                <div class="gf-stylebox-axis-y-title" i18n>Size</div>
+                <div class="gf-stylebox-axis-y-rows">
+                  <span i18n>Large</span><span i18n>Medium</span
+                  ><span i18n>Small</span>
+                </div>
+              </div>
+            </div>
+
+            <p class="small text-muted mb-1" i18n>Investment valuation</p>
+
+            <p class="small text-muted mb-2" i18n>
+              The highlighted cell is Morningstar's own real classification for
+              this fund, the same one shown on Yahoo Finance's Profile page —
+              not our own estimate.
+            </p>
+          } @else if (sb.style) {
+            <p class="small text-muted mb-3" i18n>
+              Yahoo has no Morningstar classification for this specific listing,
+              so no grid is shown. Based on its valuation ratios below, this
+              fund <strong>leans {{ sb.style }}</strong> — our own estimate, not
+              Morningstar's real answer.
+            </p>
+          }
+
+          @if (
+            sb.medianMarketCap ||
+            sb.priceToEarnings ||
+            sb.priceToBook ||
+            sb.priceToSales ||
+            sb.priceToCashflow ||
+            sb.threeYearEarningsGrowth !== undefined ||
+            sb.expenseRatioPct !== undefined
+          ) {
+            <div class="row g-2 mb-3">
+              @if (sb.medianMarketCap) {
+                <div class="col-6 col-md-3">
+                  <div class="small text-muted" i18n>Median market cap</div>
+                  <div>{{ sb.medianMarketCap / 1e9 | number: '1.1-1' }}B</div>
+                </div>
+              }
+              @if (sb.priceToEarnings) {
+                <div class="col-6 col-md-3">
+                  <div class="small text-muted">P/E</div>
+                  <div>{{ sb.priceToEarnings | number: '1.1-1' }}</div>
+                </div>
+              }
+              @if (sb.priceToBook) {
+                <div class="col-6 col-md-3">
+                  <div class="small text-muted">P/B</div>
+                  <div>{{ sb.priceToBook | number: '1.1-1' }}</div>
+                </div>
+              }
+              @if (sb.priceToSales) {
+                <div class="col-6 col-md-3">
+                  <div class="small text-muted">P/S</div>
+                  <div>{{ sb.priceToSales | number: '1.1-1' }}</div>
+                </div>
+              }
+              @if (sb.priceToCashflow) {
+                <div class="col-6 col-md-3">
+                  <div class="small text-muted">P/CF</div>
+                  <div>{{ sb.priceToCashflow | number: '1.1-1' }}</div>
+                </div>
+              }
+              @if (sb.threeYearEarningsGrowth !== undefined) {
+                <div class="col-6 col-md-3">
+                  <div class="small text-muted" i18n>3y earnings growth</div>
+                  <div>
+                    {{ sb.threeYearEarningsGrowth * 100 | number: '1.0-1' }}%
+                  </div>
+                </div>
+              }
+              @if (sb.expenseRatioPct !== undefined) {
+                <div class="col-6 col-md-3">
+                  <div class="small text-muted" i18n>Annual fee (Yahoo)</div>
+                  <div>{{ sb.expenseRatioPct | number: '1.2-2' }}%</div>
+                </div>
+              }
+            </div>
+          } @else if (data.dataSource === 'MANUAL') {
+            <p class="text-muted" i18n>
+              Mutual funds don't get a 3×3 grid — that's derived from live
+              equity-holdings data Yahoo only publishes for ETFs. Category and
+              Morningstar rating above are this fund's real data.
+            </p>
+          } @else {
+            <p class="text-muted" i18n>
+              No equity-holdings data is published for this ETF, so no grid
+              could be derived — category and rating above are still real.
+            </p>
+          }
+
+          @if (sb.stockPct !== undefined || sb.bondPct !== undefined) {
+            <div class="small text-muted mb-1" i18n>Asset mix</div>
+            <div class="gf-mixbar mb-2">
+              @if (sb.stockPct) {
+                <div
+                  class="gf-mix-stock"
+                  [style.width.%]="sb.stockPct"
+                  [title]="'Stocks ' + (sb.stockPct | number: '1.0-1') + '%'"
+                ></div>
+              }
+              @if (sb.bondPct) {
+                <div
+                  class="gf-mix-bond"
+                  [style.width.%]="sb.bondPct"
+                  [title]="'Bonds ' + (sb.bondPct | number: '1.0-1') + '%'"
+                ></div>
+              }
+              @if (sb.cashPct) {
+                <div
+                  class="gf-mix-cash"
+                  [style.width.%]="sb.cashPct"
+                  [title]="'Cash ' + (sb.cashPct | number: '1.0-1') + '%'"
+                ></div>
+              }
+            </div>
+          }
+        } @else if (data.dataSource === 'MANUAL') {
+          <p class="text-muted" i18n>
+            No category or Morningstar rating is published for this fund.
+          </p>
+        } @else {
+          <p class="text-muted" i18n>
+            Yahoo has no fund data at all for this specific listing (this can
+            differ between exchanges for the same underlying fund) — try the
+            same fund's other listing if it's also in your watchlist.
+          </p>
+        }
+      </div>
+    </mat-tab>
+
+    <!-- Holdings -->
+    <mat-tab>
+      <ng-template mat-tab-label>
+        <ion-icon name="list-outline" />
+        <span class="d-none d-sm-block ms-2" i18n>Holdings</span>
+      </ng-template>
+
+      <div class="container mt-3 p-0">
+        @if (!detailLoaded) {
+          <p class="text-muted" i18n>Loading…</p>
+        } @else if (detailLoadError) {
+          <p class="text-danger" i18n>
+            Could not load this asset's details. Please try again.
+          </p>
+        } @else if (!isFundOrEtf) {
+          <p class="text-muted" i18n>
+            Holdings are only available for funds and ETFs.
+          </p>
+        } @else {
+          @if (detail?.holdings?.length) {
+            <div class="small text-muted mb-2" i18n>Top holdings</div>
+            <table class="table table-sm">
+              <tbody>
+                @for (h of detail.holdings; track h.name) {
+                  <tr>
+                    <td>{{ h.name }}</td>
+                    <td class="text-end">
+                      {{ h.weight * 100 | number: '1.1-2' }}%
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          } @else {
+            <p class="text-muted" i18n>No holdings available for this asset.</p>
+          }
+
+          @if (detail?.sectors?.length) {
+            <div class="small text-muted mb-2 mt-3" i18n>Sectors</div>
+            @for (s of detail.sectors; track s.name) {
+              <div class="align-items-center d-flex mb-1">
+                <div class="gf-sector-name small">{{ s.name }}</div>
+                <div class="flex-grow-1 gf-sector-track mx-2">
+                  <div
+                    class="gf-sector-fill"
+                    [style.width.%]="s.weight * 100"
+                  ></div>
+                </div>
+                <div class="small text-muted">
+                  {{ s.weight * 100 | number: '1.0-1' }}%
+                </div>
+              </div>
+            }
+          }
+        }
+      </div>
+    </mat-tab>
+
+    <!-- Correlation (holdings overlap) -->
+    <mat-tab>
+      <ng-template mat-tab-label>
+        <ion-icon name="pie-chart-outline" />
+        <span class="d-none d-sm-block ms-2" i18n>Correlation</span>
+      </ng-template>
+
+      <div class="container mt-3 p-0">
+        @if (!detailLoaded) {
+          <p class="text-muted" i18n>Loading…</p>
+        } @else if (detailLoadError) {
+          <p class="text-danger" i18n>
+            Could not load this asset's details. Please try again.
+          </p>
+        } @else if (!isFundOrEtf) {
+          <p class="text-muted" i18n>
+            Correlation is only available for funds and ETFs.
+          </p>
+        } @else {
+          <p class="small text-muted mb-2" i18n>
+            How much this asset's holdings overlap with each other watchlist
+            fund/ETF (higher = more similar) — shared holdings count, and how
+            much of that overlap you already own directly, are shown per row.
+            <strong>*</strong> marks assets you own. Click a row to open it.
+          </p>
+
+          @if (detail?.overlaps?.length) {
+            @for (o of detail.overlaps; track o.symbol) {
+              <div
+                class="align-items-center d-flex gf-overlap-row"
+                [title]="
+                  (o.overlapPct | number: '1.0-1') +
+                  '% shared (' +
+                  o.sharedCount +
+                  ' holding' +
+                  (o.sharedCount === 1 ? '' : 's') +
+                  (o.ownedSharedPct > 0
+                    ? ', ' +
+                      (o.ownedSharedPct | number: '1.0-1') +
+                      '% of that already in your portfolio'
+                    : '') +
+                  '): ' +
+                  o.sharedHoldings.join(', ')
+                "
+                (click)="onOpenOverlap(o.dataSource, o.symbol)"
+              >
+                <div class="gf-overlap-name d-flex flex-column">
+                  <span class="text-truncate"
+                    >{{ o.name }}
+                    @if (o.owned) {
+                      <span class="text-warning">*</span>
+                    }
+                  </span>
+                  <span class="gf-overlap-meta text-muted text-truncate">
+                    {{ o.sharedCount }} shared
+                    @if (o.ownedSharedPct > 0) {
+                      · {{ o.ownedSharedPct | number: '1.0-1' }}% owned
+                    }
+                  </span>
+                </div>
+                <div class="flex-grow-1 gf-overlap-track mx-2">
+                  <div
+                    class="gf-overlap-fill"
+                    [style.opacity]="overlapIntensity(o.overlapPct)"
+                    [style.width.%]="o.overlapPct"
+                  ></div>
+                </div>
+                <div class="gf-overlap-value small">
+                  {{ o.overlapPct | number: '1.0-1' }}%
+                </div>
+              </div>
+            }
+          } @else {
+            <p class="text-muted" i18n>
+              No overlap found with other watchlist funds/ETFs (their holdings
+              may not be available yet).
+            </p>
+          }
+        }
+      </div>
+    </mat-tab>
+  </mat-tab-group>
 </div>
 
 <gf-dialog-footer

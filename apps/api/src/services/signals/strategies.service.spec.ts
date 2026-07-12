@@ -204,14 +204,129 @@ describe('StrategiesService', () => {
 
       expect(feeTiebreak[0].symbol).toBe('CHEAP');
     });
+
+    describe('graduated overlap penalty (balances "best buy" vs. real fund overlap)', () => {
+      const holding = (name: string, weight: number) => ({ name, weight });
+
+      it('a candidate with no owned overlap anywhere is unaffected (no penalty)', () => {
+        const picks = service.recommendFunds({
+          candidates: [
+            { ...f('NEW', 'global', 0.2), riskAdjustedMomentum: 1.5 }
+          ],
+          count: 1,
+          holdingsBySymbol: { NEW: [holding('Nvidia', 0.5)] },
+          valueByCategory: {},
+          valueBySymbol: { OTHER: 1000 } // owned, but OTHER has no holdings entry
+        });
+
+        expect(picks[0].effectiveMomentum).toBe(1.5);
+        expect(picks[0].overlapExposurePct ?? 0).toBe(0);
+      });
+
+      it('100% overlap with a SMALL existing position is barely penalized (reinvestment stays cheap)', () => {
+        const picks = service.recommendFunds({
+          candidates: [
+            { ...f('SAME', 'global', 0.2), riskAdjustedMomentum: 1.0 }
+          ],
+          count: 1,
+          // SAME already owned, but only $10 of a $1000 sleeve (1%).
+          holdingsBySymbol: { SAME: [holding('Nvidia', 1)] },
+          valueByCategory: {},
+          valueBySymbol: { SAME: 10, OTHER: 990 }
+        });
+
+        expect(picks[0].overlapExposurePct).toBeCloseTo(1, 0); // ~1% exposure
+        expect(picks[0].effectiveMomentum).toBeGreaterThan(0.98); // barely nudged
+      });
+
+      it('100% overlap with a LARGE existing position is floored, never zeroed', () => {
+        const picks = service.recommendFunds({
+          candidates: [
+            { ...f('SAME', 'global', 0.2), riskAdjustedMomentum: 1.0 }
+          ],
+          count: 1,
+          // SAME already owned at $700 of a $1000 sleeve (70%) — well past the
+          // point where the floor multiplier (0.4) applies.
+          holdingsBySymbol: { SAME: [holding('Nvidia', 1)] },
+          valueByCategory: {},
+          valueBySymbol: { SAME: 700, OTHER: 300 }
+        });
+
+        expect(picks[0].overlapExposurePct).toBeCloseTo(70, 0);
+        expect(picks[0].effectiveMomentum).toBeCloseTo(0.4, 5); // floored, not 0
+      });
+
+      it('still buys the best: a much stronger momentum edge survives the floor and wins its category', () => {
+        const picks = service.recommendFunds({
+          candidates: [
+            // Heavily overlapping an existing large position → floored at 0.4x,
+            // but its raw momentum is so much higher it still wins.
+            {
+              ...f('STRONG-OVERLAP', 'global', 0.2),
+              riskAdjustedMomentum: 3.0
+            },
+            { ...f('WEAK-FRESH', 'global', 0.2), riskAdjustedMomentum: 0.5 }
+          ],
+          count: 1,
+          holdingsBySymbol: { 'STRONG-OVERLAP': [holding('Nvidia', 1)] },
+          valueByCategory: {},
+          valueBySymbol: { 'STRONG-OVERLAP': 700, OTHER: 300 }
+        });
+
+        // effectiveMomentum: 3.0 * 0.4 = 1.2, still > 0.5 (no overlap data for WEAK-FRESH).
+        expect(picks[0].symbol).toBe('STRONG-OVERLAP');
+      });
+
+      it('a close call flips toward the less-concentrated pick', () => {
+        const picks = service.recommendFunds({
+          candidates: [
+            { ...f('OVERLAP', 'global', 0.2), riskAdjustedMomentum: 1.0 },
+            { ...f('FRESH', 'global', 0.2), riskAdjustedMomentum: 0.9 }
+          ],
+          count: 1,
+          holdingsBySymbol: { OVERLAP: [holding('Nvidia', 1)] },
+          valueByCategory: {},
+          // 70% exposure -> OVERLAP floored to 1.0 * 0.4 = 0.4, below FRESH's 0.9.
+          valueBySymbol: { OVERLAP: 700, OTHER: 300 }
+        });
+
+        expect(picks[0].symbol).toBe('FRESH');
+      });
+
+      it('omitting holdingsBySymbol/valueBySymbol is a no-op (existing recommendFunds tests stay unchanged)', () => {
+        const picks = service.recommendFunds({
+          candidates: [
+            { ...f('CHEAP', 'global', 0.1), riskAdjustedMomentum: 0.5 },
+            { ...f('STRONG', 'global', 0.3), riskAdjustedMomentum: 1.8 }
+          ],
+          count: 1,
+          valueByCategory: {}
+        });
+
+        expect(picks[0].symbol).toBe('STRONG');
+        expect(picks[0].effectiveMomentum).toBe(1.8);
+      });
+    });
   });
 
   describe('sizeFundPicks', () => {
     it('splits cash evenly across funds', () => {
       const picks = service.sizeFundPicks(
         [
-          { category: 'global', currency: 'SEK', feePct: 0.2, name: 'G', symbol: 'G' },
-          { category: 'usa', currency: 'SEK', feePct: 0.2, name: 'U', symbol: 'U' }
+          {
+            category: 'global',
+            currency: 'SEK',
+            feePct: 0.2,
+            name: 'G',
+            symbol: 'G'
+          },
+          {
+            category: 'usa',
+            currency: 'SEK',
+            feePct: 0.2,
+            name: 'U',
+            symbol: 'U'
+          }
         ],
         300
       );
@@ -324,9 +439,7 @@ describe('StrategiesService', () => {
 
     it('tags a re-confirmed recent BUY in the rationale', () => {
       const strategies = service.buildStrategies({
-        candidates: [
-          candidate('RC', 'tech', 100, 70, { recentBuyDays: 3 })
-        ],
+        candidates: [candidate('RC', 'tech', 100, 70, { recentBuyDays: 3 })],
         cash: 1000
       });
 

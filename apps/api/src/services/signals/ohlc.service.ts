@@ -111,9 +111,7 @@ export class OhlcService {
         const volume = quote.volume?.[i];
 
         if (
-          [open, high, low, close].every(
-            (v) => typeof v === 'number' && v > 0
-          )
+          [open, high, low, close].every((v) => typeof v === 'number' && v > 0)
         ) {
           bars.push({ close, high, low, open });
           volumes.push(typeof volume === 'number' ? volume : 0);

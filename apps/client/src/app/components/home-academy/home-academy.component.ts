@@ -60,12 +60,14 @@ const READING_SOURCES: ReadingSource[] = [
     url: 'https://www.morningstar.com/'
   },
   {
-    description: 'Charting, technical-analysis community ideas, and watchlists — complements the indicator-driven approach used throughout this engine.',
+    description:
+      'Charting, technical-analysis community ideas, and watchlists — complements the indicator-driven approach used throughout this engine.',
     name: 'TradingView',
     url: 'https://www.tradingview.com/'
   },
   {
-    description: 'The same free data source this app\'s own signal engine is built on — quotes, fundamentals, and news in one place.',
+    description:
+      "The same free data source this app's own signal engine is built on — quotes, fundamentals, and news in one place.",
     name: 'Yahoo Finance',
     url: 'https://finance.yahoo.com/'
   }
@@ -134,7 +136,9 @@ export class GfHomeAcademyComponent implements OnInit {
       });
   }
 
-  protected lessonStatus(lesson: AcademyLesson): 'not-started' | 'completed' | 'coming-soon' {
+  protected lessonStatus(
+    lesson: AcademyLesson
+  ): 'not-started' | 'completed' | 'coming-soon' {
     if (lesson.quiz.length === 0) {
       return 'coming-soon';
     }

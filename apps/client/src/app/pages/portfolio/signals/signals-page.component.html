@@ -6,8 +6,8 @@
         <button
           class="btn btn-light"
           type="button"
-          (click)="onRefresh()"
           [disabled]="isLoading"
+          (click)="onRefresh()"
         >
           <ion-icon name="refresh-circle-outline" />
           <span class="ms-1" i18n>Refresh</span>
@@ -33,7 +33,10 @@
         @for (group of groups; track group.key) {
           @if (group.signals.length > 0) {
             <div class="mb-4">
-              <h2 class="h5 d-flex align-items-center mb-2" [ngClass]="group.color">
+              <h2
+                class="h5 d-flex align-items-center mb-2"
+                [ngClass]="group.color"
+              >
                 <ion-icon [name]="group.iconName" />
                 <span class="ms-2">{{ group.label }}</span>
                 <span class="badge bg-secondary ms-2">{{
@@ -72,8 +75,9 @@
                     <div class="d-flex flex-wrap small text-muted mt-1">
                       @if (signal.hitTargetProbability != null) {
                         <span class="me-3" i18n>
-                          ~{{ signal.hitTargetProbability * 100 | number: '1.0-0' }}%
-                          chance of hitting target
+                          ~{{
+                            signal.hitTargetProbability * 100 | number: '1.0-0'
+                          }}% chance of hitting target
                         </span>
                       }
                       @if (signal.forecastBand) {
@@ -86,7 +90,8 @@
                       }
                       @if (signal.suggestedAmount != null) {
                         <span class="me-3" i18n>
-                          Suggested {{ signal.suggestedAmount | number: '1.0-2' }}
+                          Suggested
+                          {{ signal.suggestedAmount | number: '1.0-2' }}
                         </span>
                       }
                     </div>

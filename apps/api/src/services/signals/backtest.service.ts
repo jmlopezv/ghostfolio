@@ -1,6 +1,5 @@
-import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
 import { MarketDataService } from '@ghostfolio/api/services/market-data/market-data.service';
-import { DATE_FORMAT } from '@ghostfolio/common/helper';
+import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
 import {
   SIGNAL_BACKTEST_POSITION_SIZE,
   SIGNAL_BACKTEST_SLIPPAGE_BPS,
@@ -19,6 +18,7 @@ import {
   SIGNAL_TRAIL_VOL_MULT,
   SignalExitMode
 } from '@ghostfolio/common/config';
+import { DATE_FORMAT } from '@ghostfolio/common/helper';
 import { BacktestResult, BacktestTrade } from '@ghostfolio/common/interfaces';
 
 import { Injectable } from '@nestjs/common';
@@ -146,7 +146,9 @@ export class BacktestService {
     const exposureBars = trades.reduce((s, t) => s + t.holdingDays, 0);
     const years = tradingDays > 0 ? tradingDays / 252 : 0;
     const cagrPct =
-      years > 0 ? (Math.pow(1 + totalNetReturnPct / 100, 1 / years) - 1) * 100 : 0;
+      years > 0
+        ? (Math.pow(1 + totalNetReturnPct / 100, 1 / years) - 1) * 100
+        : 0;
     const benchmarkReturnPct =
       closes[start] > 0
         ? (closes[closes.length - 1] / closes[start] - 1) * 100
@@ -185,7 +187,8 @@ export class BacktestService {
             : 0
       },
       positionSize,
-      profitFactor: grossLoss > 0 ? grossGain / grossLoss : grossGain > 0 ? 99 : 0,
+      profitFactor:
+        grossLoss > 0 ? grossGain / grossLoss : grossGain > 0 ? 99 : 0,
       sharpe: fullMetrics.sharpe,
       slippageBps,
       sortino: fullMetrics.sortino,
@@ -273,7 +276,8 @@ export class BacktestService {
       const price = closes[i];
       const window = closes.slice(0, i + 1);
       const snapshot = this.indicatorsService.computeSnapshot(window);
-      const recentHigh = this.indicatorsService.highestClose(window, 30) ?? price;
+      const recentHigh =
+        this.indicatorsService.highestClose(window, 30) ?? price;
       let equity = realizedEquity;
 
       if (entryIndex === null) {
@@ -310,7 +314,11 @@ export class BacktestService {
           const holdStop = peak * (1 - SIGNAL_HOLD_TRAIL_PCT);
 
           if (price <= holdStop) {
-            closePosition(i, price, price > entryPrice ? 'TRAILING' : 'STOP_LOSS');
+            closePosition(
+              i,
+              price,
+              price > entryPrice ? 'TRAILING' : 'STOP_LOSS'
+            );
           }
         } else {
           const target = this.indicatorsService.adaptiveTakeProfitLevel({
@@ -406,8 +414,6 @@ export class BacktestService {
 
   /** Compound a list of per-trade percentage returns into a total %. */
   private compound(returnPcts: number[]): number {
-    return (
-      (returnPcts.reduce((acc, r) => acc * (1 + r / 100), 1) - 1) * 100
-    );
+    return (returnPcts.reduce((acc, r) => acc * (1 + r / 100), 1) - 1) * 100;
   }
 }

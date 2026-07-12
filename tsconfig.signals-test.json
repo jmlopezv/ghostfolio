@@ -14,6 +14,7 @@
     "types": ["node"]
   },
   "include": [
+    "apps/api/src/services/signals/asset-detail.service.spec.ts",
     "apps/api/src/services/signals/buy-calibration.spec.ts",
     "apps/api/src/services/signals/fund-history.service.spec.ts",
     "apps/api/src/services/signals/market-regime.service.spec.ts",

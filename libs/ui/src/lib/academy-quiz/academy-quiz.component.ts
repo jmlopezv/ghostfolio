@@ -53,7 +53,9 @@ export class GfAcademyQuizComponent implements OnChanges {
   }
 
   protected resultFor(questionId: string) {
-    return this.result?.results.find((r) => r.questionId === questionId) ?? null;
+    return (
+      this.result?.results.find((r) => r.questionId === questionId) ?? null
+    );
   }
 
   protected get allAnswered(): boolean {

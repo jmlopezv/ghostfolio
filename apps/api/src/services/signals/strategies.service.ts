@@ -1,6 +1,8 @@
+import { holdingsOverlap } from '@ghostfolio/api/services/signals/asset-detail.service';
 import {
   SIGNAL_BUY_FEE_USD,
   SIGNAL_BUYZONE_CONVICTION_BONUS,
+  SIGNAL_FUND_OVERLAP_PENALTY_FLOOR,
   SIGNAL_HORIZON_DAYS,
   SIGNAL_MAX_ANNUAL_VOL,
   SIGNAL_STRATEGY_MAX_FEE_RATIO,
@@ -59,6 +61,18 @@ export interface FundCandidate {
   symbol: string;
   /** Annualized volatility % (from accumulated NAV history / Avanza facts). */
   annualVolPct?: number;
+  /**
+   * riskAdjustedMomentum after the graduated overlap penalty (see
+   * SIGNAL_FUND_OVERLAP_PENALTY_FLOOR) — the actual key recommendFunds ranks
+   * by. Not itself user-facing; overlapExposurePct is what explains it.
+   */
+  effectiveMomentum?: number;
+  /**
+   * 0-100: of the fund sleeve's value, how much already dollar-weighted-
+   * overlaps this fund's holdings. Set by recommendFunds for transparency
+   * (rationale text), not an input.
+   */
+  overlapExposurePct?: number;
   /** Morningstar rating 1-5 (Avanza fund guide). */
   rating?: number;
   /** 6-month return % (own history, Avanza fallback). */
@@ -268,7 +282,9 @@ export class StrategiesService {
       c.aboveSma200 ? 'uptrend' : c.isDowntrend ? 'downtrend' : 'sideways'
     );
     // News transparency (coverage parity): show n/a when uncovered.
-    parts.push(c.newsScore === null ? 'news n/a' : `news ${c.newsScore.toFixed(2)}`);
+    parts.push(
+      c.newsScore === null ? 'news n/a' : `news ${c.newsScore.toFixed(2)}`
+    );
 
     return parts.join(' · ');
   }
@@ -302,24 +318,44 @@ export class StrategiesService {
    * Picks up to `count` diversified funds: the best (lowest-fee) fund per
    * category, ordering categories by current under-weight (least owned value
    * first) then fee. Deterministic.
+   *
+   * Ranking within/across categories uses `effectiveMomentum` — real
+   * `riskAdjustedMomentum` (the "best buy" signal), graduated down by real
+   * per-fund holdings overlap against what's already owned, weighted by how
+   * much is actually invested in the overlapping position (see
+   * `applyFundOverlapPenalty`). `holdingsBySymbol`/`valueBySymbol` are
+   * optional so callers that don't have this data (and existing tests) get
+   * the prior category-label-only behavior unchanged (no overlap data ⇒ no
+   * penalty anywhere).
    */
   public recommendFunds({
     candidates,
     count,
-    valueByCategory
+    holdingsBySymbol = {},
+    valueByCategory,
+    valueBySymbol = {}
   }: {
     candidates: FundCandidate[];
     count: number;
+    holdingsBySymbol?: Record<string, { name: string; weight: number }[]>;
     valueByCategory: Record<string, number>;
+    valueBySymbol?: Record<string, number>;
   }): FundCandidate[] {
+    const withOverlap = this.applyFundOverlapPenalty(
+      candidates,
+      holdingsBySymbol,
+      valueBySymbol
+    );
+
     const bestPerCategory = new Map<string, FundCandidate>();
 
-    // Within a category, prefer the fund with the best risk-adjusted momentum
-    // (real performance data); fall back to the cheapest fee when neither
-    // candidate has metrics yet (e.g. Nordnet-branded funds building history).
+    // Within a category, prefer the fund with the best effective momentum
+    // (real performance data, overlap-adjusted); fall back to the cheapest
+    // fee when neither candidate has metrics yet (e.g. Nordnet-branded funds
+    // building history).
     const beats = (candidate: FundCandidate, previous: FundCandidate) => {
-      const a = candidate.riskAdjustedMomentum;
-      const b = previous.riskAdjustedMomentum;
+      const a = candidate.effectiveMomentum;
+      const b = previous.effectiveMomentum;
 
       if (a != null && b != null && a !== b) {
         return a > b;
@@ -336,7 +372,7 @@ export class StrategiesService {
       return candidate.feePct < previous.feePct;
     };
 
-    for (const candidate of candidates) {
+    for (const candidate of withOverlap) {
       const previous = bestPerCategory.get(candidate.category);
 
       if (!previous || beats(candidate, previous)) {
@@ -345,17 +381,97 @@ export class StrategiesService {
     }
 
     // Under-represented categories first (diversification), then the better
-    // data-driven pick.
+    // overlap-adjusted, data-driven pick.
     return [...bestPerCategory.values()]
       .sort(
         (a, b) =>
           (valueByCategory[a.category] ?? 0) -
             (valueByCategory[b.category] ?? 0) ||
-          (b.riskAdjustedMomentum ?? -Infinity) -
-            (a.riskAdjustedMomentum ?? -Infinity) ||
+          (b.effectiveMomentum ?? -Infinity) -
+            (a.effectiveMomentum ?? -Infinity) ||
           a.feePct - b.feePct
       )
       .slice(0, count);
+  }
+
+  /**
+   * Dollar-weighted holdings-overlap exposure: of the fund sleeve's total
+   * value, how much conceptually duplicates `candidateHoldings` — weighted by
+   * how much money is actually invested in each already-owned fund, not just
+   * how similar the holdings are (0-1). A candidate compared against its own
+   * existing position is just one term in this sum (100% overlap with
+   * itself), which is what makes topping up a SMALL existing holding barely
+   * count while a LARGE one counts a lot — no special-casing needed for
+   * "is this literally the same symbol."
+   */
+  private computeFundOverlapExposure(
+    candidateHoldings: { name: string; weight: number }[],
+    holdingsBySymbol: Record<string, { name: string; weight: number }[]>,
+    valueBySymbol: Record<string, number>,
+    totalFundSleeveValue: number
+  ): number {
+    if (!candidateHoldings?.length || totalFundSleeveValue <= 0) {
+      return 0;
+    }
+
+    let exposure = 0;
+
+    for (const [symbol, value] of Object.entries(valueBySymbol)) {
+      const ownedHoldings = holdingsBySymbol[symbol];
+
+      if (value <= 0 || !ownedHoldings?.length) {
+        continue;
+      }
+
+      const { overlapPct } = holdingsOverlap(candidateHoldings, ownedHoldings);
+      exposure += (overlapPct / 100) * value;
+    }
+
+    return Math.max(0, Math.min(1, exposure / totalFundSleeveValue));
+  }
+
+  /**
+   * Attaches `effectiveMomentum`/`overlapExposurePct` to every candidate: a
+   * CONTINUOUS overlap penalty (not a threshold cliff) so a fund overlapping
+   * a small existing position is barely penalized, while one overlapping a
+   * large existing position is penalized toward (never to)
+   * SIGNAL_FUND_OVERLAP_PENALTY_FLOOR — "de-prioritize, never exclude," same
+   * philosophy as `flagRedundancy` above, applied to real per-fund holdings
+   * overlap instead of a coarse category share. A no-op (effectiveMomentum ==
+   * riskAdjustedMomentum) when no holdings/value data is supplied.
+   */
+  private applyFundOverlapPenalty(
+    candidates: FundCandidate[],
+    holdingsBySymbol: Record<string, { name: string; weight: number }[]>,
+    valueBySymbol: Record<string, number>
+  ): FundCandidate[] {
+    const totalFundSleeveValue = Object.values(valueBySymbol).reduce(
+      (sum, value) => sum + value,
+      0
+    );
+
+    return candidates.map((c) => {
+      if (c.riskAdjustedMomentum == null || totalFundSleeveValue <= 0) {
+        return { ...c, effectiveMomentum: c.riskAdjustedMomentum };
+      }
+
+      const exposure = this.computeFundOverlapExposure(
+        holdingsBySymbol[c.symbol] ?? [],
+        holdingsBySymbol,
+        valueBySymbol,
+        totalFundSleeveValue
+      );
+      const overlapMultiplier = Math.max(
+        SIGNAL_FUND_OVERLAP_PENALTY_FLOOR,
+        1 - exposure
+      );
+
+      return {
+        ...c,
+        effectiveMomentum: c.riskAdjustedMomentum * overlapMultiplier,
+        overlapExposurePct: Math.round(exposure * 100 * 10) / 10
+      };
+    });
   }
 
   /** Splits a cash amount evenly across recommended funds (funds are fractional). */
@@ -369,10 +485,7 @@ export class StrategiesService {
   }
 
   /** Whole-share stock leg sized to a budget slice; flat fee when any shares buy. */
-  private stockLeg(
-    candidate: StrategyCandidate,
-    budget: number
-  ): StrategyLeg {
+  private stockLeg(candidate: StrategyCandidate, budget: number): StrategyLeg {
     const price = candidate.priceInBase;
     const shares = price > 0 ? Math.floor(budget / price) : 0;
     const fee = shares > 0 ? SIGNAL_BUY_FEE_USD : 0;

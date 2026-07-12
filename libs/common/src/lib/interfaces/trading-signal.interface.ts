@@ -130,15 +130,29 @@ export interface SimulatedTrade {
   assumedNotionalUsd: number;
   buyDate: string;
   buyPrice: number;
+  /** Conviction (0-100) computed at BUY time (the SignalLog row's `conviction`). */
+  convictionAtBuy?: number;
   currency?: string;
   /** Live price at read time — OPEN trades only, lets the UI show where price sits between stopLoss and takeProfit. */
   currentPrice?: number;
   dataSource: DataSource;
-  effectiveAnnualRatePct: number;
-  grossReturnPct: number;
+  /**
+   * Undefined only when a current/sell price genuinely isn't known yet (a
+   * live-quote hiccup, or a rare data gap on the matched SELL row) — the
+   * trade itself is never dropped for this; every logged BUY always shows a
+   * row, just without a return figure until a price is known.
+   */
+  effectiveAnnualRatePct?: number;
+  grossReturnPct?: number;
   holdingDays: number;
   name?: string;
-  netReturnPct: number;
+  netReturnPct?: number;
+  /** Analytic TERMINAL reach-probability (0-1) at BUY time (the SignalLog row's `reachProbability`). */
+  reachProbabilityAtBuy?: number;
+  /** Composite 0-100 RSI at BUY time (the SignalLog row's `rsi`). */
+  rsiAtBuy?: number;
+  /** Composite 0-100 buy-attractiveness score at BUY time (the SignalLog row's `score`). */
+  scoreAtBuy?: number;
   sellDate?: string;
   sellPrice?: number;
   /** BUY archetype the trade opened under (DIP = uptrend dip, REVERSAL = bear-market). */
@@ -258,6 +272,8 @@ export interface FundPick {
   currency: string;
   feePct: number;
   name: string;
+  /** 0-100: how much of the fund sleeve's value already dollar-weighted-overlaps this fund's holdings (see recommendFunds). Undefined/0 = no meaningful overlap. */
+  overlapExposurePct?: number;
   symbol: string;
 }
 
@@ -321,6 +337,129 @@ export interface FundMetric {
 export interface FundMetricsResponse {
   funds: FundMetric[];
   generatedAt: string;
+}
+
+/** One constituent of a fund/ETF (top holdings). */
+export interface AssetHolding {
+  name: string;
+  /** Portfolio weight as a fraction (0-1). */
+  weight: number;
+  /** Ticker where known (Yahoo ETFs); absent for Nordnet funds. */
+  symbol?: string;
+}
+
+/**
+ * Derived Morningstar-style box for an ETF (from Yahoo equity-holdings inputs).
+ * `size` × `style` locate the highlighted 3×3 cell; funds carry only
+ * category + rating.
+ */
+export interface AssetStyleBox {
+  category?: string;
+  /**
+   * Real annual fee, from Yahoo Finance's own "Annual Report Expense Ratio
+   * (net)" (e.g. 0.35 = 0.35%/year) — fetched from the same Profile page as
+   * the Morningstar Style Box, so it's always Yahoo's real published number,
+   * not a hand-curated guess.
+   */
+  expenseRatioPct?: number;
+  /**
+   * Median market cap of the fund's holdings. Yahoo's own aggregate field is
+   * essentially never populated for European-listed ETFs (confirmed by live
+   * audit) — genuinely absent for most ETFs in that case, not derived from
+   * anything else (a constituent-based estimate was tried and reverted: it
+   * requires converting each holding's own-currency market cap and is
+   * structurally biased toward the fund's largest names since only the
+   * top 10 holdings are ever available — see `getStyleBox`'s comments).
+   */
+  medianMarketCap?: number;
+  /** Morningstar overall rating 1-5. */
+  morningStarRating?: number;
+  priceToBook?: number;
+  priceToCashflow?: number;
+  priceToEarnings?: number;
+  priceToSales?: number;
+  size?: 'SMALL' | 'MID' | 'LARGE';
+  style?: 'VALUE' | 'BLEND' | 'GROWTH';
+  /**
+   * 'MORNINGSTAR' when `size`/`style` are the real classification decoded
+   * from Yahoo Finance's own Profile page (the exact cell Yahoo itself
+   * shows); 'ESTIMATED' when Yahoo had no classification for this listing
+   * and it was derived from raw valuation ratios instead (see
+   * `classifyStyleBox`) — shown in the UI so it's never presented as more
+   * authoritative than it is.
+   */
+  sizeStyleSource?: 'MORNINGSTAR' | 'ESTIMATED';
+  threeYearEarningsGrowth?: number;
+  /** Asset-mix percentages (0-100). */
+  bondPct?: number;
+  cashPct?: number;
+  otherPct?: number;
+  stockPct?: number;
+}
+
+/** Holdings-overlap of the selected asset with one other watchlist fund/ETF. */
+export interface AssetOverlap {
+  assetSubClass?: string;
+  dataSource: DataSource;
+  name: string;
+  /** Shared holdings-weight overlap, 0-100. */
+  overlapPct: number;
+  owned: boolean;
+  /**
+   * Of this overlap's shared weight (from the selected asset's side), the %
+   * that belongs to holding names the user already owns directly as
+   * individual stocks elsewhere in their portfolio — 0-100.
+   */
+  ownedSharedPct: number;
+  /** Number of holding names in common (length of sharedHoldings' full set). */
+  sharedCount: number;
+  /** Names of the top shared holdings (for the tooltip). */
+  sharedHoldings: string[];
+  symbol: string;
+}
+
+/** One trailing period return, e.g. { period: '1W', pct: -0.6 }. */
+export interface AssetPeriodReturn {
+  period: '1D' | '1W' | '1M' | '3M' | '6M' | '1Y';
+  pct: number;
+}
+
+/**
+ * Full ETF↔ETF holdings-overlap matrix — every watchlist ETF against every
+ * other one, not just a single selected asset vs. the rest. `matrix[i][j]`
+ * is the overlap % (0-100) between `symbols[i]` and `symbols[j]`; symmetric,
+ * diagonal is 100.
+ */
+export interface CorrelationMatrixResponse {
+  generatedAt: string;
+  matrix: number[][];
+  /**
+   * `owned` reflects current net activity quantities (netQuantity > 0) at
+   * request time — always live, updates automatically as positions are
+   * bought/closed, no separate bookkeeping needed.
+   */
+  symbols: {
+    dataSource: DataSource;
+    name: string;
+    owned: boolean;
+    symbol: string;
+  }[];
+}
+
+export interface AssetDetailResponse {
+  assetSubClass?: string;
+  currency?: string;
+  dataSource: DataSource;
+  holdings: AssetHolding[];
+  name: string;
+  /** Every other watchlist fund/ETF, sorted by overlap (most similar first). */
+  overlaps: AssetOverlap[];
+  owned: boolean;
+  /** Trailing period returns (1D/1W/1M/3M/6M/1Y) where computable. */
+  returns: AssetPeriodReturn[];
+  sectors: { name: string; weight: number }[];
+  styleBox?: AssetStyleBox;
+  symbol: string;
 }
 
 export interface BacktestSummary {

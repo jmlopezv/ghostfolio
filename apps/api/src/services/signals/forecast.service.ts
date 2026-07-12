@@ -32,7 +32,8 @@ export class ForecastService {
       return 0;
     }
 
-    const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+    const mean =
+      returns.reduce((sum, value) => sum + value, 0) / returns.length;
 
     // Clamp daily drift to +/- 0.2% to keep forecasts conservative.
     return Math.max(-0.002, Math.min(0.002, mean));
@@ -108,7 +109,7 @@ export class ForecastService {
       for (let day = 0; day < horizonDays; day++) {
         const z = this.sampleStandardNormal();
         currentPrice *= Math.exp(
-          (dailyDrift - 0.5 * dailyVolatility ** 2) + dailyVolatility * z
+          dailyDrift - 0.5 * dailyVolatility ** 2 + dailyVolatility * z
         );
 
         if (up ? currentPrice >= target : currentPrice <= target) {
@@ -189,8 +190,7 @@ export class ForecastService {
     }
 
     // z = (ln(target/price) − drift·h) / (vol·√h); P(end ≥ target) = 1 − Φ(z).
-    const z =
-      (Math.log(target / price) - dailyDrift * horizonDays) / sigma;
+    const z = (Math.log(target / price) - dailyDrift * horizonDays) / sigma;
     const probAtOrAbove = 1 - this.standardNormalCdf(z);
 
     return target >= price ? probAtOrAbove : 1 - probAtOrAbove;
@@ -213,8 +213,7 @@ export class ForecastService {
     const t = 1 / (1 + 0.3275911 * ax);
     const y =
       1 -
-      ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t -
-        0.284496736) *
+      ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) *
         t +
         0.254829592) *
         t *

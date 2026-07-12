@@ -4,27 +4,30 @@ import { WatchlistModule } from '@ghostfolio/api/app/endpoints/watchlist/watchli
 import { RedisCacheModule } from '@ghostfolio/api/app/redis-cache/redis-cache.module';
 import { DataProviderModule } from '@ghostfolio/api/services/data-provider/data-provider.module';
 import { ExchangeRateDataModule } from '@ghostfolio/api/services/exchange-rate-data/exchange-rate-data.module';
-import { BacktestService } from '@ghostfolio/api/services/signals/backtest.service';
-import { ForecastService } from '@ghostfolio/api/services/signals/forecast.service';
-import { FundamentalsService } from '@ghostfolio/api/services/signals/fundamentals.service';
-import { FundDataService } from '@ghostfolio/api/services/signals/fund-data.service';
-import { FundHistoryService } from '@ghostfolio/api/services/signals/fund-history.service';
-import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
-import { MarketRegimeService } from '@ghostfolio/api/services/signals/market-regime.service';
-import { PropertyModule } from '@ghostfolio/api/services/property/property.module';
 import { MarketDataModule } from '@ghostfolio/api/services/market-data/market-data.module';
 import { NewsSentimentModule } from '@ghostfolio/api/services/news-sentiment/news-sentiment.module';
-import { OhlcService } from '@ghostfolio/api/services/signals/ohlc.service';
 import { OllamaModule } from '@ghostfolio/api/services/ollama/ollama.module';
 import { PrismaModule } from '@ghostfolio/api/services/prisma/prisma.module';
+import { PropertyModule } from '@ghostfolio/api/services/property/property.module';
+import { AssetDetailService } from '@ghostfolio/api/services/signals/asset-detail.service';
+import { BacktestService } from '@ghostfolio/api/services/signals/backtest.service';
+import { ForecastService } from '@ghostfolio/api/services/signals/forecast.service';
+import { FundDataService } from '@ghostfolio/api/services/signals/fund-data.service';
+import { FundHistoryService } from '@ghostfolio/api/services/signals/fund-history.service';
+import { FundamentalsService } from '@ghostfolio/api/services/signals/fundamentals.service';
+import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
+import { MarketRegimeService } from '@ghostfolio/api/services/signals/market-regime.service';
+import { OhlcService } from '@ghostfolio/api/services/signals/ohlc.service';
 import { SignalsService } from '@ghostfolio/api/services/signals/signals.service';
 import { StrategiesService } from '@ghostfolio/api/services/signals/strategies.service';
+import { SymbolProfileModule } from '@ghostfolio/api/services/symbol-profile/symbol-profile.module';
 import { TelegramBotModule } from '@ghostfolio/api/services/telegram-bot/telegram-bot.module';
 
 import { Module } from '@nestjs/common';
 
 @Module({
   exports: [
+    AssetDetailService,
     BacktestService,
     ForecastService,
     FundHistoryService,
@@ -42,10 +45,12 @@ import { Module } from '@nestjs/common';
     PrismaModule,
     PropertyModule,
     RedisCacheModule,
+    SymbolProfileModule,
     TelegramBotModule,
     WatchlistModule
   ],
   providers: [
+    AssetDetailService,
     BacktestService,
     ForecastService,
     FundamentalsService,

@@ -28,11 +28,11 @@ import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { DeviceDetectorService } from 'ngx-device-detector';
 import { forkJoin, timer } from 'rxjs';
 
-/** Refresh the live watchlist metrics (score/RSI/reach/...) every 30 minutes. */
-const WATCHLIST_METRICS_REFRESH_MS = 30 * 60 * 1000;
-
 import { GfCreateWatchlistItemDialogComponent } from './create-watchlist-item-dialog/create-watchlist-item-dialog.component';
 import { CreateWatchlistItemDialogParams } from './create-watchlist-item-dialog/interfaces/interfaces';
+
+/** Refresh the live watchlist metrics (score/RSI/reach/...) every 30 minutes. */
+const WATCHLIST_METRICS_REFRESH_MS = 30 * 60 * 1000;
 
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -135,8 +135,7 @@ export class GfHomeWatchlistComponent implements OnInit {
 
   protected get etfCount(): number {
     return (
-      this.watchlist?.filter((item) => item.assetSubClass === 'ETF').length ??
-      0
+      this.watchlist?.filter((item) => item.assetSubClass === 'ETF').length ?? 0
     );
   }
 
@@ -146,8 +145,8 @@ export class GfHomeWatchlistComponent implements OnInit {
 
   protected get stockCount(): number {
     return (
-      this.watchlist?.filter((item) => item.assetSubClass === 'STOCK')
-        .length ?? 0
+      this.watchlist?.filter((item) => item.assetSubClass === 'STOCK').length ??
+      0
     );
   }
 
@@ -161,9 +160,7 @@ export class GfHomeWatchlistComponent implements OnInit {
   // Mutual funds are MANUAL-datasource assets (Nordnet/Avanza-priced), some
   // older profiles lack assetSubClass — dataSource is the robust marker.
   private isFund(item: Benchmark): boolean {
-    return (
-      item.dataSource === 'MANUAL' || item.assetSubClass === 'MUTUALFUND'
-    );
+    return item.dataSource === 'MANUAL' || item.assetSubClass === 'MUTUALFUND';
   }
 
   protected onWatchlistItemDeleted({

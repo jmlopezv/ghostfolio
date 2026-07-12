@@ -1,5 +1,9 @@
 import { UserService } from '@ghostfolio/client/services/user/user.service';
-import { SignalLogEntry, SignalLogResponse, User } from '@ghostfolio/common/interfaces';
+import {
+  SignalLogEntry,
+  SignalLogResponse,
+  User
+} from '@ghostfolio/common/interfaces';
 import { DataService } from '@ghostfolio/ui/services';
 
 import { CommonModule } from '@angular/common';
@@ -175,7 +179,8 @@ export class GfHomeAnalyticsComponent implements OnInit {
   }
 
   protected onSelectCategory(category: string | null) {
-    this.selectedCategory = this.selectedCategory === category ? null : category;
+    this.selectedCategory =
+      this.selectedCategory === category ? null : category;
     this.dataSource.data = this.filteredEntries;
     this.changeDetectorRef.markForCheck();
   }

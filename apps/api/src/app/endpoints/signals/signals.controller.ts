@@ -1,11 +1,14 @@
+import { AssetDetailService } from '@ghostfolio/api/services/signals/asset-detail.service';
 import { BacktestService } from '@ghostfolio/api/services/signals/backtest.service';
 import { FundHistoryService } from '@ghostfolio/api/services/signals/fund-history.service';
 import { SignalsService } from '@ghostfolio/api/services/signals/signals.service';
 import { SignalExitMode } from '@ghostfolio/common/config';
 import { UpdateSignalConfigDto } from '@ghostfolio/common/dtos';
 import {
+  AssetDetailResponse,
   BacktestAllResponse,
   BacktestResult,
+  CorrelationMatrixResponse,
   FundMetricsResponse,
   FundRecommendationResponse,
   InvestmentStrategiesResponse,
@@ -40,6 +43,7 @@ function parseExitMode(value?: string): SignalExitMode | undefined {
 @Controller('signals')
 export class SignalsController {
   public constructor(
+    private readonly assetDetailService: AssetDetailService,
     private readonly backtestService: BacktestService,
     private readonly fundHistoryService: FundHistoryService,
     @Inject(REQUEST) private readonly request: RequestWithUser,
@@ -100,6 +104,25 @@ export class SignalsController {
   @UseGuards(AuthGuard('jwt'))
   public async getFundMetrics(): Promise<FundMetricsResponse> {
     return this.signalsService.getFundMetrics(this.request.user.id);
+  }
+
+  @Get('asset-detail/:dataSource/:symbol')
+  @UseGuards(AuthGuard('jwt'))
+  public async getAssetDetail(
+    @Param('dataSource') dataSource: DataSource,
+    @Param('symbol') symbol: string
+  ): Promise<AssetDetailResponse> {
+    return this.assetDetailService.getAssetDetail(
+      this.request.user.id,
+      dataSource,
+      symbol
+    );
+  }
+
+  @Get('correlation-matrix')
+  @UseGuards(AuthGuard('jwt'))
+  public async getCorrelationMatrix(): Promise<CorrelationMatrixResponse> {
+    return this.assetDetailService.getCorrelationMatrix(this.request.user.id);
   }
 
   @Post('funds/history/sync')

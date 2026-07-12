@@ -210,13 +210,7 @@ export class IndicatorsService {
       const prev = bars[i - 1];
       const { close, high, low, open } = bars[i];
 
-      if (
-        open > 0 &&
-        prev.close > 0 &&
-        close > 0 &&
-        high > 0 &&
-        low > 0
-      ) {
+      if (open > 0 && prev.close > 0 && close > 0 && high > 0 && low > 0) {
         overnight.push(Math.log(open / prev.close));
         openClose.push(Math.log(close / open));
         // Rogers-Satchell term.
@@ -244,9 +238,7 @@ export class IndicatorsService {
     const varRs = rsSum / rsCount;
     const k = 0.34 / (1.34 + (n + 1) / (n - 1));
 
-    return Math.sqrt(
-      Math.max(0, varOvernight + k * varOpen + (1 - k) * varRs)
-    );
+    return Math.sqrt(Math.max(0, varOvernight + k * varOpen + (1 - k) * varRs));
   }
 
   /** Standard deviation of daily returns (daily volatility). */
@@ -413,9 +405,7 @@ export class IndicatorsService {
       return false;
     }
 
-    return (
-      snapshot.sma50 < snapshot.sma200 && snapshot.price < snapshot.sma200
-    );
+    return snapshot.sma50 < snapshot.sma200 && snapshot.price < snapshot.sma200;
   }
 
   /**

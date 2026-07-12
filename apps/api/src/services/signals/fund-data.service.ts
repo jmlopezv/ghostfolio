@@ -2,8 +2,7 @@ import { ScraperConfiguration } from '@ghostfolio/common/interfaces';
 
 import { Injectable, Logger } from '@nestjs/common';
 
-const AVANZA_SEARCH_URL =
-  'https://www.avanza.se/_api/search/filtered-search';
+const AVANZA_SEARCH_URL = 'https://www.avanza.se/_api/search/filtered-search';
 const AVANZA_FUND_GUIDE = 'https://www.avanza.se/_api/fund-guide/guide';
 const NORDNET_BASE_URL = 'https://www.nordnet.se';
 // Matches the "NAV (6 juli) 841,65 SEK" label/value pair on Nordnet's public
@@ -89,7 +88,10 @@ export class FundDataService {
    * the seed NAV; the user updates it periodically — last resort only.
    */
   public buildSeedScraperConfiguration(seedNav: number): ScraperConfiguration {
-    return { defaultMarketPrice: seedNav, locale: 'sv-SE' } as ScraperConfiguration;
+    return {
+      defaultMarketPrice: seedNav,
+      locale: 'sv-SE'
+    } as ScraperConfiguration;
   }
 
   private async searchFund(query: string): Promise<string | null> {
@@ -109,7 +111,8 @@ export class FundDataService {
 
       const hits: any[] = response?.hits ?? [];
       const fund = hits.find(
-        (hit) => hit?.type === 'FUND' && hit?.orderBookId && hit?.buyable !== false
+        (hit) =>
+          hit?.type === 'FUND' && hit?.orderBookId && hit?.buyable !== false
       );
 
       return fund?.orderBookId ? `${fund.orderBookId}` : null;
@@ -120,10 +123,7 @@ export class FundDataService {
     }
   }
 
-  private async fetchJson(
-    url: string,
-    init: RequestInit
-  ): Promise<any | null> {
+  private async fetchJson(url: string, init: RequestInit): Promise<any | null> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 

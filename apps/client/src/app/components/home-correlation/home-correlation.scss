@@ -1,0 +1,86 @@
+:host {
+  display: block;
+
+  .gf-matrix-scroll {
+    max-height: 75vh;
+    overflow: auto;
+    border: 1px solid rgba(var(--palette-foreground-base), 0.12);
+    border-radius: 0.25rem;
+  }
+
+  .gf-matrix-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.7rem;
+    white-space: nowrap;
+  }
+
+  .gf-matrix-corner,
+  .gf-matrix-col-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: rgb(var(--palette-background-card, 255, 255, 255));
+  }
+
+  .gf-matrix-corner {
+    left: 0;
+    z-index: 3;
+  }
+
+  .gf-matrix-col-header {
+    padding: 0.35rem 0.25rem;
+    text-align: center;
+    font-weight: 400;
+    border-bottom: 1px solid rgba(var(--palette-foreground-base), 0.12);
+    min-width: 3.25rem;
+  }
+
+  .gf-matrix-row-header {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: rgb(var(--palette-background-card, 255, 255, 255));
+    padding: 0.25rem 0.5rem;
+    text-align: left;
+    font-weight: 400;
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    border-right: 1px solid rgba(var(--palette-foreground-base), 0.12);
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  .gf-matrix-cell {
+    width: 3.25rem;
+    height: 1.75rem;
+    text-align: center;
+    cursor: pointer;
+    background: var(--gf-theme-primary-500, #36cfcc);
+    border: 1px solid rgba(var(--palette-foreground-base), 0.06);
+  }
+
+  .gf-matrix-diagonal {
+    background: rgba(var(--palette-foreground-base), 0.06);
+    cursor: default;
+  }
+
+  // Owned ETFs — reflects current net activity quantities live, so this
+  // updates on its own as positions are bought/closed (no manual upkeep).
+  .gf-matrix-row-header.gf-matrix-owned,
+  .gf-matrix-col-header.gf-matrix-owned {
+    background: rgba(255, 193, 7, 0.35);
+    font-weight: 600;
+  }
+
+  .gf-matrix-owned-legend {
+    background: rgba(255, 193, 7, 0.35);
+    padding: 0 0.25rem;
+    border-radius: 0.15rem;
+    font-weight: 600;
+  }
+}

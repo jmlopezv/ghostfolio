@@ -36,6 +36,7 @@ global.after = after;
 global.expect = expect;
 
 // Load the compiled spec files
+require('./dist-test-signals/apps/api/src/services/signals/asset-detail.service.spec.js');
 require('./dist-test-signals/apps/api/src/services/signals/buy-calibration.spec.js');
 require('./dist-test-signals/apps/api/src/services/signals/fund-history.service.spec.js');
 require('./dist-test-signals/apps/api/src/services/signals/market-regime.service.spec.js');

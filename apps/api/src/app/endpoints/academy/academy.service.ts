@@ -1,7 +1,7 @@
-import { NewsSentimentService } from '@ghostfolio/api/services/news-sentiment/news-sentiment.service';
-import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
 import { MarketDataService } from '@ghostfolio/api/services/market-data/market-data.service';
+import { NewsSentimentService } from '@ghostfolio/api/services/news-sentiment/news-sentiment.service';
 import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
+import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
 import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
 import { findAcademyLesson } from '@ghostfolio/common/academy-curriculum';
 import {

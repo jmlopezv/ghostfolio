@@ -34,10 +34,7 @@ describe('IndicatorsService', () => {
 
   describe('bollinger', () => {
     it('returns pctB of 0.5 for a flat series', () => {
-      const { lower, pctB, upper } = service.bollinger(
-        Array(20).fill(100),
-        20
-      );
+      const { lower, pctB, upper } = service.bollinger(Array(20).fill(100), 20);
 
       expect(lower).toBe(100);
       expect(upper).toBe(100);

@@ -71,18 +71,15 @@ export const SIGNAL_METRIC_DEFINITIONS: SignalMetricDefinition[] = [
     label: 'SMA 50 / 200 (trend)',
     summary:
       'Simple moving averages over 50 and 200 days — the medium- and long-term trend reference.',
-    formula:
-      'SMAₙ = (1/n) · Σ closeᵢ  for the last n closes',
+    formula: 'SMAₙ = (1/n) · Σ closeᵢ  for the last n closes',
     notes:
       'price > SMA200 = long-term uptrend. A confirmed downtrend is SMA50 < SMA200 AND price < SMA200 (suppresses the DIP buy / "falling knife").'
   },
   {
     id: 'momentum',
     label: 'Momentum (3M / 12M)',
-    summary:
-      'Trailing price return over ~63 (3M) and ~252 (12M) trading days.',
-    formula:
-      'momentumₙ = price_today / price_{t−n} − 1',
+    summary: 'Trailing price return over ~63 (3M) and ~252 (12M) trading days.',
+    formula: 'momentumₙ = price_today / price_{t−n} − 1',
     notes:
       'Positive long-horizon momentum is a tailwind in the composite score; deeply negative 12M momentum is what keeps beaten-down names out of the DIP path.'
   },
@@ -167,8 +164,7 @@ export const SIGNAL_METRIC_DEFINITIONS: SignalMetricDefinition[] = [
   {
     id: 'eligibility-gates',
     label: 'Eligibility gates',
-    summary:
-      'The filters a candidate must pass before it can be ranked by EV.',
+    summary: 'The filters a candidate must pass before it can be ranked by EV.',
     formula:
       'pass = score ≥ 45\n' +
       '  AND (not downtrend OR confirmed REVERSAL)\n' +
@@ -202,8 +198,7 @@ export const SIGNAL_METRIC_DEFINITIONS: SignalMetricDefinition[] = [
   {
     id: 'buy-dip',
     label: 'BUY — DIP (uptrend)',
-    summary:
-      'The default buy: a confirmed dip inside an uptrend.',
+    summary: 'The default buy: a confirmed dip inside an uptrend.',
     formula:
       'price ≤ buyLevel AND not downtrend AND score ≥ 55\n' +
       'AND up-day (price > prev close) AND newsScore ≥ −0.2',

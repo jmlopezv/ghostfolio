@@ -1,0 +1,80 @@
+<div class="container-fluid">
+  <div class="row">
+    <div class="col">
+      <h1 class="h3 mb-3" i18n>Correlation matrix</h1>
+
+      <p class="text-muted small mb-4" i18n>
+        Every watchlist ETF against every other one, by holdings overlap (not
+        statistical price correlation) — the darker the cell, the more of their
+        top holdings they share. Click a name or a cell to open that ETF's
+        detail dialog.
+        <span class="gf-matrix-owned-legend">Yellow</span> marks ETFs you
+        currently own — updates automatically as you buy or close positions.
+      </p>
+
+      @if (isLoading) {
+        <ngx-skeleton-loader
+          animation="pulse"
+          [theme]="{ height: '30rem', width: '100%' }"
+        />
+      } @else if (!symbols.length) {
+        <p class="text-muted" i18n>No ETFs found in your watchlist yet.</p>
+      } @else {
+        <div class="gf-matrix-scroll">
+          <table class="gf-matrix-table">
+            <thead>
+              <tr>
+                <th class="gf-matrix-corner"></th>
+                @for (col of symbols; track col.symbol) {
+                  <th
+                    class="gf-matrix-col-header"
+                    [class.gf-matrix-owned]="col.owned"
+                  >
+                    <span [title]="col.name + (col.owned ? ' (owned)' : '')">{{
+                      col.symbol
+                    }}</span>
+                  </th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of symbols; track row.symbol; let i = $index) {
+                <tr>
+                  <th
+                    class="gf-matrix-row-header"
+                    [class.gf-matrix-owned]="row.owned"
+                    [title]="row.name + (row.owned ? ' (owned)' : '')"
+                    (click)="onOpenAsset(row.dataSource, row.symbol)"
+                  >
+                    {{ row.name }}
+                  </th>
+                  @for (col of symbols; track col.symbol; let j = $index) {
+                    @if (i === j) {
+                      <td class="gf-matrix-cell gf-matrix-diagonal"></td>
+                    } @else {
+                      <td
+                        class="gf-matrix-cell"
+                        [style.opacity]="intensity(matrix[i][j])"
+                        [title]="
+                          row.name +
+                          ' vs ' +
+                          col.name +
+                          ': ' +
+                          matrix[i][j] +
+                          '%'
+                        "
+                        (click)="onOpenAsset(row.dataSource, row.symbol)"
+                      >
+                        {{ matrix[i][j] | number: '1.0-0' }}
+                      </td>
+                    }
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+  </div>
+</div>

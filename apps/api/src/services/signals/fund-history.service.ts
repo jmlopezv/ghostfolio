@@ -114,6 +114,76 @@ export interface NordnetFundDetails {
 }
 
 /**
+ * Extracts top-10 holdings from the dehydrated state's `"holdings":[...]`
+ * array. Each holding object's boundaries are found by tracking `{`/`}`
+ * brace depth — NOT a fixed-width lookahead. A real holding object nests a
+ * nested `"market":{"name":"Nasdaq",...}` sub-object after a (sometimes long)
+ * `logoUrl`; a fixed-width window can walk past the holding's own top-level
+ * `"name"` and capture the nested market/segment name instead (this is
+ * exactly what happened in practice — every holding came back as "Nasdaq").
+ * Scoping the name/weight regex to each object's own bounded substring
+ * removes that class of bug entirely, since the holding's own fields always
+ * textually precede the nested `market` object.
+ */
+export function extractHoldings(
+  html: string
+): { name: string; weight: number }[] {
+  const holdings: { name: string; weight: number }[] = [];
+  const holdingsKey = html.indexOf('\\"holdings\\":[');
+
+  if (holdingsKey < 0) {
+    return holdings;
+  }
+
+  const arrayStart = html.indexOf('[', holdingsKey);
+
+  if (arrayStart < 0) {
+    return holdings;
+  }
+
+  const end = Math.min(html.length, arrayStart + 20000);
+  let depth = 0;
+  let objectStart = -1;
+
+  for (let i = arrayStart; i < end && holdings.length < 10; i++) {
+    const ch = html[i];
+
+    if (ch === '{') {
+      if (depth === 0) {
+        objectStart = i;
+      }
+
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+
+      if (depth === 0 && objectStart >= 0) {
+        const holdingObject = html.slice(objectStart, i + 1);
+        const nameMatch = /\\"name\\":\\"([^"\\]+)\\"/.exec(holdingObject);
+        const weightMatch = /\\"weight\\":([0-9.]+)/.exec(holdingObject);
+
+        if (nameMatch && weightMatch) {
+          const weight = parseFloat(weightMatch[1]);
+
+          if (Number.isFinite(weight) && weight > 0) {
+            holdings.push({
+              name: nameMatch[1],
+              weight: Math.round((weight / 100) * 10000) / 10000
+            });
+          }
+        }
+
+        objectStart = -1;
+      }
+    } else if (depth === 0 && ch === ']') {
+      break;
+    }
+  }
+
+  return holdings;
+}
+
+/**
  * Parses the server-rendered "Detaljer" facts off a Nordnet fund page
  * (`{nordnetUrl}?details`) — this works anonymously and covers every fund
  * Nordnet sells, including Nordnet's own funds Avanza can't list. The number
@@ -121,9 +191,9 @@ export interface NordnetFundDetails {
  */
 export function parseNordnetFundDetails(html: string): NordnetFundDetails {
   const cellAfter = (label: string) => {
-    const match = html.match(
-      new RegExp(`rowheader">${label}</span>[\\s\\S]{0,800}?role="cell"[^>]*>([^<]+)`)
-    );
+    const match = new RegExp(
+      `rowheader">${label}</span>[\\s\\S]{0,800}?role="cell"[^>]*>([^<]+)`
+    ).exec(html);
 
     return match?.[1]?.trim();
   };
@@ -139,7 +209,7 @@ export function parseNordnetFundDetails(html: string): NordnetFundDetails {
     : undefined;
 
   // Morningstar rating from the embedded schema.org JSON-LD.
-  const ratingMatch = html.match(/"ratingValue":"(\d)"/);
+  const ratingMatch = /"ratingValue":"(\d)"/.exec(html);
 
   // The page ships a dehydrated JSON state (quotes escaped as \") whose FIRST
   // navInfo block belongs to the page's own fund: the latest official NAV and
@@ -148,9 +218,10 @@ export function parseNordnetFundDetails(html: string): NordnetFundDetails {
   let latestNav: { date: string; value: number } | undefined;
   let returns: { development: number; period: string }[] | undefined;
 
-  const navMatch = html.match(
-    /\\"latestNav\\":\{\\"date\\":\\"([0-9-]+)\\",\\"value\\":([0-9.]+)/
-  );
+  const navMatch =
+    /\\"latestNav\\":\{\\"date\\":\\"([0-9-]+)\\",\\"value\\":([0-9.]+)/.exec(
+      html
+    );
 
   if (navMatch) {
     const value = parseFloat(navMatch[2]);
@@ -161,9 +232,8 @@ export function parseNordnetFundDetails(html: string): NordnetFundDetails {
   }
 
   // orderBook UUID — the identifier Nordnet's price-time-series CDN keys on.
-  const orderbookMatch = html.match(
-    /\\"orderBook\\":\{\\"id\\":\\"([0-9a-f-]{36})\\"/
-  );
+  const orderbookMatch =
+    /\\"orderBook\\":\{\\"id\\":\\"([0-9a-f-]{36})\\"/.exec(html);
   const orderbookId = orderbookMatch?.[1];
 
   const returnsStart = html.indexOf('\\"returns\\":[');
@@ -189,9 +259,7 @@ export function parseNordnetFundDetails(html: string): NordnetFundDetails {
   // Årlig avgift (ongoing charge). The page's own fund is the FIRST fees block
   // in the dehydrated state: {managementFee, ongoingCost, totalFee}.
   const numberAfter = (key: string): number | undefined => {
-    const match = html.match(
-      new RegExp(`\\\\"${key}\\\\":(-?[0-9.]+)`)
-    );
+    const match = new RegExp(`\\\\"${key}\\\\":(-?[0-9.]+)`).exec(html);
 
     if (!match) {
       return undefined;
@@ -207,8 +275,8 @@ export function parseNordnetFundDetails(html: string): NordnetFundDetails {
   // Fall back to the dehydrated-state fees block (whose FIRST occurrence can be
   // a 0% platform-fee block rather than the fund's, so it's the weaker source).
   let feePct: number | undefined;
-  const renderedFee = html.match(
-    /rlig avgift<\/span><span[^>]*>([0-9]+,[0-9]+)/
+  const renderedFee = /rlig avgift<\/span><span[^>]*>([0-9]+,[0-9]+)/.exec(
+    html
   );
 
   if (renderedFee) {
@@ -220,7 +288,7 @@ export function parseNordnetFundDetails(html: string): NordnetFundDetails {
   }
 
   if (feePct == null) {
-    const feeBlock = html.match(/\\"fees\\":\{[^}]*?\\"totalFee\\":([0-9.]+)/);
+    const feeBlock = /\\"fees\\":\{[^}]*?\\"totalFee\\":([0-9.]+)/.exec(html);
 
     if (feeBlock && Number.isFinite(parseFloat(feeBlock[1]))) {
       feePct = parseFloat(feeBlock[1]);
@@ -229,24 +297,7 @@ export function parseNordnetFundDetails(html: string): NordnetFundDetails {
 
   // Top holdings from the dehydrated state's holdings array: {name, weight}
   // where weight is already a percent (e.g. 5.53). Store as a fraction.
-  const holdings: { name: string; weight: number }[] = [];
-  const holdingsStart = html.indexOf('\\"holdings\\":[');
-
-  if (holdingsStart >= 0) {
-    const window = html.slice(holdingsStart, holdingsStart + 6000);
-    for (const match of window.matchAll(
-      /\\"name\\":\\"([^"\\]+)\\"[\s\S]{0,300}?\\"weight\\":([0-9.]+)/g
-    )) {
-      const weight = parseFloat(match[2]);
-
-      if (holdings.length < 10 && Number.isFinite(weight) && weight > 0) {
-        holdings.push({
-          name: match[1],
-          weight: Math.round((weight / 100) * 10000) / 10000
-        });
-      }
-    }
-  }
+  const holdings = extractHoldings(html);
 
   return {
     category: cellAfter('Kategori'),
@@ -272,7 +323,7 @@ export function parseNordnetFundDetails(html: string): NordnetFundDetails {
 export function parseOrderbookIdFromScraperUrl(
   url: string | undefined | null
 ): string | null {
-  const match = url?.match(/_api\/fund-guide\/guide\/(\d+)/);
+  const match = url ? /_api\/fund-guide\/guide\/(\d+)/.exec(url) : null;
 
   return match?.[1] ?? null;
 }
@@ -552,9 +603,7 @@ export class FundHistoryService implements OnApplicationBootstrap {
         // catalog nordnetUrl → CSV name map (Swedish-name normalized).
         const nordnetUrl =
           catalogBySymbol.get(fund.symbol)?.nordnetUrl ??
-          nordnetUrlForName(
-            restoreSwedishFundName(fund.name ?? fund.symbol)
-          ) ??
+          nordnetUrlForName(restoreSwedishFundName(fund.name ?? fund.symbol)) ??
           nordnetUrlForName(fund.name ?? fund.symbol);
 
         if (!nordnetUrl) {
@@ -610,7 +659,9 @@ export class FundHistoryService implements OnApplicationBootstrap {
               OR: [
                 { marketPrice: { gt: official * 3 } },
                 { marketPrice: { lt: official / 3 } },
-                { date: { gt: new Date(`${details.latestNav.date}T00:00:00Z`) } }
+                {
+                  date: { gt: new Date(`${details.latestNav.date}T00:00:00Z`) }
+                }
               ]
             }
           });
@@ -663,7 +714,9 @@ export class FundHistoryService implements OnApplicationBootstrap {
         summary.synced.push(fund.symbol);
       } catch (error) {
         summary.skipped.push(fund.symbol);
-        this.logger.warn(`Fund-history sync failed for ${fund.symbol}: ${error}`);
+        this.logger.warn(
+          `Fund-history sync failed for ${fund.symbol}: ${error}`
+        );
       }
 
       await new Promise((resolve) => setTimeout(resolve, PER_FUND_DELAY_MS));

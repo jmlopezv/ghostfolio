@@ -17,8 +17,8 @@
       <p class="text-muted small mb-4" i18n>
         Every BUY signal ever logged, paper-traded as if bought and tracked
         until a matching SELL fires. The table and charts assume a
-        {{ assumedNotionalUsd }} USD position per trade; use the calculator
-        to test your own amount.
+        {{ assumedNotionalUsd }} USD position per trade; use the calculator to
+        test your own amount.
       </p>
 
       @if (isLoading) {
@@ -37,7 +37,9 @@
             <div class="card h-100">
               <div class="card-body py-2">
                 <div class="small text-muted text-uppercase" i18n>Closed</div>
-                <div class="h4 m-0">{{ simulation?.summary?.closedTrades ?? 0 }}</div>
+                <div class="h4 m-0">
+                  {{ simulation?.summary?.closedTrades ?? 0 }}
+                </div>
               </div>
             </div>
           </div>
@@ -45,7 +47,9 @@
             <div class="card h-100">
               <div class="card-body py-2">
                 <div class="small text-muted text-uppercase" i18n>Open</div>
-                <div class="h4 m-0">{{ simulation?.summary?.openTrades ?? 0 }}</div>
+                <div class="h4 m-0">
+                  {{ simulation?.summary?.openTrades ?? 0 }}
+                </div>
               </div>
             </div>
           </div>
@@ -54,7 +58,7 @@
               <div class="card-body py-2">
                 <div class="small text-muted text-uppercase" i18n>Win rate</div>
                 <div class="h4 m-0">
-                  {{ (simulation?.summary?.winRate ?? 0) | percent: '1.0-0' }}
+                  {{ simulation?.summary?.winRate ?? 0 | percent: '1.0-0' }}
                 </div>
               </div>
             </div>
@@ -66,7 +70,10 @@
                   Avg. effective annual rate
                 </div>
                 <div class="h4 m-0">
-                  {{ simulation?.summary?.avgEffectiveAnnualRatePct ?? 0 | number: '1.1-1' }}%
+                  {{
+                    simulation?.summary?.avgEffectiveAnnualRatePct ?? 0
+                      | number: '1.1-1'
+                  }}%
                 </div>
               </div>
             </div>
@@ -100,7 +107,8 @@
             <div class="card">
               <div class="card-body">
                 <div class="small text-muted text-uppercase mb-2" i18n>
-                  ⚠️ REVERSAL (bear-market) signals — effective annual rate over time
+                  ⚠️ REVERSAL (bear-market) signals — effective annual rate over
+                  time
                 </div>
                 @if (reversalSeries.length === 0) {
                   <div class="text-center text-muted py-4 small" i18n>
@@ -130,7 +138,10 @@
                 </p>
 
                 <div class="mb-2">
-                  <label class="form-label small" for="simulation-trade-select" i18n
+                  <label
+                    class="form-label small"
+                    for="simulation-trade-select"
+                    i18n
                     >Signal</label
                   >
                   <select
@@ -138,7 +149,7 @@
                     id="simulation-trade-select"
                     [(ngModel)]="selectedTradeIndex"
                   >
-                    <option [ngValue]="null" i18n>Select a signal…</option>
+                    <option i18n [ngValue]="null">Select a signal…</option>
                     @for (
                       trade of trades;
                       track trade.symbol + trade.buyDate;
@@ -162,19 +173,39 @@
                   />
                 </div>
 
-                @if (calculatorResult) {
+                @if (selectedTrade && selectedTrade.grossReturnPct == null) {
+                  <div class="small text-muted" i18n>
+                    No price is known for this signal yet (a live-quote hiccup)
+                    — it'll calculate as soon as one resolves.
+                  </div>
+                } @else if (calculatorResult) {
                   <div class="small">
                     <div class="d-flex justify-content-between">
                       <span class="text-muted" i18n>Gross proceeds</span>
-                      <span>{{ calculatorResult.grossProceedsUsd | number: '1.2-2' }} USD</span>
+                      <span
+                        >{{
+                          calculatorResult.grossProceedsUsd | number: '1.2-2'
+                        }}
+                        USD</span
+                      >
                     </div>
                     <div class="d-flex justify-content-between">
                       <span class="text-muted" i18n>Fees</span>
-                      <span>-{{ calculatorResult.feesUsd | number: '1.2-2' }} USD</span>
+                      <span
+                        >-{{
+                          calculatorResult.feesUsd | number: '1.2-2'
+                        }}
+                        USD</span
+                      >
                     </div>
                     <div class="d-flex justify-content-between fw-bold">
                       <span i18n>Net proceeds</span>
-                      <span>{{ calculatorResult.netProceedsUsd | number: '1.2-2' }} USD</span>
+                      <span
+                        >{{
+                          calculatorResult.netProceedsUsd | number: '1.2-2'
+                        }}
+                        USD</span
+                      >
                     </div>
                     <div
                       class="d-flex justify-content-between"
@@ -184,7 +215,12 @@
                       }"
                     >
                       <span i18n>Net gain/loss</span>
-                      <span>{{ calculatorResult.netGainUsd | number: '1.2-2' }} USD</span>
+                      <span
+                        >{{
+                          calculatorResult.netGainUsd | number: '1.2-2'
+                        }}
+                        USD</span
+                      >
                     </div>
                     @if (selectedTrade?.status === 'OPEN') {
                       <div class="mt-2 small text-muted" i18n>
@@ -211,9 +247,12 @@
           </div>
         } @else {
           <p class="small text-muted" i18n>
-            Target/Stop are the take-profit/stop-loss levels set at the moment
-            the BUY fired. For an OPEN trade, Current shows where price sits
-            between them today — that's why it hasn't sold yet.
+            Score/RSI/Reach %/Conv. are the metrics computed at the moment the
+            BUY fired. Target/Stop are the take-profit/stop-loss levels set at
+            that same moment. For an OPEN trade, Current shows where price sits
+            between them today — that's why it hasn't sold yet. Net return/Eff.
+            annual rate compare today's (or the sell) price back to the buy
+            price, net of fees.
           </p>
           <div class="overflow-x-auto mb-5">
             <table
@@ -225,14 +264,22 @@
               [dataSource]="dataSource"
             >
               <ng-container matColumnDef="symbol">
-                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Symbol</th>
-                <td *matCellDef="let trade" class="font-weight-bold text-nowrap" mat-cell>
+                <th *matHeaderCellDef i18n mat-header-cell mat-sort-header>
+                  Symbol
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="font-weight-bold text-nowrap"
+                  mat-cell
+                >
                   {{ trade.symbol }}
                 </td>
               </ng-container>
 
               <ng-container matColumnDef="name">
-                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Name</th>
+                <th *matHeaderCellDef i18n mat-header-cell mat-sort-header>
+                  Name
+                </th>
                 <td
                   *matCellDef="let trade"
                   class="small text-muted text-truncate"
@@ -244,7 +291,9 @@
               </ng-container>
 
               <ng-container matColumnDef="signalType">
-                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Type</th>
+                <th *matHeaderCellDef i18n mat-header-cell mat-sort-header>
+                  Type
+                </th>
                 <td *matCellDef="let trade" class="text-nowrap" mat-cell>
                   <span
                     class="badge"
@@ -258,7 +307,9 @@
               </ng-container>
 
               <ng-container matColumnDef="status">
-                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Status</th>
+                <th *matHeaderCellDef i18n mat-header-cell mat-sort-header>
+                  Status
+                </th>
                 <td *matCellDef="let trade" class="text-nowrap" mat-cell>
                   <span
                     class="badge"
@@ -272,23 +323,149 @@
               </ng-container>
 
               <ng-container matColumnDef="buyDate">
-                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Buy date</th>
-                <td *matCellDef="let trade" class="small text-nowrap text-muted" mat-cell>
+                <th *matHeaderCellDef i18n mat-header-cell mat-sort-header>
+                  Buy date
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="small text-nowrap text-muted"
+                  mat-cell
+                >
                   {{ trade.buyDate | date: 'MMM d, y' }}
                 </td>
               </ng-container>
 
               <ng-container matColumnDef="buyPrice">
-                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Buy price</th>
-                <td *matCellDef="let trade" class="text-end text-nowrap" mat-cell>
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                >
+                  Buy price
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end text-nowrap"
+                  mat-cell
+                >
                   {{ trade.buyPrice | number: '1.2-2' }}
                   <span class="small text-muted">{{ trade.currency }}</span>
                 </td>
               </ng-container>
 
+              <ng-container matColumnDef="scoreAtBuy">
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                  title="Composite buy-attractiveness score at the moment the signal fired"
+                >
+                  Score
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end text-nowrap"
+                  mat-cell
+                >
+                  @if (trade.scoreAtBuy != null) {
+                    {{ trade.scoreAtBuy }}
+                  } @else {
+                    —
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="rsiAtBuy">
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                  title="RSI(14) at the moment the signal fired"
+                >
+                  RSI
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end text-nowrap"
+                  mat-cell
+                >
+                  @if (trade.rsiAtBuy != null) {
+                    {{ trade.rsiAtBuy | number: '1.0-0' }}
+                  } @else {
+                    —
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="reachProbabilityAtBuy">
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                  title="Analytic terminal probability of reaching target at the moment the signal fired"
+                >
+                  Reach %
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end text-nowrap"
+                  mat-cell
+                >
+                  @if (trade.reachProbabilityAtBuy != null) {
+                    {{ trade.reachProbabilityAtBuy | percent: '1.0-0' }}
+                  } @else {
+                    —
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="convictionAtBuy">
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                  title="Conviction (0-100) at the moment the signal fired"
+                >
+                  Conv.
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end text-nowrap"
+                  mat-cell
+                >
+                  @if (trade.convictionAtBuy != null) {
+                    {{ trade.convictionAtBuy | number: '1.0-0' }}
+                  } @else {
+                    —
+                  }
+                </td>
+              </ng-container>
+
               <ng-container matColumnDef="takeProfit">
-                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Target</th>
-                <td *matCellDef="let trade" class="text-end text-nowrap text-success" mat-cell>
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                >
+                  Target
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end text-nowrap text-success"
+                  mat-cell
+                >
                   @if (trade.takeProfit != null) {
                     {{ trade.takeProfit | number: '1.2-2' }}
                   } @else {
@@ -298,8 +475,20 @@
               </ng-container>
 
               <ng-container matColumnDef="stopLoss">
-                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Stop</th>
-                <td *matCellDef="let trade" class="text-end text-nowrap text-danger" mat-cell>
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                >
+                  Stop
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end text-nowrap text-danger"
+                  mat-cell
+                >
                   @if (trade.stopLoss != null) {
                     {{ trade.stopLoss | number: '1.2-2' }}
                   } @else {
@@ -309,8 +498,20 @@
               </ng-container>
 
               <ng-container matColumnDef="currentOrSellPrice">
-                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Current/Sell</th>
-                <td *matCellDef="let trade" class="text-end text-nowrap" mat-cell>
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                >
+                  Current/Sell
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end text-nowrap"
+                  mat-cell
+                >
                   @if (trade.sellPrice != null) {
                     {{ trade.sellPrice | number: '1.2-2' }}
                     <span class="small text-muted">{{ trade.currency }}</span>
@@ -324,10 +525,21 @@
               </ng-container>
 
               <ng-container matColumnDef="sellSignal">
-                <th *matHeaderCellDef class="text-center" mat-header-cell mat-sort-header i18n>Sell signal</th>
+                <th
+                  *matHeaderCellDef
+                  class="text-center"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                >
+                  Sell signal
+                </th>
                 <td *matCellDef="let trade" class="text-center" mat-cell>
                   @if (sellSignalReached(trade); as reached) {
-                    <span class="badge bg-danger" title="Current price has crossed the target or stop level" i18n
+                    <span
+                      class="badge bg-danger"
+                      i18n
+                      title="Current price has crossed the target or stop level"
                       >Yes</span
                     >
                   } @else if (trade.status === 'OPEN') {
@@ -339,8 +551,14 @@
               </ng-container>
 
               <ng-container matColumnDef="sellDate">
-                <th *matHeaderCellDef mat-header-cell mat-sort-header i18n>Sell date</th>
-                <td *matCellDef="let trade" class="small text-nowrap text-muted" mat-cell>
+                <th *matHeaderCellDef i18n mat-header-cell mat-sort-header>
+                  Sell date
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="small text-nowrap text-muted"
+                  mat-cell
+                >
                   @if (trade.sellDate) {
                     {{ trade.sellDate | date: 'MMM d, y' }}
                   } @else {
@@ -350,12 +568,30 @@
               </ng-container>
 
               <ng-container matColumnDef="holdingDays">
-                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Days</th>
-                <td *matCellDef="let trade" class="text-end" mat-cell>{{ trade.holdingDays }}</td>
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                >
+                  Days
+                </th>
+                <td *matCellDef="let trade" class="text-end" mat-cell>
+                  {{ trade.holdingDays }}
+                </td>
               </ng-container>
 
               <ng-container matColumnDef="netReturnPct">
-                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Net return</th>
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                >
+                  Net return
+                </th>
                 <td
                   *matCellDef="let trade"
                   class="text-end"
@@ -365,12 +601,29 @@
                     'text-danger': trade.netReturnPct < 0
                   }"
                 >
-                  {{ trade.netReturnPct >= 0 ? '+' : '' }}{{ trade.netReturnPct | number: '1.1-1' }}%
+                  @if (trade.netReturnPct != null) {
+                    {{ trade.netReturnPct >= 0 ? '+' : ''
+                    }}{{ trade.netReturnPct | number: '1.1-1' }}%
+                  } @else {
+                    <span
+                      class="text-muted"
+                      title="No price known yet for this signal"
+                      >—</span
+                    >
+                  }
                 </td>
               </ng-container>
 
               <ng-container matColumnDef="effectiveAnnualRatePct">
-                <th *matHeaderCellDef class="text-end" mat-header-cell mat-sort-header i18n>Eff. annual rate</th>
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                >
+                  Eff. annual rate
+                </th>
                 <td
                   *matCellDef="let trade"
                   class="text-end"
@@ -380,11 +633,24 @@
                     'text-danger': trade.effectiveAnnualRatePct < 0
                   }"
                 >
-                  {{ trade.effectiveAnnualRatePct >= 0 ? '+' : '' }}{{ trade.effectiveAnnualRatePct | number: '1.1-1' }}%
+                  @if (trade.effectiveAnnualRatePct != null) {
+                    {{ trade.effectiveAnnualRatePct >= 0 ? '+' : ''
+                    }}{{ trade.effectiveAnnualRatePct | number: '1.1-1' }}%
+                  } @else {
+                    <span
+                      class="text-muted"
+                      title="No price known yet for this signal"
+                      >—</span
+                    >
+                  }
                 </td>
               </ng-container>
 
-              <tr *matHeaderRowDef="displayedColumns" class="small text-muted" mat-header-row></tr>
+              <tr
+                *matHeaderRowDef="displayedColumns"
+                class="small text-muted"
+                mat-header-row
+              ></tr>
               <tr *matRowDef="let row; columns: displayedColumns" mat-row></tr>
             </table>
           </div>

@@ -1,5 +1,6 @@
 import {
   computeSeriesMetrics,
+  extractHoldings,
   parseNordnetFundDetails,
   parseOrderbookIdFromScraperUrl,
   reconstructNavSeries,
@@ -31,8 +32,22 @@ describe('parseNordnetFundDetails', () => {
     '\\"fees\\":{\\"managementFee\\":0.4,\\"ongoingCost\\":0.45,\\"totalFee\\":0.45},',
     '\\"standardDeviation\\":13.51,\\"sharpeRatio\\":0.83,',
     '\\"instrument\\":{\\"orderBook\\":{\\"id\\":\\"52540035-e3f9-46a1-945a-aa7b72e811ad\\"}},',
-    '\\"holdings\\":[{\\"name\\":\\"NVIDIA\\",\\"instrumentClass\\":\\"STOCK\\",\\"weight\\":5.53},',
-    '{\\"name\\":\\"Apple\\",\\"instrumentClass\\":\\"STOCK\\",\\"weight\\":4.2}]")</script>'
+    // Realistic holding objects — a long logoUrl pushes the holding's own
+    // top-level "name" more than 300 chars from "weight" (the old fixed-
+    // window regex's blind spot), and a nested market/segment object repeats
+    // "name" again further along. Two different markets (Nasdaq + a
+    // Stockholm-listed name) prove the extractor isn't just keying off
+    // "Nasdaq" specifically.
+    '\\"holdings\\":[{\\"orderBookId\\":\\"99c43961-8eef-4c7a-9954-2fe31c47b70d\\",',
+    '\\"name\\":\\"NVIDIA\\",\\"instrumentClass\\":\\"STOCK\\",\\"slug\\":\\"nvidia-nvda-xnas\\",',
+    '\\"logoUrl\\":\\"https://cdn.prod.nntech.io/cms-proxy/6xe8ehctp75g/5JUACsX9UWOWwXKsJAnbep/b4185df851cb1db0e988e8837ef2ba1c/nvda.png\\",',
+    '\\"market\\":{\\"countryCode\\":\\"US\\",\\"name\\":\\"Nasdaq\\",\\"segment\\":{\\"name\\":\\"Nasdaq\\"}},',
+    '\\"positionType\\":\\"LONG\\",\\"weight\\":5.53},',
+    '{\\"orderBookId\\":\\"7e1c2f3a-8b4d-4e5f-9a6b-1c2d3e4f5a6b\\",',
+    '\\"name\\":\\"Volvo\\",\\"instrumentClass\\":\\"STOCK\\",\\"slug\\":\\"volvo-volv-b-xsto\\",',
+    '\\"logoUrl\\":\\"https://cdn.prod.nntech.io/cms-proxy/6xe8ehctp75g/anotherlongopaqueassetid1234567890abcdef/volvo.png\\",',
+    '\\"market\\":{\\"countryCode\\":\\"SE\\",\\"name\\":\\"Stockholmsborsen\\",\\"segment\\":{\\"name\\":\\"Stockholmsborsen\\"}},',
+    '\\"positionType\\":\\"LONG\\",\\"weight\\":4.2}]")</script>'
   ].join('');
 
   it('extracts owners, ISIN, category, rating, currency, NAV, returns, fee, risk and holdings', () => {
@@ -57,17 +72,62 @@ describe('parseNordnetFundDetails', () => {
     expect(details.sharpeRatio).toBe(0.83);
     expect(details.holdings).toEqual([
       { name: 'NVIDIA', weight: 0.0553 },
-      { name: 'Apple', weight: 0.042 }
+      { name: 'Volvo', weight: 0.042 }
     ]);
     expect(details.orderbookId).toBe('52540035-e3f9-46a1-945a-aa7b72e811ad');
   });
 
   it('returns empty fields on unrelated HTML', () => {
-    const details = parseNordnetFundDetails('<html><body>nothing</body></html>');
+    const details = parseNordnetFundDetails(
+      '<html><body>nothing</body></html>'
+    );
 
     expect(details.owners).toBeUndefined();
     expect(details.isin).toBeUndefined();
     expect(details.rating).toBeUndefined();
+  });
+});
+
+describe('extractHoldings', () => {
+  it('extracts the real top-level name even when a long logoUrl pushes it past a 300-char lookahead', () => {
+    // The old fixed-window regex (`[\s\S]{0,300}?` between "name" and
+    // "weight") failed here: the padding below alone is >300 chars, so the
+    // holding's own "name" was skipped and the nearer, nested
+    // "market":{"name":"Nasdaq"} field was captured instead — the exact bug
+    // reported live (every holding showing as "Nasdaq").
+    const longLogoUrl = 'https://cdn.example.com/' + 'a'.repeat(320) + '.png';
+    const html = [
+      '\\"holdings\\":[{\\"orderBookId\\":\\"abc\\",\\"name\\":\\"NVIDIA\\",',
+      `\\"instrumentClass\\":\\"STOCK\\",\\"logoUrl\\":\\"${longLogoUrl}\\",`,
+      '\\"market\\":{\\"countryCode\\":\\"US\\",\\"name\\":\\"Nasdaq\\",\\"segment\\":{\\"name\\":\\"Nasdaq\\"}},',
+      '\\"positionType\\":\\"LONG\\",\\"weight\\":5.65}]'
+    ].join('');
+
+    expect(extractHoldings(html)).toEqual([{ name: 'NVIDIA', weight: 0.0565 }]);
+  });
+
+  it('extracts multiple holdings across different markets and caps at 10', () => {
+    const holdingObjects = Array.from({ length: 12 }, (_, index) =>
+      [
+        `{\\"orderBookId\\":\\"id-${index}\\",\\"name\\":\\"Company${index}\\",`,
+        '\\"instrumentClass\\":\\"STOCK\\",',
+        '\\"market\\":{\\"countryCode\\":\\"SE\\",\\"name\\":\\"Stockholmsborsen\\"},',
+        `\\"weight\\":${(5 - index * 0.1).toFixed(2)}}`
+      ].join('')
+    );
+    const html = `\\"holdings\\":[${holdingObjects.join(',')}]`;
+
+    const holdings = extractHoldings(html);
+
+    expect(holdings).toHaveLength(10);
+    expect(holdings[0]).toEqual({ name: 'Company0', weight: 0.05 });
+    expect(holdings.every(({ name }) => name !== 'Stockholmsborsen')).toBe(
+      true
+    );
+  });
+
+  it('returns an empty array when there is no holdings array', () => {
+    expect(extractHoldings('<html><body>nothing</body></html>')).toEqual([]);
   });
 });
 

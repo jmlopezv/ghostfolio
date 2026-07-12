@@ -229,7 +229,18 @@ export class GfBenchmarkComponent {
     dialogRef
       .afterClosed()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => {
+      .subscribe((result?: AssetProfileIdentifier) => {
+        // Clicking a correlated asset in the dialog closes it with that
+        // asset's identifier — re-open the dialog for it.
+        if (result?.dataSource && result?.symbol) {
+          this.onOpenBenchmarkDialog({
+            dataSource: result.dataSource,
+            symbol: result.symbol
+          });
+
+          return;
+        }
+
         this.router.navigate(['.'], { relativeTo: this.route });
       });
   }

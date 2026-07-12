@@ -13,13 +13,21 @@
         <div class="card-body">
           <div class="align-items-center d-flex justify-content-between mb-2">
             <h2 class="h5 m-0" i18n>Market Pulse</h2>
-            <a class="small" href="https://www.perplexity.ai/finance" target="_blank" rel="noopener" i18n
+            <a
+              class="small"
+              href="https://www.perplexity.ai/finance"
+              i18n
+              rel="noopener"
+              target="_blank"
               >Open Perplexity Finance →</a
             >
           </div>
 
           @if (isLoadingMarketPulse) {
-            <ngx-skeleton-loader animation="pulse" [theme]="{ height: '8rem', width: '100%' }" />
+            <ngx-skeleton-loader
+              animation="pulse"
+              [theme]="{ height: '8rem', width: '100%' }"
+            />
           } @else if (marketPulse) {
             <div class="row g-2 mb-3">
               @for (index of marketPulse.indices; track index.symbol) {
@@ -27,13 +35,21 @@
                   <div class="border rounded p-2 h-100">
                     <div class="small text-muted">{{ index.name }}</div>
                     @if (index.price != null) {
-                      <div class="fw-bold">{{ index.price | number: '1.2-2' }}</div>
+                      <div class="fw-bold">
+                        {{ index.price | number: '1.2-2' }}
+                      </div>
                       <div
                         class="small"
-                        [class.text-success]="(index.changePercent ?? 0) >= 0"
                         [class.text-danger]="(index.changePercent ?? 0) < 0"
+                        [class.text-success]="(index.changePercent ?? 0) >= 0"
                       >
-                        {{ index.changePercent != null ? (index.changePercent > 0 ? '+' : '') + (index.changePercent | number: '1.2-2') + '%' : '—' }}
+                        {{
+                          index.changePercent != null
+                            ? (index.changePercent > 0 ? '+' : '') +
+                              (index.changePercent | number: '1.2-2') +
+                              '%'
+                            : '—'
+                        }}
                       </div>
                     } @else {
                       <div class="text-muted small" i18n>n/a</div>
@@ -49,16 +65,18 @@
                 @for (headline of marketPulse.headlines; track headline.title) {
                   <a
                     class="list-group-item list-group-item-action px-0"
-                    [href]="headline.url"
-                    target="_blank"
                     rel="noopener"
+                    target="_blank"
+                    [href]="headline.url"
                   >
                     <div class="fw-bold small">{{ headline.title }}</div>
                     @if (headline.summary) {
                       <div class="text-muted small">{{ headline.summary }}</div>
                     }
                     @if (headline.source) {
-                      <div class="text-muted small fst-italic">{{ headline.source }}</div>
+                      <div class="text-muted small fst-italic">
+                        {{ headline.source }}
+                      </div>
                     }
                   </a>
                 }
@@ -69,7 +87,12 @@
                 show live market headlines here — see the
                 <a [routerLink]="['/home', 'metrics']">Metrics</a> glossary's
                 news-gate entry for setup details. In the meantime, see
-                <a href="https://www.perplexity.ai/finance" target="_blank" rel="noopener">Perplexity Finance</a>
+                <a
+                  href="https://www.perplexity.ai/finance"
+                  rel="noopener"
+                  target="_blank"
+                  >Perplexity Finance</a
+                >
                 for a live market summary.
               </p>
             }
@@ -84,7 +107,12 @@
           <div class="row g-2">
             @for (source of readingSources; track source.url) {
               <div class="col-12 col-md-6">
-                <a class="gf-lesson-tile d-block border rounded p-2 h-100 text-decoration-none" [href]="source.url" target="_blank" rel="noopener">
+                <a
+                  class="gf-lesson-tile d-block border rounded p-2 h-100 text-decoration-none"
+                  rel="noopener"
+                  target="_blank"
+                  [href]="source.url"
+                >
                   <div class="fw-bold small">{{ source.name }}</div>
                   <div class="text-muted small">{{ source.description }}</div>
                 </a>
@@ -95,7 +123,10 @@
       </div>
 
       @if (isLoading) {
-        <ngx-skeleton-loader animation="pulse" [theme]="{ height: '20rem', width: '100%' }" />
+        <ngx-skeleton-loader
+          animation="pulse"
+          [theme]="{ height: '20rem', width: '100%' }"
+        />
       } @else {
         <div class="row">
           <div class="col-12 col-lg-4">
@@ -109,7 +140,9 @@
                       <button
                         class="gf-lesson-tile border rounded p-2 d-flex justify-content-between align-items-center text-start"
                         type="button"
-                        [class.gf-lesson-tile-active]="selectedLesson?.id === lesson.id"
+                        [class.gf-lesson-tile-active]="
+                          selectedLesson?.id === lesson.id
+                        "
                         [disabled]="lessonStatus(lesson) === 'coming-soon'"
                         (click)="onSelectLesson(lesson)"
                       >
@@ -119,10 +152,14 @@
                             <span class="badge bg-success">✓</span>
                           }
                           @case ('coming-soon') {
-                            <span class="badge bg-secondary" i18n>Coming soon</span>
+                            <span class="badge bg-secondary" i18n
+                              >Coming soon</span
+                            >
                           }
                           @default {
-                            <span class="badge bg-light text-dark" i18n>Start</span>
+                            <span class="badge bg-light text-dark" i18n
+                              >Start</span
+                            >
                           }
                         }
                       </button>
@@ -142,7 +179,11 @@
 
                   @if (lesson.glossaryRef) {
                     <p class="small">
-                      <a [routerLink]="['/home', 'metrics']" [fragment]="'metric-' + lesson.glossaryRef" i18n>
+                      <a
+                        i18n
+                        [fragment]="'metric-' + lesson.glossaryRef"
+                        [routerLink]="['/home', 'metrics']"
+                      >
                         See the full formula in the Metrics glossary →
                       </a>
                     </p>
@@ -152,11 +193,14 @@
 
                   <h3 class="h6" i18n>Practice — a real example</h3>
                   @if (isLoadingExample) {
-                    <ngx-skeleton-loader animation="pulse" [theme]="{ height: '10rem', width: '100%' }" />
+                    <ngx-skeleton-loader
+                      animation="pulse"
+                      [theme]="{ height: '10rem', width: '100%' }"
+                    />
                   } @else if (exampleChart && exampleMeta) {
                     <p class="small text-muted">
-                      {{ exampleMeta.name || exampleMeta.symbol }} — current score:
-                      {{ exampleMeta.score ?? '—' }}/100, RSI:
+                      {{ exampleMeta.name || exampleMeta.symbol }} — current
+                      score: {{ exampleMeta.score ?? '—' }}/100, RSI:
                       {{ exampleMeta.snapshot.rsi | number: '1.0-1' }}
                     </p>
                     <gf-line-chart
@@ -175,13 +219,20 @@
                     (submitAnswers)="onSubmitQuiz($event)"
                   />
 
-                  @if (lesson.furtherReading && lesson.furtherReading.length > 0) {
+                  @if (
+                    lesson.furtherReading && lesson.furtherReading.length > 0
+                  ) {
                     <hr />
                     <h3 class="h6" i18n>Further reading</h3>
                     <ul class="small mb-0">
                       @for (source of lesson.furtherReading; track source.url) {
                         <li>
-                          <a [href]="source.url" target="_blank" rel="noopener">{{ source.title }}</a>
+                          <a
+                            rel="noopener"
+                            target="_blank"
+                            [href]="source.url"
+                            >{{ source.title }}</a
+                          >
                         </li>
                       }
                     </ul>

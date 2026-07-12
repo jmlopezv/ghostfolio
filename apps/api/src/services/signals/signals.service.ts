@@ -1,34 +1,39 @@
 import { AccountService } from '@ghostfolio/api/app/account/account.service';
 import { ActivitiesService } from '@ghostfolio/api/app/activities/activities.service';
 import { WatchlistService } from '@ghostfolio/api/app/endpoints/watchlist/watchlist.service';
-import { BacktestService } from '@ghostfolio/api/services/signals/backtest.service';
-import { resolveBuyCalibration } from '@ghostfolio/api/services/signals/buy-calibration';
 import { DataProviderService } from '@ghostfolio/api/services/data-provider/data-provider.service';
 import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data/exchange-rate-data.service';
+import { MarketDataService } from '@ghostfolio/api/services/market-data/market-data.service';
+import { NewsSentimentService } from '@ghostfolio/api/services/news-sentiment/news-sentiment.service';
+import { OllamaService } from '@ghostfolio/api/services/ollama/ollama.service';
+import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
+import { PropertyService } from '@ghostfolio/api/services/property/property.service';
+import { AssetDetailService } from '@ghostfolio/api/services/signals/asset-detail.service';
+import { BacktestService } from '@ghostfolio/api/services/signals/backtest.service';
+import { resolveBuyCalibration } from '@ghostfolio/api/services/signals/buy-calibration';
 import { ForecastService } from '@ghostfolio/api/services/signals/forecast.service';
-import { FundamentalsService } from '@ghostfolio/api/services/signals/fundamentals.service';
 import { FundDataService } from '@ghostfolio/api/services/signals/fund-data.service';
 import {
   computeSeriesMetrics,
   FundHistoryService
 } from '@ghostfolio/api/services/signals/fund-history.service';
+import { FundamentalsService } from '@ghostfolio/api/services/signals/fundamentals.service';
+import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
 import {
   isMonthlyPlanDue,
   MarketRegimeService
 } from '@ghostfolio/api/services/signals/market-regime.service';
-import { PropertyService } from '@ghostfolio/api/services/property/property.service';
-import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
+import { OhlcService } from '@ghostfolio/api/services/signals/ohlc.service';
 import {
   FundCandidate,
   StrategiesService,
   StrategyCandidate
 } from '@ghostfolio/api/services/signals/strategies.service';
-import { MarketDataService } from '@ghostfolio/api/services/market-data/market-data.service';
-import { NewsSentimentService } from '@ghostfolio/api/services/news-sentiment/news-sentiment.service';
-import { OhlcService } from '@ghostfolio/api/services/signals/ohlc.service';
-import { OllamaService } from '@ghostfolio/api/services/ollama/ollama.service';
-import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
 import { TelegramBotService } from '@ghostfolio/api/services/telegram-bot/telegram-bot.service';
+import {
+  allCatalogCompanies,
+  categoryForSymbol
+} from '@ghostfolio/common/company-catalog';
 import {
   DEFAULT_CURRENCY,
   SIGNAL_BUY_FEE_USD,
@@ -58,10 +63,6 @@ import {
   SIGNAL_TRAIL_VOL_MULT,
   SignalExitMode
 } from '@ghostfolio/common/config';
-import {
-  allCatalogCompanies,
-  categoryForSymbol
-} from '@ghostfolio/common/company-catalog';
 import { terPctForSymbol } from '@ghostfolio/common/etf-ter-catalog';
 import {
   FUND_CATALOG,
@@ -88,11 +89,7 @@ import {
   WatchlistMetric
 } from '@ghostfolio/common/interfaces';
 
-import {
-  Injectable,
-  Logger,
-  OnApplicationBootstrap
-} from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import {
   AssetSubClass,
@@ -138,6 +135,9 @@ interface SignalsComputation {
   // Owned fund value per category + every fund in the universe (for picks).
   fundCandidates: FundCandidate[];
   fundValueByCategory: Record<string, number>;
+  // Owned fund value per symbol — the dollar-weighted input to the graduated
+  // fund-overlap penalty in recommendFunds (real per-fund, not just category).
+  fundValueBySymbol: Record<string, number>;
   // Every buyable stock with conviction metrics (full-universe, for strategies).
   stockCandidates: StrategyCandidate[];
   response: TradingSignalsResponse;
@@ -175,6 +175,7 @@ export class SignalsService implements OnApplicationBootstrap {
   public constructor(
     private readonly accountService: AccountService,
     private readonly activitiesService: ActivitiesService,
+    private readonly assetDetailService: AssetDetailService,
     private readonly backtestService: BacktestService,
     private readonly dataProviderService: DataProviderService,
     private readonly exchangeRateDataService: ExchangeRateDataService,
@@ -202,9 +203,10 @@ export class SignalsService implements OnApplicationBootstrap {
    * Resilient per symbol: an unknown/unsupported ticker is recorded as failed,
    * never aborting the rest of the import.
    */
-  public async importCatalog(
-    userId: string
-  ): Promise<{ added: string[]; failed: { reason: string; symbol: string }[] }> {
+  public async importCatalog(userId: string): Promise<{
+    added: string[];
+    failed: { reason: string; symbol: string }[];
+  }> {
     const added: string[] = [];
     const failed: { reason: string; symbol: string }[] = [];
 
@@ -281,7 +283,10 @@ export class SignalsService implements OnApplicationBootstrap {
 
         const existing = await this.prismaService.symbolProfile.findUnique({
           where: {
-            dataSource_symbol: { dataSource: DataSource.MANUAL, symbol: fund.symbol }
+            dataSource_symbol: {
+              dataSource: DataSource.MANUAL,
+              symbol: fund.symbol
+            }
           }
         });
 
@@ -293,7 +298,8 @@ export class SignalsService implements OnApplicationBootstrap {
               currency: fund.currency,
               isin: fund.isin,
               name: fund.name,
-              scraperConfiguration: scraperConfiguration as unknown as Prisma.InputJsonValue
+              scraperConfiguration:
+                scraperConfiguration as unknown as Prisma.InputJsonValue
             },
             where: { id: existing.id }
           });
@@ -305,7 +311,8 @@ export class SignalsService implements OnApplicationBootstrap {
               dataSource: DataSource.MANUAL,
               isin: fund.isin,
               name: fund.name,
-              scraperConfiguration: scraperConfiguration as unknown as Prisma.InputJsonValue,
+              scraperConfiguration:
+                scraperConfiguration as unknown as Prisma.InputJsonValue,
               symbol: fund.symbol
             }
           });
@@ -420,8 +427,7 @@ export class SignalsService implements OnApplicationBootstrap {
     rows.sort((a, b) => b.edgePct - a.edgePct);
 
     const edges = rows.map((r) => r.edgePct).sort((a, b) => a - b);
-    const median =
-      edges.length > 0 ? edges[Math.floor(edges.length / 2)] : 0;
+    const median = edges.length > 0 ? edges[Math.floor(edges.length / 2)] : 0;
 
     return {
       rows,
@@ -527,8 +533,7 @@ export class SignalsService implements OnApplicationBootstrap {
    */
   private async sendMonthlyPlan(userId: string): Promise<void> {
     const computation = await this.computeSignalsInternal(userId);
-    const assumed =
-      computation.cashBalance < SIGNAL_MONTHLY_CONTRIBUTION_USD;
+    const assumed = computation.cashBalance < SIGNAL_MONTHLY_CONTRIBUTION_USD;
 
     const response = await this.buildStrategiesResponse(
       computation,
@@ -550,11 +555,15 @@ export class SignalsService implements OnApplicationBootstrap {
   public async computeFundRecommendations(
     userId: string
   ): Promise<FundRecommendationResponse> {
-    const [{ baseCurrency, fundCandidates, fundValueByCategory }, metrics] =
-      await Promise.all([
-        this.computeSignalsInternal(userId),
-        this.getFundMetrics(userId)
-      ]);
+    const [
+      { baseCurrency, fundCandidates, fundValueByCategory, fundValueBySymbol },
+      metrics,
+      facts
+    ] = await Promise.all([
+      this.computeSignalsInternal(userId),
+      this.getFundMetrics(userId),
+      this.fundHistoryService.getFacts()
+    ]);
 
     // Enrich candidates with real performance metrics so the per-category
     // pick is data-driven (risk-adjusted momentum), not fee-only.
@@ -575,7 +584,9 @@ export class SignalsService implements OnApplicationBootstrap {
         };
       }),
       count: SIGNAL_FUND_RECOMMENDATION_COUNT,
-      valueByCategory: fundValueByCategory
+      holdingsBySymbol: this.buildFundHoldingsBySymbol(facts),
+      valueByCategory: fundValueByCategory,
+      valueBySymbol: fundValueBySymbol
     });
 
     return {
@@ -583,6 +594,26 @@ export class SignalsService implements OnApplicationBootstrap {
       generatedAt: new Date().toISOString(),
       picks: funds.map((fund) => ({ ...fund, amount: 0 }))
     };
+  }
+
+  /**
+   * Fund holdings keyed by symbol, from cached FundFacts — the input
+   * `recommendFunds` needs for its real per-fund overlap penalty (as opposed
+   * to the coarser category-label check). Reused at every recommendFunds call
+   * site rather than re-deriving inline.
+   */
+  private buildFundHoldingsBySymbol(
+    facts: Record<string, { topHoldings?: { name: string; weight: number }[] }>
+  ): Record<string, { name: string; weight: number }[]> {
+    const result: Record<string, { name: string; weight: number }[]> = {};
+
+    for (const [symbol, fact] of Object.entries(facts)) {
+      if (fact.topHoldings?.length) {
+        result[symbol] = fact.topHoldings;
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -703,7 +734,16 @@ export class SignalsService implements OnApplicationBootstrap {
     const lines = ['📅 *Weekly funds — best to buy this month*', ''];
 
     for (const pick of response.picks) {
-      lines.push(`• ${pick.name} — ${pick.category}, fee ${pick.feePct}%`);
+      // Transparency for the graduated overlap penalty (de-prioritize, never
+      // exclude — see SIGNAL_FUND_OVERLAP_PENALTY_FLOOR): only worth a note
+      // once it's a meaningful share of the sleeve, not any nonzero overlap.
+      const overlapNote =
+        pick.overlapExposurePct && pick.overlapExposurePct > 10
+          ? ` (↓ de-prioritized: ~${Math.round(pick.overlapExposurePct)}% of your fund sleeve already overlaps this fund's holdings)`
+          : '';
+      lines.push(
+        `• ${pick.name} — ${pick.category}, fee ${pick.feePct}%${overlapNote}`
+      );
     }
 
     lines.push(
@@ -725,6 +765,7 @@ export class SignalsService implements OnApplicationBootstrap {
       fundCandidates,
       fundsValue,
       fundValueByCategory,
+      fundValueBySymbol,
       stockCandidates,
       stocksValue
     } = computation;
@@ -734,22 +775,27 @@ export class SignalsService implements OnApplicationBootstrap {
     const effectiveCash = Math.max(cashBalance, assumedCash ?? 0);
 
     // Split fresh cash toward the 60/40 funds/stocks target.
-    const { fundsCash, stocksCash } = this.strategiesService.splitRebalanceCash({
-      cash: effectiveCash,
-      fundsRatio: SIGNAL_PORTFOLIO_FUNDS_RATIO,
-      fundsValue,
-      stocksValue
-    });
+    const { fundsCash, stocksCash } = this.strategiesService.splitRebalanceCash(
+      {
+        cash: effectiveCash,
+        fundsRatio: SIGNAL_PORTFOLIO_FUNDS_RATIO,
+        fundsValue,
+        stocksValue
+      }
+    );
 
     const portfolioValue = fundsValue + stocksValue;
     const pct = (value: number) =>
       portfolioValue > 0 ? Math.round((value / portfolioValue) * 1000) / 10 : 0;
 
     // Funds sleeve → diversified, under-weight-first fund picks.
+    const facts = await this.fundHistoryService.getFacts();
     const recommendedFunds = this.strategiesService.recommendFunds({
       candidates: fundCandidates,
       count: SIGNAL_FUND_RECOMMENDATION_COUNT,
-      valueByCategory: fundValueByCategory
+      holdingsBySymbol: this.buildFundHoldingsBySymbol(facts),
+      valueByCategory: fundValueByCategory,
+      valueBySymbol: fundValueBySymbol
     });
     const fundPicks = this.strategiesService.sizeFundPicks(
       recommendedFunds,
@@ -934,7 +980,9 @@ export class SignalsService implements OnApplicationBootstrap {
 
     // Funds sleeve picks.
     if (fundPicks.length > 0 && rebalance.fundsCash > 0) {
-      lines.push(`*Funds to buy* (${rebalance.fundsCash.toFixed(2)} ${baseCurrency})`);
+      lines.push(
+        `*Funds to buy* (${rebalance.fundsCash.toFixed(2)} ${baseCurrency})`
+      );
 
       for (const pick of fundPicks) {
         lines.push(
@@ -1005,9 +1053,7 @@ export class SignalsService implements OnApplicationBootstrap {
   /**
    * Computes the current trading signals for a user (read-only; no notifications).
    */
-  public async computeSignals(
-    userId: string
-  ): Promise<TradingSignalsResponse> {
+  public async computeSignals(userId: string): Promise<TradingSignalsResponse> {
     const { response } = await this.computeSignalsInternal(userId);
 
     return response;
@@ -1045,6 +1091,7 @@ export class SignalsService implements OnApplicationBootstrap {
     let fundsValue = 0;
     let stocksValue = 0;
     const fundValueByCategory: Record<string, number> = {};
+    const fundValueBySymbol: Record<string, number> = {};
     const fundCandidates: FundCandidate[] = [];
     const stockCandidates: StrategyCandidate[] = [];
 
@@ -1056,6 +1103,7 @@ export class SignalsService implements OnApplicationBootstrap {
         fundCandidates,
         fundsValue,
         fundValueByCategory,
+        fundValueBySymbol,
         response,
         stockCandidates,
         stocksValue,
@@ -1082,7 +1130,8 @@ export class SignalsService implements OnApplicationBootstrap {
         continue;
       }
 
-      const isFund = entry.dataSource === DataSource.MANUAL || isFundSymbol(entry.symbol);
+      const isFund =
+        entry.dataSource === DataSource.MANUAL || isFundSymbol(entry.symbol);
 
       // Funds are tracking-only on the stock cadence: value the sleeve + collect
       // them as fund candidates, but do NOT run the stock BUY/exit evaluation.
@@ -1106,6 +1155,8 @@ export class SignalsService implements OnApplicationBootstrap {
           fundsValue += valueInBase;
           fundValueByCategory[category] =
             (fundValueByCategory[category] ?? 0) + valueInBase;
+          fundValueBySymbol[entry.symbol] =
+            (fundValueBySymbol[entry.symbol] ?? 0) + valueInBase;
         }
 
         continue;
@@ -1143,21 +1194,21 @@ export class SignalsService implements OnApplicationBootstrap {
       // more stable Yang-Zhang (OHLC) volatility — bounded to these few symbols.
       const volatilityOverride =
         entry.owned && config.isActiveTrade
-          ? (await this.ohlcService.getDailyVolatility(entry.symbol)) ?? undefined
+          ? ((await this.ohlcService.getDailyVolatility(entry.symbol)) ??
+            undefined)
           : undefined;
 
       // Reversal (bear-market) buy path: a cheap close-based structure check
       // first; only when it holds do we spend a volume fetch to confirm
       // capitulation. Bounds the OHLCV fetches to genuine reversal candidates.
-      const reversal =
-        !(entry.owned && config.isActiveTrade)
-          ? this.indicatorsService.reversalStructure(
-              closes,
-              SIGNAL_REVERSAL_RSI_MAX
-            )
-          : undefined;
+      const reversal = !(entry.owned && config.isActiveTrade)
+        ? this.indicatorsService.reversalStructure(
+            closes,
+            SIGNAL_REVERSAL_RSI_MAX
+          )
+        : undefined;
       const volumeRatio = reversal?.isReversal
-        ? (await this.ohlcService.getVolumeRatio(entry.symbol)) ?? undefined
+        ? ((await this.ohlcService.getVolumeRatio(entry.symbol)) ?? undefined)
         : undefined;
 
       const {
@@ -1231,6 +1282,7 @@ export class SignalsService implements OnApplicationBootstrap {
       fundCandidates,
       fundsValue: Math.round(fundsValue * 100) / 100,
       fundValueByCategory,
+      fundValueBySymbol,
       response,
       stockCandidates,
       stocksValue: Math.round(stocksValue * 100) / 100,
@@ -1439,8 +1491,7 @@ export class SignalsService implements OnApplicationBootstrap {
     for (const row of rows) {
       // REVERSAL signals are stored as category='BUY' / signalType='REVERSAL'.
       // Bucket them under 'REVERSAL' so the summary card shows the real count.
-      const bucket =
-        row.signalType === 'REVERSAL' ? 'REVERSAL' : row.category;
+      const bucket = row.signalType === 'REVERSAL' ? 'REVERSAL' : row.category;
 
       last30d[bucket] = (last30d[bucket] ?? 0) + 1;
 
@@ -1581,8 +1632,15 @@ export class SignalsService implements OnApplicationBootstrap {
 
     const dipSeries = closedTrades
       .filter(
-        (trade): trade is SimulatedTrade & { sellDate: string } =>
-          trade.signalType === 'DIP' && trade.sellDate != null
+        (
+          trade
+        ): trade is SimulatedTrade & {
+          effectiveAnnualRatePct: number;
+          sellDate: string;
+        } =>
+          trade.signalType === 'DIP' &&
+          trade.sellDate != null &&
+          trade.effectiveAnnualRatePct != null
       )
       .map((trade) => ({
         date: trade.sellDate,
@@ -1592,8 +1650,15 @@ export class SignalsService implements OnApplicationBootstrap {
 
     const reversalSeries = closedTrades
       .filter(
-        (trade): trade is SimulatedTrade & { sellDate: string } =>
-          trade.signalType === 'REVERSAL' && trade.sellDate != null
+        (
+          trade
+        ): trade is SimulatedTrade & {
+          effectiveAnnualRatePct: number;
+          sellDate: string;
+        } =>
+          trade.signalType === 'REVERSAL' &&
+          trade.sellDate != null &&
+          trade.effectiveAnnualRatePct != null
       )
       .map((trade) => ({
         date: trade.sellDate,
@@ -1601,16 +1666,27 @@ export class SignalsService implements OnApplicationBootstrap {
       }))
       .sort(bySellDateAsc);
 
+    // netReturnPct/effectiveAnnualRatePct are undefined only in the rare case
+    // where a matched SELL row itself is missing a price — filter those out
+    // of the averages/win-rate rather than letting `undefined > 0`/NaN skew
+    // them; the trade itself still appears in the table regardless.
+    const numeric = (value: number | undefined): value is number =>
+      value != null;
+
     const winningTrades = closedTrades.filter(
-      (trade) => trade.netReturnPct > 0
+      (trade) => numeric(trade.netReturnPct) && trade.netReturnPct > 0
     );
 
     const summary: SimulationSummary = {
       avgEffectiveAnnualRatePct: round2(
-        average(closedTrades.map((trade) => trade.effectiveAnnualRatePct))
+        average(
+          closedTrades
+            .map((trade) => trade.effectiveAnnualRatePct)
+            .filter(numeric)
+        )
       ),
       avgNetReturnPct: round2(
-        average(closedTrades.map((trade) => trade.netReturnPct))
+        average(closedTrades.map((trade) => trade.netReturnPct).filter(numeric))
       ),
       closedTrades: closedTrades.length,
       openTrades: openTrades.length,
@@ -1635,7 +1711,12 @@ export class SignalsService implements OnApplicationBootstrap {
   /**
    * Builds one simulated trade from a BUY row, closed against `sellRow` (a
    * logged SELL) or marked-to-market against `currentPrice` (still open).
-   * Returns null when there isn't a usable price on either side yet.
+   * Returns null ONLY when the BUY itself has no usable reference price —
+   * every other gap (a transient live-quote failure on an OPEN trade, or a
+   * rare missing price on the matched SELL row) still returns the trade with
+   * the return-based fields left undefined, rather than dropping the row.
+   * Every logged BUY signal must show up here; a temporary quote hiccup
+   * shouldn't erase it from the table.
    */
   private buildSimulatedTrade({
     buyRow,
@@ -1644,11 +1725,15 @@ export class SignalsService implements OnApplicationBootstrap {
     sellRow
   }: {
     buyRow: {
+      conviction: number | null;
       createdAt: Date;
       currency: string | null;
       dataSource: DataSource;
       livePrice: number | null;
       name: string | null;
+      reachProbability: number | null;
+      rsi: number | null;
+      score: number | null;
       signalType: string | null;
       stopLoss: number | null;
       symbol: string;
@@ -1665,41 +1750,53 @@ export class SignalsService implements OnApplicationBootstrap {
     }
 
     const sellPrice = sellRow ? (sellRow.livePrice ?? undefined) : currentPrice;
-
-    if (!sellPrice) {
-      return null;
-    }
-
     const sellDate = sellRow ? sellRow.createdAt : now;
+    // Elapsed time never depends on price, so it's always known — only the
+    // return-based fields below are conditional on a resolved sellPrice.
     const holdingDays = Math.max(
       1,
       differenceInCalendarDays(sellDate, buyRow.createdAt)
     );
-    const grossReturnPct = (sellPrice / buyPrice - 1) * 100;
-    // OPEN: only the buy leg's fee has actually been paid; the sell fee is
-    // only charged once a matching SELL is logged and the trade closes.
-    const roundTripFeeUsd = sellRow
-      ? SIGNAL_BUY_FEE_USD + SIGNAL_SELL_FEE_USD
-      : SIGNAL_BUY_FEE_USD;
-    const feeDragPct =
-      (roundTripFeeUsd / SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD) * 100;
-    const netReturnPct = grossReturnPct - feeDragPct;
-    const effectiveAnnualRatePct =
-      (Math.pow(1 + netReturnPct / 100, 365 / holdingDays) - 1) * 100;
+
+    let grossReturnPct: number | undefined;
+    let netReturnPct: number | undefined;
+    let effectiveAnnualRatePct: number | undefined;
+
+    if (sellPrice) {
+      grossReturnPct = (sellPrice / buyPrice - 1) * 100;
+      // OPEN: only the buy leg's fee has actually been paid; the sell fee is
+      // only charged once a matching SELL is logged and the trade closes.
+      const roundTripFeeUsd = sellRow
+        ? SIGNAL_BUY_FEE_USD + SIGNAL_SELL_FEE_USD
+        : SIGNAL_BUY_FEE_USD;
+      const feeDragPct =
+        (roundTripFeeUsd / SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD) * 100;
+      netReturnPct = grossReturnPct - feeDragPct;
+      effectiveAnnualRatePct =
+        (Math.pow(1 + netReturnPct / 100, 365 / holdingDays) - 1) * 100;
+    }
 
     return {
       assumedNotionalUsd: SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD,
       buyDate: buyRow.createdAt.toISOString(),
       buyPrice,
+      convictionAtBuy: buyRow.conviction ?? undefined,
       currency: buyRow.currency ?? undefined,
       // Only meaningful while still OPEN — once closed, sellPrice IS the exit.
       currentPrice: sellRow ? undefined : currentPrice,
       dataSource: buyRow.dataSource,
-      effectiveAnnualRatePct: round2(effectiveAnnualRatePct),
-      grossReturnPct: round2(grossReturnPct),
+      effectiveAnnualRatePct:
+        effectiveAnnualRatePct != null
+          ? round2(effectiveAnnualRatePct)
+          : undefined,
+      grossReturnPct:
+        grossReturnPct != null ? round2(grossReturnPct) : undefined,
       holdingDays,
       name: buyRow.name ?? undefined,
-      netReturnPct: round2(netReturnPct),
+      netReturnPct: netReturnPct != null ? round2(netReturnPct) : undefined,
+      reachProbabilityAtBuy: buyRow.reachProbability ?? undefined,
+      rsiAtBuy: buyRow.rsi ?? undefined,
+      scoreAtBuy: buyRow.score ?? undefined,
       sellDate: sellRow ? sellRow.createdAt.toISOString() : undefined,
       sellPrice: sellRow ? sellPrice : undefined,
       signalType: buyRow.signalType === 'REVERSAL' ? 'REVERSAL' : 'DIP',
@@ -1887,9 +1984,7 @@ export class SignalsService implements OnApplicationBootstrap {
     }
 
     // Rank by base-currency position size (largest exposure first).
-    report.rows.sort(
-      (a, b) => b.valueInBaseCurrency - a.valueInBaseCurrency
-    );
+    report.rows.sort((a, b) => b.valueInBaseCurrency - a.valueInBaseCurrency);
 
     return report;
   }
@@ -1909,8 +2004,7 @@ export class SignalsService implements OnApplicationBootstrap {
     return {
       dayChangePct:
         previousClose > 0 ? livePrice / previousClose - 1 : undefined,
-      weekChangePct:
-        weekAgoClose > 0 ? livePrice / weekAgoClose - 1 : undefined
+      weekChangePct: weekAgoClose > 0 ? livePrice / weekAgoClose - 1 : undefined
     };
   }
 
@@ -2266,7 +2360,12 @@ export class SignalsService implements OnApplicationBootstrap {
       };
     }
 
-    return { candidate, enteredTrailing: false, nextTrailingPeak: null, signal: null };
+    return {
+      candidate,
+      enteredTrailing: false,
+      nextTrailingPeak: null,
+      signal: null
+    };
   }
 
   /**
@@ -2441,7 +2540,11 @@ export class SignalsService implements OnApplicationBootstrap {
         nextTrailingPeak: null,
         signal: {
           ...base,
-          ...this.attachForecast({ closes, livePrice, target: averageBuyPrice }),
+          ...this.attachForecast({
+            closes,
+            livePrice,
+            target: averageBuyPrice
+          }),
           adaptiveLevel: trail,
           category: 'SELL',
           reason:
@@ -2729,13 +2832,8 @@ export class SignalsService implements OnApplicationBootstrap {
    */
   private async computeMetricsSnapshot(
     items: { dataSource: DataSource; symbol: string }[]
-  ): Promise<
-    Map<string, WatchlistMetric & { livePrice?: number }>
-  > {
-    const metrics = new Map<
-      string,
-      WatchlistMetric & { livePrice?: number }
-    >();
+  ): Promise<Map<string, WatchlistMetric & { livePrice?: number }>> {
+    const metrics = new Map<string, WatchlistMetric & { livePrice?: number }>();
 
     if (items.length === 0) {
       return metrics;
@@ -2746,6 +2844,41 @@ export class SignalsService implements OnApplicationBootstrap {
       this.getHistory(items),
       this.fundHistoryService.getFacts()
     ]);
+
+    // Ongoing annual fee, resolved once per symbol before the loop: the
+    // static ETF_TER_CATALOG only covers ~12 of the ~54 watchlist ETFs — for
+    // any YAHOO item still missing a fee after the static/fund sources, fall
+    // back to Yahoo's own real "Annual Report Expense Ratio (net)" (the same
+    // live-fetched, cached Profile-page data already used for the Style Box,
+    // see AssetDetailService.getYahooEtfProfile) so new ETFs get a real fee
+    // automatically instead of needing a manual catalog entry.
+    const yahooFeeBySymbol = new Map<string, number>();
+    const needsYahooFee = items.filter(
+      (item) =>
+        item.dataSource === DataSource.YAHOO &&
+        terPctForSymbol(item.symbol) == null &&
+        fundFeeForSymbol(item.symbol) == null &&
+        fundFacts[item.symbol]?.feePct == null &&
+        fundFacts[item.symbol]?.productFeePct == null
+    );
+
+    if (needsYahooFee.length > 0) {
+      // getYahooEtfProfile never throws (internal try/catch), so no .catch
+      // needed here — a failure just resolves to {} (no fee found).
+      const results = await Promise.all(
+        needsYahooFee.map((item) =>
+          this.assetDetailService
+            .getYahooEtfProfile(item.symbol)
+            .then((profile) => ({ profile, symbol: item.symbol }))
+        )
+      );
+
+      for (const { symbol, profile } of results) {
+        if (profile.expenseRatioPct != null) {
+          yahooFeeBySymbol.set(symbol, profile.expenseRatioPct);
+        }
+      }
+    }
 
     for (const { symbol } of items) {
       const livePrice = quotes[symbol]?.marketPrice;
@@ -2764,17 +2897,22 @@ export class SignalsService implements OnApplicationBootstrap {
       // accumulates forward), else compute from accumulated close history.
       const series = computeSeriesMetrics(closes);
       const dev = fundFacts[symbol]?.developments;
-      const pick = (
-        official: number | undefined,
-        computed: number | null
-      ) => official ?? computed ?? undefined;
+      const pick = (official: number | undefined, computed: number | null) =>
+        official ?? computed ?? undefined;
 
-      // Ongoing annual fee: ETF TER catalog, else fund fee (Nordnet).
+      // Ongoing annual fee: ETF TER catalog (stored as a FRACTION, e.g.
+      // 0.0018 for 18bps — converted ×100 here to match the percent-number
+      // convention every other source and the UI use, e.g. 0.2 = "0.2%";
+      // this conversion was previously missing, so any ETF with only a
+      // static catalog entry rendered as "0.00%"), else fund fee (Nordnet),
+      // else Yahoo's real live-fetched expense ratio (see above).
+      const catalogTerPct = terPctForSymbol(symbol);
       const feePct =
-        terPctForSymbol(symbol) ??
+        (catalogTerPct != null ? catalogTerPct * 100 : undefined) ??
         fundFeeForSymbol(symbol) ??
         fundFacts[symbol]?.feePct ??
-        fundFacts[symbol]?.productFeePct;
+        fundFacts[symbol]?.productFeePct ??
+        yahooFeeBySymbol.get(symbol);
 
       const band = snapshot.volatility * Math.sqrt(SIGNAL_HORIZON_DAYS);
       const targetGainPct = Math.max(
@@ -2832,7 +2970,14 @@ export class SignalsService implements OnApplicationBootstrap {
     const result: Record<string, WatchlistMetric> = {};
 
     for (const [symbol, metric] of metrics) {
-      const { livePrice, ...watchlistMetric } = metric;
+      // Strip the internal `livePrice` field (computeMetricsSnapshot's own
+      // marked-to-market helper) before returning the public WatchlistMetric
+      // shape — a shallow-copy + delete instead of a destructure-to-omit
+      // avoids an unused-binding lint error while keeping the same result.
+      const watchlistMetric: WatchlistMetric & { livePrice?: number } = {
+        ...metric
+      };
+      delete watchlistMetric.livePrice;
       result[symbol] = watchlistMetric;
     }
 
@@ -2928,7 +3073,9 @@ export class SignalsService implements OnApplicationBootstrap {
       const details: string[] = [signal.reason];
 
       if (signal.category !== 'REINVEST') {
-        details.push(`Price: ${signal.livePrice} ${signal.currency ?? ''}`.trim());
+        details.push(
+          `Price: ${signal.livePrice} ${signal.currency ?? ''}`.trim()
+        );
       }
 
       if (signal.hitTargetProbability !== undefined) {

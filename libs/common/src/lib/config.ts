@@ -359,6 +359,17 @@ export const SIGNAL_STRATEGY_REDUNDANCY_THRESHOLD = 0.4;
 // non-redundant picks of similar quality without hiding it outright.
 export const SIGNAL_STRATEGY_REDUNDANCY_PENALTY = 0.5;
 
+// Fund-vs-fund overlap floor (recommendFunds): a candidate's risk-adjusted
+// momentum is multiplied by max(FLOOR, 1 - ownedOverlapExposure), where
+// ownedOverlapExposure is the dollar-weighted share of the fund sleeve that
+// already conceptually duplicates the candidate's holdings. This is a
+// CONTINUOUS penalty (not a threshold cliff like SIGNAL_STRATEGY_REDUNDANCY_
+// THRESHOLD above) — a fund overlapping a SMALL existing position is barely
+// penalized, one overlapping a LARGE existing position is penalized toward
+// (never to) this floor. "De-prioritize, never exclude": a strong enough
+// momentum edge always survives the floor and can still win.
+export const SIGNAL_FUND_OVERLAP_PENALTY_FLOOR = 0.4;
+
 // Cash balance (in base currency) above which a REINVEST suggestion is raised.
 export const SIGNAL_DEFAULT_CASH_THRESHOLD = 250;
 

@@ -75,7 +75,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q1',
             type: 'calculation',
             prompt:
-              'A stock\'s 5-day SMA over closes `98, 100, 102, 101, 103` was 100.8. A new close of 106 arrives, and the oldest close (98) rolls out of the window. Using the rolling-window update (subtract the dropped close\'s contribution, add the new one) rather than re-summing everything, compute the new 5-day SMA.',
+              "A stock's 5-day SMA over closes `98, 100, 102, 101, 103` was 100.8. A new close of 106 arrives, and the oldest close (98) rolls out of the window. Using the rolling-window update (subtract the dropped close's contribution, add the new one) rather than re-summing everything, compute the new 5-day SMA.",
             correctAnswer: '102.4',
             explanation:
               'New SMA₅ = old SMA₅ − oldest/5 + newest/5 = 100.8 − 98/5 + 106/5 = 100.8 − 19.6 + 21.2 = **102.4**. (Check: 100+102+101+103+106 = 512, 512/5 = 102.4 — matches.) This rolling update is exactly why a moving average is cheap to maintain day over day: no need to re-sum the whole window each time.'
@@ -84,7 +84,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q2',
             type: 'multiple-choice',
             prompt:
-              'A stock has SMA50 < SMA200, but its price is currently sitting just ABOVE SMA200. Is this a confirmed downtrend per the engine\'s `isDowntrend()`, and could a DIP buy still fire?',
+              "A stock has SMA50 < SMA200, but its price is currently sitting just ABOVE SMA200. Is this a confirmed downtrend per the engine's `isDowntrend()`, and could a DIP buy still fire?",
             options: [
               'Not a confirmed downtrend (price ≥ SMA200 fails that half of the AND) — a DIP buy could still fire if the other conditions hold',
               'Yes, a confirmed downtrend — SMA50 < SMA200 alone is sufficient',
@@ -120,8 +120,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         glossaryRef: 'rsi',
         practiceSymbolDefault: 'AAPL',
         theory:
-          "## What it measures\n\n" +
-          "RSI is a momentum oscillator bounded in [0, 100], built from the ratio of average gains to average losses over the last 14 periods (Wilder-smoothed, not a plain average):\n\n" +
+          '## What it measures\n\n' +
+          'RSI is a momentum oscillator bounded in [0, 100], built from the ratio of average gains to average losses over the last 14 periods (Wilder-smoothed, not a plain average):\n\n' +
           '```\nRS = avgGain₁₄ / avgLoss₁₄\nRSI = 100 − 100 / (1 + RS)\n```\n\n' +
           'Readings below 30 are conventionally "oversold," above 70 "overbought." RSI is 25% of the composite score\'s weight (the single largest component), because it is the most direct measure of "has this been sold off hard recently."\n\n' +
           '## The subtlety in the REVERSAL path\n\n' +
@@ -146,7 +146,12 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q2',
             type: 'multiple-choice',
             prompt: 'An RSI reading of 22 is conventionally considered:',
-            options: ['Oversold', 'Overbought', 'Neutral', 'Invalid (RSI cannot go below 30)'],
+            options: [
+              'Oversold',
+              'Overbought',
+              'Neutral',
+              'Invalid (RSI cannot go below 30)'
+            ],
             correctAnswer: 'Oversold',
             explanation: 'Below 30 is the conventional oversold threshold.'
           },
@@ -154,7 +159,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q3',
             type: 'multiple-choice',
             prompt:
-              'True or false: the REVERSAL buy path requires today\'s RSI to be below 30.',
+              "True or false: the REVERSAL buy path requires today's RSI to be below 30.",
             options: ['False', 'True'],
             correctAnswer: 'False',
             explanation:
@@ -174,22 +179,26 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '## How it is scored\n\n' +
           'The composite score treats the histogram as a binary-ish input: a non-negative histogram contributes strongly (its full weight at a high value), a negative one contributes only a small baseline — it is a quality signal ("is momentum turning constructive"), not a precise magnitude measure.',
         furtherReading: [
-          { title: 'MACD — Wikipedia', url: 'https://en.wikipedia.org/wiki/MACD' }
+          {
+            title: 'MACD — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/MACD'
+          }
         ],
         quiz: [
           {
             id: 'q1',
             type: 'calculation',
             prompt:
-              'Yesterday: EMA₁₂ = 102, EMA₂₆ = 100 (MACD = 2). Today the fast EMA rises to 105 while the slow EMA barely moves to 100.5, and the signal line (EMA₉ of MACD) is 3. Compute today\'s MACD and histogram, and state whether momentum is strengthening or weakening versus yesterday.',
+              "Yesterday: EMA₁₂ = 102, EMA₂₆ = 100 (MACD = 2). Today the fast EMA rises to 105 while the slow EMA barely moves to 100.5, and the signal line (EMA₉ of MACD) is 3. Compute today's MACD and histogram, and state whether momentum is strengthening or weakening versus yesterday.",
             correctAnswer: 'MACD=4.5, histogram=1.5, strengthening',
             explanation:
-              'Today\'s MACD = 105 − 100.5 = 4.5 (up from yesterday\'s 2 — the gap widened). Histogram = 4.5 − 3 = **1.5**. Since MACD itself grew from 2 to 4.5, momentum is **strengthening**, even though the histogram\'s sign alone wouldn\'t tell you that trend — you have to compare MACD across days, not just look at one snapshot.'
+              "Today's MACD = 105 − 100.5 = 4.5 (up from yesterday's 2 — the gap widened). Histogram = 4.5 − 3 = **1.5**. Since MACD itself grew from 2 to 4.5, momentum is **strengthening**, even though the histogram's sign alone wouldn't tell you that trend — you have to compare MACD across days, not just look at one snapshot."
           },
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'A positive, rising MACD histogram is generally interpreted as:',
+            prompt:
+              'A positive, rising MACD histogram is generally interpreted as:',
             options: [
               'Strengthening upward momentum',
               'A guaranteed reversal downward',
@@ -206,13 +215,13 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             prompt:
               'Why does the composite score treat the MACD histogram as roughly binary (a high score if non-negative, a low baseline if negative) rather than scaling smoothly with its exact magnitude?',
             options: [
-              'The histogram\'s magnitude is not comparable across different stocks at different price levels, so its sign (is momentum turning constructive or not) is the more reliable, universally-comparable signal',
+              "The histogram's magnitude is not comparable across different stocks at different price levels, so its sign (is momentum turning constructive or not) is the more reliable, universally-comparable signal",
               'It is a bug that should eventually be fixed',
               'The histogram magnitude is always zero in practice',
               'MACD cannot produce negative values'
             ],
             correctAnswer:
-              'The histogram\'s magnitude is not comparable across different stocks at different price levels, so its sign (is momentum turning constructive or not) is the more reliable, universally-comparable signal',
+              "The histogram's magnitude is not comparable across different stocks at different price levels, so its sign (is momentum turning constructive or not) is the more reliable, universally-comparable signal",
             explanation:
               'A $2 histogram value means something very different for a $10 stock than a $500 stock — treating it as a quality flag (constructive vs. not) sidesteps that scaling problem entirely, the same reasoning Bollinger %B uses by being self-normalizing.'
           }
@@ -255,8 +264,10 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'Exactly at the 20-day average',
               'Undefined — %B cannot approach 0'
             ],
-            correctAnswer: 'Stretched down toward the lower band (potentially oversold)',
-            explanation: '%B = 0 corresponds to price sitting exactly on the lower band.'
+            correctAnswer:
+              'Stretched down toward the lower band (potentially oversold)',
+            explanation:
+              '%B = 0 corresponds to price sitting exactly on the lower band.'
           },
           {
             id: 'q3',
@@ -266,7 +277,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             options: [
               '%B is self-normalizing (always in roughly [0,1] regardless of the underlying price level), so the same weight/threshold logic applies uniformly across any stock',
               '%B secretly adjusts its weight based on stock price',
-              'It doesn\'t — %B is actually unreliable across different price levels',
+              "It doesn't — %B is actually unreliable across different price levels",
               'Because both stocks must have identical volatility for %B to be valid'
             ],
             correctAnswer:
@@ -287,13 +298,13 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '```\nclose-to-close: σ = stdev( ln(closeₜ / closeₜ₋₁) )\nannualised: σ_annual = σ · √252\n```\n\n' +
           'This is what the engine uses for the composite score, the buy-zone gate, strategy candidates, and backtesting — everywhere volatility is needed at portfolio scale across the whole watchlist. The `√252` annualization comes from there being roughly 252 trading days in a year: variance scales linearly with time, so *standard deviation* scales with the *square root* of time.\n\n' +
           '## Why a second estimator exists\n\n' +
-          'Close-to-close volatility throws away the whole trading day\'s range — a stock that gapped down, traded wildly intraday, and closed flat looks exactly like a quiet day. The **Yang-Zhang** estimator (falling back to **Garman-Klass** when overnight data is unavailable) uses the full open/high/low/close range, which is a much less noisy estimate over short windows. The engine reserves this more expensive, more precise estimator for **owned active trades only** — where getting the stop/target/trail bands right actually matters for money already on the table — rather than computing it for the entire watchlist every cycle.',
+          "Close-to-close volatility throws away the whole trading day's range — a stock that gapped down, traded wildly intraday, and closed flat looks exactly like a quiet day. The **Yang-Zhang** estimator (falling back to **Garman-Klass** when overnight data is unavailable) uses the full open/high/low/close range, which is a much less noisy estimate over short windows. The engine reserves this more expensive, more precise estimator for **owned active trades only** — where getting the stop/target/trail bands right actually matters for money already on the table — rather than computing it for the entire watchlist every cycle.",
         quiz: [
           {
             id: 'q1',
             type: 'calculation',
             prompt:
-              'Stock A: daily σ = 1% and price gapped down 8% overnight then closed flat for the day (no intraday range beyond the gap). Stock B: daily σ = 1% too, but traded in a wide 6%-of-price intraday range before closing flat, no overnight gap. Close-to-close volatility measures only the day-over-day closing price change. For which stock (A, B, both, or neither) would close-to-close volatility most understate the day\'s true price risk, and why?',
+              "Stock A: daily σ = 1% and price gapped down 8% overnight then closed flat for the day (no intraday range beyond the gap). Stock B: daily σ = 1% too, but traded in a wide 6%-of-price intraday range before closing flat, no overnight gap. Close-to-close volatility measures only the day-over-day closing price change. For which stock (A, B, both, or neither) would close-to-close volatility most understate the day's true price risk, and why?",
             correctAnswer: 'Both',
             explanation:
               'Close-to-close only sees the NET change from yesterday\'s close to today\'s close — if both stocks closed "flat" relative to their own prior close despite very different amounts of real intraday chaos (a gap for A, a wide range for B), close-to-close volatility would understate the true risk for **both**, just via different mechanisms. This is exactly the blind spot Yang-Zhang/Garman-Klass (which use the full OHLC range) are built to catch.'
@@ -341,7 +352,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q1',
             type: 'calculation',
             prompt:
-              'A stock\'s price 252 trading days ago was 100. Today it is 80 (a real 12-month loss), but it fell as low as 60 three months ago and has since rallied hard. Compute the 12-month momentum. Given this number, would you expect the engine\'s DIP path or REVERSAL path to be the one potentially handling a buy here, and why?',
+              "A stock's price 252 trading days ago was 100. Today it is 80 (a real 12-month loss), but it fell as low as 60 three months ago and has since rallied hard. Compute the 12-month momentum. Given this number, would you expect the engine's DIP path or REVERSAL path to be the one potentially handling a buy here, and why?",
             correctAnswer: '-20%, REVERSAL path',
             explanation:
               'Momentum12M = 80/100 − 1 = −0.20 = **−20%**. A negative 12-month momentum like this is one of the signals that routes a name AWAY from the uptrend-only DIP path and toward the REVERSAL path\'s stricter bottom-confirmation requirements (Level 2) — the "real decline, now potentially recovering" profile is exactly what REVERSAL exists to evaluate carefully, not what DIP is built for.'
@@ -398,8 +409,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           'With weights: RSI 25%, Bollinger %B 30%, MACD histogram 15%, SMA200 trend 15%, momentum 12M 15%. Each raw indicator is first normalized into [0, 1] (or a fixed alternative value when it is a binary-ish quality check like MACD/trend/momentum), then blended.\n\n' +
           '## A gate, never a multiplier\n\n' +
           'This is the single most important design decision to internalize: the composite score **ranks candidates and gates eligibility** — a DIP buy needs score ≥ 55, the strategy builder needs score ≥ 45 — but it never multiplies into the trade\'s expected value or position size. That job belongs to expected value (Level 3), which is calculated completely separately from the score. Conflating "how attractive does this look technically" with "how much should I risk" is exactly the kind of error this separation is designed to avoid.\n\n' +
-          '## Missing inputs don\'t break it\n\n' +
-          'If one input isn\'t available yet (e.g. a newly-tracked fund with under 200 days of history has no valid SMA200), that term is simply dropped and the remaining weights are re-normalized to still sum to 1 — the score degrades gracefully instead of failing outright.',
+          "## Missing inputs don't break it\n\n" +
+          "If one input isn't available yet (e.g. a newly-tracked fund with under 200 days of history has no valid SMA200), that term is simply dropped and the remaining weights are re-normalized to still sum to 1 — the score degrades gracefully instead of failing outright.",
         quiz: [
           {
             id: 'q1',
@@ -420,7 +431,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'Multiply into the expected-value formula',
               'Replace the DIP/REVERSAL rules entirely'
             ],
-            correctAnswer: 'Rank and gate candidates — never to size the trade or scale expected value',
+            correctAnswer:
+              'Rank and gate candidates — never to size the trade or scale expected value',
             explanation:
               'Position sizing and ranking-by-edge both come from expected value (Level 3), computed independently — the score is strictly a quality gate/ranker.'
           }
@@ -434,10 +446,10 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         theory:
           '## The four-part AND\n\n' +
           '```\npass = score ≥ 45\n  AND (not downtrend OR confirmed REVERSAL)\n  AND not recently-exited (≤ 14 days)\n  AND annualVol ≤ 0.90\n```\n\n' +
-          'A candidate must clear **all four** before it is even eligible to be ranked by expected value in the strategy builder. Note the score floor here (45) is *lower* than the DIP buy\'s own floor (55, Level 2 lesson 3) — the strategy builder is casting a slightly wider net for candidates worth considering, while the DIP trigger itself is stricter about what actually fires a notification.\n\n' +
+          "A candidate must clear **all four** before it is even eligible to be ranked by expected value in the strategy builder. Note the score floor here (45) is *lower* than the DIP buy's own floor (55, Level 2 lesson 3) — the strategy builder is casting a slightly wider net for candidates worth considering, while the DIP trigger itself is stricter about what actually fires a notification.\n\n" +
           '## Why each gate exists\n\n' +
           '- **Downtrend exclusion** (with a REVERSAL escape hatch): the same "don\'t catch a falling knife" logic from Level 1, but here it is a hard eligibility filter, not just a scoring input.\n' +
-          '- **Recently-exited cooldown**: if a position was just stopped out or sold, the engine won\'t immediately suggest buying it right back — avoiding a whipsaw where a single volatile stretch causes repeated in-and-out trades (and repeated fees).\n' +
+          "- **Recently-exited cooldown**: if a position was just stopped out or sold, the engine won't immediately suggest buying it right back — avoiding a whipsaw where a single volatile stretch causes repeated in-and-out trades (and repeated fees).\n" +
           '- **Volatility cap**: excludes extremely wild or illiquid names where the band-based bands would be so wide as to be nearly meaningless, and where liquidity/execution risk is elevated.',
         quiz: [
           {
@@ -445,7 +457,12 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             type: 'multiple-choice',
             prompt:
               'A stock has score = 50, is in a confirmed downtrend with no REVERSAL structure confirmed, annualVol = 0.5, and was not recently exited. Is it eligible for ranking?',
-            options: ['No — it fails the downtrend gate', 'Yes — score and volatility both pass', 'Yes, but only for the Safe 80/20 strategy', 'Cannot tell without RSI'],
+            options: [
+              'No — it fails the downtrend gate',
+              'Yes — score and volatility both pass',
+              'Yes, but only for the Safe 80/20 strategy',
+              'Cannot tell without RSI'
+            ],
             correctAnswer: 'No — it fails the downtrend gate',
             explanation:
               'All four gates must pass. Being in a confirmed downtrend without a confirmed REVERSAL fails that gate regardless of the other three.'
@@ -455,7 +472,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             type: 'calculation',
             prompt:
               'A candidate has score = 60 (passes), is NOT in a downtrend (passes), was stopped out 9 days ago (the cooldown is 14 days), and has daily volatility σ = 3.5%. Compute its annualized volatility and determine whether it is eligible for ranking today, and if not, what specifically blocks it.',
-            correctAnswer: '≈0.556, not eligible, fails recently-exited cooldown',
+            correctAnswer:
+              '≈0.556, not eligible, fails recently-exited cooldown',
             explanation:
               '0.035 × √252 ≈ 0.035 × 15.87 ≈ **0.556** — comfortably under the 0.90 cap. But it was stopped out only 9 days ago, inside the 14-day recently-exited window, so despite passing score/downtrend/volatility, it still fails eligibility overall on that one gate alone — all four must pass simultaneously.'
           },
@@ -463,7 +481,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q3',
             type: 'multiple-choice',
             prompt:
-              'Why is the strategy builder\'s score floor (45) deliberately set LOWER than the DIP buy trigger\'s own floor (55)?',
+              "Why is the strategy builder's score floor (45) deliberately set LOWER than the DIP buy trigger's own floor (55)?",
             options: [
               'The strategy builder is casting a slightly wider net over candidates worth considering for ranking, while the DIP trigger itself is stricter about what actually fires a live notification — different jobs, different bars',
               'It is an inconsistency/bug that should be fixed to use the same number',
@@ -494,16 +512,23 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'Can the DIP buy path fire while a stock is in a confirmed downtrend?',
-            options: ['No, never — it is uptrend-only by construction', 'Yes, if the score is high enough', 'Yes, if news sentiment is very positive', 'Only for ETFs'],
+            prompt:
+              'Can the DIP buy path fire while a stock is in a confirmed downtrend?',
+            options: [
+              'No, never — it is uptrend-only by construction',
+              'Yes, if the score is high enough',
+              'Yes, if news sentiment is very positive',
+              'Only for ETFs'
+            ],
             correctAnswer: 'No, never — it is uptrend-only by construction',
-            explanation: 'The `not downtrend` clause is a hard requirement, not one factor among several that can compensate for the others.'
+            explanation:
+              'The `not downtrend` clause is a hard requirement, not one factor among several that can compensate for the others.'
           },
           {
             id: 'q2',
             type: 'calculation',
             prompt:
-              'Price = 95, buyLevel = 96, stock is in an uptrend, score = 60, today\'s price (95) is above yesterday\'s close (93), newsScore = 0. Does the DIP buy fire?',
+              "Price = 95, buyLevel = 96, stock is in an uptrend, score = 60, today's price (95) is above yesterday's close (93), newsScore = 0. Does the DIP buy fire?",
             correctAnswer: 'Yes',
             explanation:
               'price(95) ≤ buyLevel(96) ✓, not downtrend ✓, score(60) ≥ 55 ✓, up-day (95>93) ✓, newsScore(0) ≥ −0.2 ✓ — all five clauses pass, so DIP fires.'
@@ -520,7 +545,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '```\nprice < SMA200 AND rsi rising AND rsi < 70\nAND higher-low AND price ≥ SMA20\nAND volume ≥ 1.3 × 20-day avg\n```\n\n' +
           'This is the flagged, higher-risk counterpart to DIP: it is the *only* path that will buy a name already below its 200-day average — but only once several independent signs of an actual bottom line up together, not just "it looks cheap."\n\n' +
           '## What each clause confirms\n\n' +
-          '- **RSI rising, still < 70**: selling pressure is easing (Level 1\'s subtlety — this doesn\'t require RSI to still be oversold today).\n' +
+          "- **RSI rising, still < 70**: selling pressure is easing (Level 1's subtlety — this doesn't require RSI to still be oversold today).\n" +
           '- **Higher-low**: the recent low is above the prior low — the decline itself is losing downward force, structurally.\n' +
           '- **Reclaimed SMA20**: price has fought back above its short-term average — a real, not just intraday, sign of strength.\n' +
           '- **Volume ≥ 1.3× 20-day average**: capitulation-style volume confirms real buying interest is stepping in, not a thin, unconvincing bounce.\n\n' +
@@ -546,7 +571,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q2',
             type: 'calculation',
             prompt:
-              'A stock is below SMA200, RSI was 22 two days ago and is 35 today (rising, still under 70), the recent low is higher than the prior low, price has reclaimed SMA20, but today\'s volume is 1.1× the 20-day average (needs ≥ 1.3×). Does REVERSAL fire, and specifically why or why not?',
+              "A stock is below SMA200, RSI was 22 two days ago and is 35 today (rising, still under 70), the recent low is higher than the prior low, price has reclaimed SMA20, but today's volume is 1.1× the 20-day average (needs ≥ 1.3×). Does REVERSAL fire, and specifically why or why not?",
             correctAnswer: 'No — fails the volume-confirmation clause only',
             explanation:
               'Four of five clauses pass (below SMA200 ✓, RSI rising and <70 ✓, higher-low ✓, reclaimed SMA20 ✓), but 1.1 < 1.3 fails the capitulation-volume requirement — and since all five must hold simultaneously, REVERSAL does not fire even though the structural bottom pattern otherwise looks convincing.'
@@ -577,33 +602,37 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         theory:
           '## Two modes\n\n' +
           '```\nWATCHING: price ≤ stop → SELL; price ≥ target → enter TRAILING\nTRAILING: price ≤ peak·(1−band) → SELL\nhold-with-stop: price ≤ peak·(1 − 0.22) → SELL\n```\n\n' +
-          'For a position tagged as an **active trade**, the engine runs one of two exit styles (configurable): the classic two-phase **WATCHING → TRAILING** machine, or a simpler single **hold-with-stop** (a wide 22% trailing stop from the peak, no separate take-profit phase — currently the default, `SIGNAL_EXIT_MODE = \'hold-with-stop\'`).\n\n' +
+          "For a position tagged as an **active trade**, the engine runs one of two exit styles (configurable): the classic two-phase **WATCHING → TRAILING** machine, or a simpler single **hold-with-stop** (a wide 22% trailing stop from the peak, no separate take-profit phase — currently the default, `SIGNAL_EXIT_MODE = 'hold-with-stop'`).\n\n" +
           '## Why two phases in the classic mode\n\n' +
-          'WATCHING is the entry phase: a hard stop-loss protects the downside, and hitting the take-profit target doesn\'t immediately sell — it promotes the position into TRAILING, where the exit now follows the price *up* (a trailing stop off the highest price seen since target was hit), so a continuing winner isn\'t cut short the moment it first reaches its original target.\n\n' +
+          "WATCHING is the entry phase: a hard stop-loss protects the downside, and hitting the take-profit target doesn't immediately sell — it promotes the position into TRAILING, where the exit now follows the price *up* (a trailing stop off the highest price seen since target was hit), so a continuing winner isn't cut short the moment it first reaches its original target.\n\n" +
           '## Core holdings are never touched\n\n' +
           'This entire machine only applies to positions explicitly tagged as active trades. Ordinary core holdings are never sold by the engine — the exit machine exists specifically for the subset of the portfolio being actively, tactically managed.',
         quiz: [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'In hold-with-stop mode, what is the sole trigger for a SELL?',
+            prompt:
+              'In hold-with-stop mode, what is the sole trigger for a SELL?',
             options: [
               'Price falls to 78% of the peak price since entry (peak × (1 − 0.22))',
               'Price falls below the original entry price',
               'RSI crosses above 70',
               'A fixed 30-day holding period expires'
             ],
-            correctAnswer: 'Price falls to 78% of the peak price since entry (peak × (1 − 0.22))',
-            explanation: 'hold-with-stop uses one wide trailing stop (22% off the peak) — no separate take-profit phase.'
+            correctAnswer:
+              'Price falls to 78% of the peak price since entry (peak × (1 − 0.22))',
+            explanation:
+              'hold-with-stop uses one wide trailing stop (22% off the peak) — no separate take-profit phase.'
           },
           {
             id: 'q2',
             type: 'calculation',
             prompt:
               'Classic WATCHING/TRAILING mode. Entry = 100, stop = 90, take-profit target = 120. Price path over several days: 105 → 118 → 122 → 119 → 108. Walk through the state machine: at which point (if any) does the position transition from WATCHING to TRAILING, and does it ever get SOLD along this path?',
-            correctAnswer: 'Transitions to TRAILING at 122; not sold (need the actual band to know the trailing stop level)',
+            correctAnswer:
+              'Transitions to TRAILING at 122; not sold (need the actual band to know the trailing stop level)',
             explanation:
-              'Price stays in WATCHING (never touching stop=90) until it crosses the target=120 at the 122 print — that promotes it to TRAILING. Once trailing, the exit is peak×(1−band) off the highest price seen SINCE entering TRAILING (peak=122 here), not off the original entry — so whether 119 or 108 triggers a SELL depends on the specific band width, which isn\'t given here. The key conceptual point: once in TRAILING, the ORIGINAL stop (90) and ORIGINAL target (120) are no longer what matters — the trailing peak is the new reference.'
+              "Price stays in WATCHING (never touching stop=90) until it crosses the target=120 at the 122 print — that promotes it to TRAILING. Once trailing, the exit is peak×(1−band) off the highest price seen SINCE entering TRAILING (peak=122 here), not off the original entry — so whether 119 or 108 triggers a SELL depends on the specific band width, which isn't given here. The key conceptual point: once in TRAILING, the ORIGINAL stop (90) and ORIGINAL target (120) are no longer what matters — the trailing peak is the new reference."
           },
           {
             id: 'q3',
@@ -611,15 +640,15 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             prompt:
               'Why does hitting the take-profit target promote a position to TRAILING instead of immediately selling it?',
             options: [
-              'So a continuing winner isn\'t cut short the moment it first reaches its original target — the exit now follows the price up, giving room for further gains while still protecting against a real reversal',
+              "So a continuing winner isn't cut short the moment it first reaches its original target — the exit now follows the price up, giving room for further gains while still protecting against a real reversal",
               'Because take-profit targets are never actually reliable',
               'It is purely a technical limitation — the engine cannot execute a sell at the exact target price',
               'Because TRAILING mode uses a completely different, unrelated set of indicators'
             ],
             correctAnswer:
-              'So a continuing winner isn\'t cut short the moment it first reaches its original target — the exit now follows the price up, giving room for further gains while still protecting against a real reversal',
+              "So a continuing winner isn't cut short the moment it first reaches its original target — the exit now follows the price up, giving room for further gains while still protecting against a real reversal",
             explanation:
-              'Selling the instant a target is hit would cap the upside on exactly the trades that are working best — TRAILING is the engine\'s way of staying in a winner while still having a real, moving safety net underneath it.'
+              "Selling the instant a target is hit would cap the upside on exactly the trades that are working best — TRAILING is the engine's way of staying in a winner while still having a real, moving safety net underneath it."
           }
         ]
       },
@@ -631,7 +660,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         theory:
           '## What it does — and, critically, does not do\n\n' +
           '```\nBUY suppressed when newsScore < −0.2\n(skipped entirely when no news data is available)\n```\n\n' +
-          'Research consistently shows news sentiment predicts **volatility** far more reliably than it predicts **direction** — good news doesn\'t reliably make a stock go up, but bad news reliably makes things more chaotic. The engine takes that finding seriously: sentiment is used **exclusively as a risk filter and size-shrink**, never to manufacture a directional buy signal on its own. A very positive news score does not, by itself, create a BUY.\n\n' +
+          "Research consistently shows news sentiment predicts **volatility** far more reliably than it predicts **direction** — good news doesn't reliably make a stock go up, but bad news reliably makes things more chaotic. The engine takes that finding seriously: sentiment is used **exclusively as a risk filter and size-shrink**, never to manufacture a directional buy signal on its own. A very positive news score does not, by itself, create a BUY.\n\n" +
           '## Age-decay and graceful absence\n\n' +
           'The sentiment score is age-decayed over a 3-day half-life, so stale news fades out of the calculation. When no news data is available at all (no API key configured, or the symbol has no coverage), the gate is simply skipped — a missing feed can never block a signal, avoiding a fragile dependency on an optional data source.',
         quiz: [
@@ -640,15 +669,22 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             type: 'multiple-choice',
             prompt:
               'Can strongly positive news sentiment, by itself, create a BUY signal that would not otherwise fire?',
-            options: ['No — it only suppresses or shrinks, never invents a buy', 'Yes, if the score exceeds +0.5', 'Yes, but only for REVERSAL buys', 'Only during earnings season'],
-            correctAnswer: 'No — it only suppresses or shrinks, never invents a buy',
-            explanation: 'The gate is one-directional by design: it can block or shrink a buy, never manufacture one.'
+            options: [
+              'No — it only suppresses or shrinks, never invents a buy',
+              'Yes, if the score exceeds +0.5',
+              'Yes, but only for REVERSAL buys',
+              'Only during earnings season'
+            ],
+            correctAnswer:
+              'No — it only suppresses or shrinks, never invents a buy',
+            explanation:
+              'The gate is one-directional by design: it can block or shrink a buy, never manufacture one.'
           },
           {
             id: 'q2',
             type: 'calculation',
             prompt:
-              'A news article scoring −0.6 sentiment was published 6 days ago (half-life = 3 days, so 2 half-lives have elapsed). Using `weight = exp(−ln2/3 × ageDays)`, compute today\'s decayed weight for that article (2 decimal places), and explain what this means for whether it could still suppress a DIP buy today versus when it was fresh.',
+              "A news article scoring −0.6 sentiment was published 6 days ago (half-life = 3 days, so 2 half-lives have elapsed). Using `weight = exp(−ln2/3 × ageDays)`, compute today's decayed weight for that article (2 decimal places), and explain what this means for whether it could still suppress a DIP buy today versus when it was fresh.",
             correctAnswer: '0.25',
             explanation:
               'weight = exp(−(ln2/3)×6) = exp(−1.386) ≈ **0.25** — down to a quarter of its original influence (matching "2 half-lives" intuition: 1.0 → 0.5 → 0.25). Combined with any OTHER, fresher articles in the weighted average, this one old negative article alone is now unlikely to still drag the blended score below the −0.2 suppression floor the way it would have on day 0 — decay is exactly what lets stale bad news stop blocking buys once its relevance has genuinely faded.'
@@ -685,9 +721,9 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         practiceSymbolDefault: 'AAPL',
         theory:
           '## Why not just use plain historical volatility?\n\n' +
-          'Level 1\'s close-to-close volatility weighs every day in the window equally. For forecasting a few weeks ahead, that is not ideal: a volatility spike from three months ago shouldn\'t carry the same weight as what happened last week. The forecast layer instead uses an **EWMA (exponentially weighted moving average)** of squared returns, the same technique behind RiskMetrics:\n\n' +
+          "Level 1's close-to-close volatility weighs every day in the window equally. For forecasting a few weeks ahead, that is not ideal: a volatility spike from three months ago shouldn't carry the same weight as what happened last week. The forecast layer instead uses an **EWMA (exponentially weighted moving average)** of squared returns, the same technique behind RiskMetrics:\n\n" +
           '```\nσ²_t = λ·σ²_{t−1} + (1−λ)·r²_{t−1},  λ = 0.94\n```\n\n' +
-          'Each new day\'s squared return updates yesterday\'s variance estimate, weighted 94%/6% — recent moves matter more, but nothing is thrown away outright. This gives a smoother, more responsive volatility estimate than a flat historical standard deviation for the specific job of forecasting the near future.\n\n' +
+          "Each new day's squared return updates yesterday's variance estimate, weighted 94%/6% — recent moves matter more, but nothing is thrown away outright. This gives a smoother, more responsive volatility estimate than a flat historical standard deviation for the specific job of forecasting the near future.\n\n" +
           '## Drift — and why it is handled so cautiously\n\n' +
           'Drift is the expected daily return baked into the forecast. The engine computes it as the mean daily log return, but **clamps it to ±0.2%/day** — a deliberate guardrail against extrapolating a short recent run (good or bad) indefinitely into the future. A stock that happened to average +1%/day over the last month almost certainly will not keep doing that for two more months; clamping prevents the forecast from being seduced by a small, noisy sample.',
         quiz: [
@@ -695,7 +731,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q1',
             type: 'calculation',
             prompt:
-              'Yesterday\'s EWMA variance estimate σ²_{t−1} = 0.0004. Today\'s squared return r² = 0.0009. Using λ = 0.94, compute today\'s updated variance σ²_t (4 decimal places).',
+              "Yesterday's EWMA variance estimate σ²_{t−1} = 0.0004. Today's squared return r² = 0.0009. Using λ = 0.94, compute today's updated variance σ²_t (4 decimal places).",
             correctAnswer: '0.00043',
             explanation:
               '0.94 × 0.0004 + 0.06 × 0.0009 = 0.000376 + 0.000054 = **0.00043**.'
@@ -724,7 +760,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         theory:
           '## The expected-move band\n\n' +
           '```\nexpected = price · e^(drift·h)\nupper/lower = expected · e^(±k·σ·√h)\n```\n\n' +
-          'This is a geometric-Brownian-motion price band: given today\'s price, the EWMA volatility, and the (clamped) drift, where might the price plausibly be in *h* days? It is the same √time scaling from Level 1\'s horizon band, now applied to build an actual price range rather than just a single threshold distance.\n\n' +
+          "This is a geometric-Brownian-motion price band: given today's price, the EWMA volatility, and the (clamped) drift, where might the price plausibly be in *h* days? It is the same √time scaling from Level 1's horizon band, now applied to build an actual price range rather than just a single threshold distance.\n\n" +
           '## Monte Carlo hit-probability — a different question than "reach probability"\n\n' +
           'The engine also runs a **2,000-path Monte Carlo simulation** (simulated daily GBM price paths) to estimate the probability that price *touches* a target level at any point during the horizon — not just where it ends up. This is deliberately a different, complementary question from the analytic "reach probability" (Level 3, next lesson), which asks only about the **terminal** (end-of-horizon) price. A touch probability is always ≥ the terminal probability, since there are many more days on which price could briefly spike through a level than there are chances for it to still be there exactly at the end.',
         quiz: [
@@ -749,13 +785,13 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             type: 'multiple-choice',
             prompt: 'What does the expected-move band actually represent?',
             options: [
-              'A plausible price range at the horizon, built from today\'s price, drift, and volatility scaled by √time',
+              "A plausible price range at the horizon, built from today's price, drift, and volatility scaled by √time",
               'A guarantee that price will end up within that range',
               'The exact stop-loss and take-profit levels used by the exit machine',
               'The historical trading range over the last year'
             ],
             correctAnswer:
-              'A plausible price range at the horizon, built from today\'s price, drift, and volatility scaled by √time',
+              "A plausible price range at the horizon, built from today's price, drift, and volatility scaled by √time",
             explanation:
               'It is a statistical band (geometric Brownian motion), not a guarantee — wider for more volatile names and longer horizons.'
           },
@@ -767,13 +803,13 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             options: [
               'Stock A\'s band is wider — the ± term scales with σ, so higher volatility means a wider plausible range, even though the central "expected" price is the same for both',
               'They are identical, since expected-move only depends on drift, not volatility',
-              'Stock B\'s band is wider, since lower volatility means more uncertainty about the exact path',
+              "Stock B's band is wider, since lower volatility means more uncertainty about the exact path",
               'Volatility has no effect on the expected-move band, only on Monte Carlo hit-probability'
             ],
             correctAnswer:
               'Stock A\'s band is wider — the ± term scales with σ, so higher volatility means a wider plausible range, even though the central "expected" price is the same for both',
             explanation:
-              'The center of the band (`expected = price · e^(drift·h)`) doesn\'t depend on σ at all — only the ± spread around it does, via `k·σ·√h`. Same expected value, different confidence width.'
+              "The center of the band (`expected = price · e^(drift·h)`) doesn't depend on σ at all — only the ± spread around it does, via `k·σ·√h`. Same expected value, different confidence width."
           }
         ]
       },
@@ -792,7 +828,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'Why does reach probability always use drift μ = 0, never the stock\'s own recent trend?',
+            prompt:
+              "Why does reach probability always use drift μ = 0, never the stock's own recent trend?",
             options: [
               'To avoid every stock looking artificially promising just because it happened to trend up recently — an honest, comparable baseline across the universe',
               'Because it is mathematically impossible to compute probability with a non-zero drift',
@@ -813,7 +850,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'This is expected/normal behavior — the honest, no-edge-assumed probability of a meaningful move over a short horizon is usually small',
               'The engine is broken — probability should be at least 50% for any stock',
               'This stock should be immediately sold',
-              'The target must be recalculated using the stock\'s own historical return'
+              "The target must be recalculated using the stock's own historical return"
             ],
             correctAnswer:
               'This is expected/normal behavior — the honest, no-edge-assumed probability of a meaningful move over a short horizon is usually small',
@@ -826,13 +863,13 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             prompt:
               'Stock A needs a 5% gain to hit its target; Stock B needs a 25% gain to hit its. Both have identical volatility and horizon. Which one has the higher drift-0 reach probability, and why?',
             options: [
-              'Stock A — a smaller required move is easier to clear at the same volatility, regardless of either stock\'s recent trend',
+              "Stock A — a smaller required move is easier to clear at the same volatility, regardless of either stock's recent trend",
               'Stock B — bigger targets always have proportionally bigger probabilities',
               'They are identical, since drift is 0 for both',
-              'Impossible to say without knowing each stock\'s actual historical returns'
+              "Impossible to say without knowing each stock's actual historical returns"
             ],
             correctAnswer:
-              'Stock A — a smaller required move is easier to clear at the same volatility, regardless of either stock\'s recent trend',
+              "Stock A — a smaller required move is easier to clear at the same volatility, regardless of either stock's recent trend",
             explanation:
               'With drift forced to 0, reach probability is purely a function of how far away the target is relative to volatility and time (`ln(target/price)` in the numerator) — a nearer target is inherently more likely to be reached than a farther one, holding everything else constant.'
           }
@@ -846,7 +883,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         theory:
           '## The formula\n\n' +
           '```\nEV = p · targetGainPct − (1 − p) · stopLossPct\nwhere p = reach probability\nconviction = 50 + EV · 1000  (+ small situational bonuses)\n```\n\n' +
-          'Expected value is the probability-weighted payoff of a trade: the odds of winning times what you\'d gain, minus the odds of losing times what you\'d lose. This — **not the composite score** — is what actually ranks candidates against each other in the strategy builder. Conviction is simply EV rendered as a friendlier 0–100 number for the UI (50 = break-even), with small bonuses for a live buy-zone setup or a recent re-confirmation.\n\n' +
+          "Expected value is the probability-weighted payoff of a trade: the odds of winning times what you'd gain, minus the odds of losing times what you'd lose. This — **not the composite score** — is what actually ranks candidates against each other in the strategy builder. Conviction is simply EV rendered as a friendlier 0–100 number for the UI (50 = break-even), with small bonuses for a live buy-zone setup or a recent re-confirmation.\n\n" +
           '## Why EV is often negative — and why that is correct\n\n' +
           'Because reach probability is deliberately conservative (Level 3, previous lesson) and stop-losses are real, a great many candidates will show a **negative** expected value even when their composite score looks attractive. This is not a bug: it is the system correctly saying "this looks technically interesting, but the honest odds times payoff don\'t clear the bar." The composite score and expected value are answering genuinely different questions — "does this look attractive" vs. "is the math actually in your favor" — and keeping them as two separate numbers (rather than one blended score) is what lets the engine reject a good-looking-but-bad-math trade instead of talking itself into it.',
         quiz: [
@@ -866,12 +903,13 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'A different candidate has p = 0.42, target gain = 12%, stop loss = 6%, PLUS an $8 buy-zone conviction bonus (it is a live, confirmed dip-buy setup right now). Compute EV, the base conviction (before the bonus), and the final conviction after adding the bonus.',
             correctAnswer: 'EV=1.56%, base conviction=66, final conviction=74',
             explanation:
-              'EV = 0.42×0.12 − 0.58×0.06 = 0.0504 − 0.0348 = 0.0156 = 1.56%. Base conviction = 50 + 0.0156×1000 = 50 + 15.6 ≈ **66**. Adding the buy-zone bonus: 66 + 8 = **74**. Note the bonus is a small situational add-on on top of the EV-driven number, not a replacement for it — a name with genuinely poor EV doesn\'t get rescued into a high conviction just by sitting in a live buy zone.'
+              "EV = 0.42×0.12 − 0.58×0.06 = 0.0504 − 0.0348 = 0.0156 = 1.56%. Base conviction = 50 + 0.0156×1000 = 50 + 15.6 ≈ **66**. Adding the buy-zone bonus: 66 + 8 = **74**. Note the bonus is a small situational add-on on top of the EV-driven number, not a replacement for it — a name with genuinely poor EV doesn't get rescued into a high conviction just by sitting in a live buy zone."
           },
           {
             id: 'q3',
             type: 'multiple-choice',
-            prompt: 'What actually ranks candidates against each other for the strategy builder?',
+            prompt:
+              'What actually ranks candidates against each other for the strategy builder?',
             options: [
               'Expected value (EV), not the composite score',
               'The composite score alone',
@@ -879,7 +917,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'Whichever stock has the lowest price'
             ],
             correctAnswer: 'Expected value (EV), not the composite score',
-            explanation: 'The score is a quality gate (Level 2); EV is the actual ranking metric, computed independently so the two questions are never conflated.'
+            explanation:
+              'The score is a quality gate (Level 2); EV is the actual ranking metric, computed independently so the two questions are never conflated.'
           }
         ]
       },
@@ -912,7 +951,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q2',
             type: 'calculation',
             prompt:
-              'At exactly what annualized volatility does the 25% cap stop being the binding constraint (i.e. where does 0.20/annualVol first drop below 0.25)? Then, for a much wilder name at annualVol = 120% (1.2), compute the suggested amount for a $1,000 budget and confirm the vol-scaling term (not the cap) is what\'s actually driving the size now.',
+              "At exactly what annualized volatility does the 25% cap stop being the binding constraint (i.e. where does 0.20/annualVol first drop below 0.25)? Then, for a much wilder name at annualVol = 120% (1.2), compute the suggested amount for a $1,000 budget and confirm the vol-scaling term (not the cap) is what's actually driving the size now.",
             correctAnswer: '80%; ≈$166.67',
             explanation:
               '0.20/annualVol = 0.25 exactly when annualVol = 0.20/0.25 = **0.80 (80%)** — so for ANY volatility at or below 80%, the formula always resolves to a flat 25%, and the cap is doing all the work, not the volatility term. Only above 80% vol does 0.20/annualVol actually drop below 0.25 and start shrinking the size further: at 120% vol, 0.20/1.2 ≈ 0.1667, and min(0.25, 0.1667) = 0.1667 → suggestedAmount ≈ **$166.67**. This is the genuine "vol-targeted" behavior in action — it only bites for names wilder than 80% annualized vol.'
@@ -920,7 +959,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q3',
             type: 'multiple-choice',
-            prompt: 'Why does the engine cap the suggested amount at 25% of budget even when volatility is very low?',
+            prompt:
+              'Why does the engine cap the suggested amount at 25% of budget even when volatility is very low?',
             options: [
               'To avoid over-concentrating the portfolio in any single idea, however attractive it looks',
               'Because Nordnet does not allow larger orders',
@@ -929,7 +969,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'To avoid over-concentrating the portfolio in any single idea, however attractive it looks',
-            explanation: 'A hard ceiling protects against a confidently-wrong estimate dominating the portfolio.'
+            explanation:
+              'A hard ceiling protects against a confidently-wrong estimate dominating the portfolio.'
           }
         ]
       }
@@ -946,9 +987,9 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         title: 'Why 60% funds / 40% stocks',
         theory:
           '## The split\n\n' +
-          'The portfolio\'s target shape is **60% low-fee, diversified funds** and **40% individually-picked stocks/ETFs** (`SIGNAL_PORTFOLIO_FUNDS_RATIO = 0.6`). The funds sleeve is the reliable core — broad, cheap, diversified exposure that does not depend on any single stock pick going right. The stock sleeve is where the whole technical-signal machinery (Levels 1–3) actually gets to do its work: individual conviction-ranked picks, sized and timed by the engine.\n\n' +
+          "The portfolio's target shape is **60% low-fee, diversified funds** and **40% individually-picked stocks/ETFs** (`SIGNAL_PORTFOLIO_FUNDS_RATIO = 0.6`). The funds sleeve is the reliable core — broad, cheap, diversified exposure that does not depend on any single stock pick going right. The stock sleeve is where the whole technical-signal machinery (Levels 1–3) actually gets to do its work: individual conviction-ranked picks, sized and timed by the engine.\n\n" +
           '## The honest reason for the split\n\n' +
-          'This is not just a diversification platitude — it is a direct response to the engine\'s own backtest evidence (Level 5): across roughly 150 evaluated names, only a minority of individually-traded rules actually beat simply holding. Leaning most of the portfolio on a cheap, diversified core and treating individual stock signals as a smaller, higher-conviction satellite is the engine\'s way of taking its own honest evidence seriously, rather than assuming every signal it generates is a good idea to bet the whole portfolio on.',
+          "This is not just a diversification platitude — it is a direct response to the engine's own backtest evidence (Level 5): across roughly 150 evaluated names, only a minority of individually-traded rules actually beat simply holding. Leaning most of the portfolio on a cheap, diversified core and treating individual stock signals as a smaller, higher-conviction satellite is the engine's way of taking its own honest evidence seriously, rather than assuming every signal it generates is a good idea to bet the whole portfolio on.",
         quiz: [
           {
             id: 'q1',
@@ -969,16 +1010,18 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'What is the main reason the portfolio leans 60% toward funds rather than individual stock picks?',
+            prompt:
+              'What is the main reason the portfolio leans 60% toward funds rather than individual stock picks?',
             options: [
-              'The engine\'s own backtest evidence shows most individual trading rules do not reliably beat simply holding — a cheap diversified core is the honest response',
+              "The engine's own backtest evidence shows most individual trading rules do not reliably beat simply holding — a cheap diversified core is the honest response",
               'Funds have higher expected returns than stocks in every scenario',
               'Nordnet charges lower fees for funds specifically to encourage this split',
               'It is an arbitrary historical default with no particular reasoning'
             ],
             correctAnswer:
-              'The engine\'s own backtest evidence shows most individual trading rules do not reliably beat simply holding — a cheap diversified core is the honest response',
-            explanation: 'The split is a direct, honest consequence of what the backtest layer (Level 5) actually found.'
+              "The engine's own backtest evidence shows most individual trading rules do not reliably beat simply holding — a cheap diversified core is the honest response",
+            explanation:
+              'The split is a direct, honest consequence of what the backtest layer (Level 5) actually found.'
           }
         ]
       },
@@ -1005,20 +1048,23 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             correctAnswer:
               'Toward the funds sleeve, to pull the overall portfolio back toward the 60/40 target',
             explanation:
-              'The rebalance mechanism looks at the whole portfolio\'s current shape, not just the new deposit in isolation, and corrects toward the target over time.'
+              "The rebalance mechanism looks at the whole portfolio's current shape, not just the new deposit in isolation, and corrects toward the target over time."
           },
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'Why does the engine require cash to grow by a minimum delta before re-firing a new strategy suggestion?',
+            prompt:
+              'Why does the engine require cash to grow by a minimum delta before re-firing a new strategy suggestion?',
             options: [
               'To avoid generating a new recommendation for every trivial cash change (e.g. a small dividend)',
               'Because Nordnet limits how often orders can be placed',
               'Because the strategy calculation is too slow to run often',
               'It does not — it fires on every single cycle regardless of cash'
             ],
-            correctAnswer: 'To avoid generating a new recommendation for every trivial cash change (e.g. a small dividend)',
-            explanation: 'The minimum floor and delta both exist purely to keep suggestions meaningful rather than constant noise.'
+            correctAnswer:
+              'To avoid generating a new recommendation for every trivial cash change (e.g. a small dividend)',
+            explanation:
+              'The minimum floor and delta both exist purely to keep suggestions meaningful rather than constant noise.'
           },
           {
             id: 'q3',
@@ -1047,12 +1093,13 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '## Why this matters for trust in the system\n\n' +
           'A recommendation engine that changes its mind every half hour is not trustworthy, even if each individual recalculation is technically correct. Recognizing "this is the same idea I told you about yesterday, and it still holds up" versus silently replacing it with a superficially different name is what makes the output usable for actually making decisions, not just a stream of numbers.\n\n' +
           '## Two different cooldowns, easy to confuse\n\n' +
-          'This 14-day *recent-signal* window (re-confirms a still-valid idea) is a completely different mechanism from the eligibility gate\'s *recently-exited* cooldown (Level 2) — one is about a still-open BUY opportunity staying stable in the rankings, the other is about not immediately re-buying something that was just sold or stopped out. They happen to share a similar shape (both are time windows keyed off a past event) but serve opposite purposes.',
+          "This 14-day *recent-signal* window (re-confirms a still-valid idea) is a completely different mechanism from the eligibility gate's *recently-exited* cooldown (Level 2) — one is about a still-open BUY opportunity staying stable in the rankings, the other is about not immediately re-buying something that was just sold or stopped out. They happen to share a similar shape (both are time windows keyed off a past event) but serve opposite purposes.",
         quiz: [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'A stock had a BUY signal fire 5 days ago and still qualifies today. What does the engine do?',
+            prompt:
+              'A stock had a BUY signal fire 5 days ago and still qualifies today. What does the engine do?',
             options: [
               'Flags it as a re-confirmed recent BUY with a small conviction bonus, rather than presenting it as newly discovered',
               'Ignores it completely for 14 days',
@@ -1061,7 +1108,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'Flags it as a re-confirmed recent BUY with a small conviction bonus, rather than presenting it as newly discovered',
-            explanation: 'The recent-signal window recognizes continuity rather than treating every run as a blank slate.'
+            explanation:
+              'The recent-signal window recognizes continuity rather than treating every run as a blank slate.'
           },
           {
             id: 'q2',
@@ -1113,7 +1161,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'Why do Balanced and Spread require picks from distinct categories, rather than just the top-N by raw EV?',
+            prompt:
+              'Why do Balanced and Spread require picks from distinct categories, rather than just the top-N by raw EV?',
             options: [
               'To avoid "diversification in name only" — e.g. picking 3 correlated semiconductor stocks that all move together',
               'Because Nordnet requires a minimum number of sectors per order',
@@ -1122,7 +1171,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'To avoid "diversification in name only" — e.g. picking 3 correlated semiconductor stocks that all move together',
-            explanation: 'A longer list of highly-correlated names does not actually spread risk the way distinct categories do.'
+            explanation:
+              'A longer list of highly-correlated names does not actually spread risk the way distinct categories do.'
           }
         ]
       },
@@ -1131,7 +1181,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         title: 'Fee-aware whole-share sizing & remainder minimization',
         theory:
           '## The two problems flat fees create\n\n' +
-          'Nordnet charges a flat $5 fee per order. Two practical problems fall out of that: (1) splitting a small budget across too many tiny legs can let fees eat an unreasonable share of the total, and (2) since you can only buy whole shares, an even split across legs almost always leaves some cash unspent (whichever leg\'s price doesn\'t divide evenly into its share).\n\n' +
+          "Nordnet charges a flat $5 fee per order. Two practical problems fall out of that: (1) splitting a small budget across too many tiny legs can let fees eat an unreasonable share of the total, and (2) since you can only buy whole shares, an even split across legs almost always leaves some cash unspent (whichever leg's price doesn't divide evenly into its share).\n\n" +
           '## Fee-aware trimming\n\n' +
           '```\nfeeRatio = (basket.length × $5) / cash\n```\n\n' +
           'If the fee ratio would exceed `SIGNAL_STRATEGY_MAX_FEE_RATIO` (10%), the engine drops the lowest-conviction leg and rechecks — repeating until the ratio clears or only one ticker remains. A $200 budget split five ways would spend $25 (12.5%) on fees alone; the engine would rather trim to fewer, larger legs than let fees quietly erode more than a tenth of the deployment.\n\n' +
@@ -1141,9 +1191,11 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q1',
             type: 'calculation',
-            prompt: 'A basket has 4 legs and a $5 flat fee per leg, with $150 of cash. Compute the fee ratio and state whether it passes the 10% cap.',
+            prompt:
+              'A basket has 4 legs and a $5 flat fee per leg, with $150 of cash. Compute the fee ratio and state whether it passes the 10% cap.',
             correctAnswer: '13.3%, fails',
-            explanation: '(4 × $5) / $150 = $20/$150 ≈ 0.133 = 13.3% — above the 10% cap, so the engine would trim the lowest-conviction leg and recheck.'
+            explanation:
+              '(4 × $5) / $150 = $20/$150 ≈ 0.133 = 13.3% — above the 10% cap, so the engine would trim the lowest-conviction leg and recheck.'
           },
           {
             id: 'q2',
@@ -1155,8 +1207,10 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'Stocks trading at fractional prices',
               'Currency conversion losses'
             ],
-            correctAnswer: 'Leftover cash from whole-share rounding sitting idle instead of being put to work',
-            explanation: 'An even split plus whole-share rounding leaves cash on the table; greedily reallocating it (highest-conviction leg first) puts more of the budget to work.'
+            correctAnswer:
+              'Leftover cash from whole-share rounding sitting idle instead of being put to work',
+            explanation:
+              'An even split plus whole-share rounding leaves cash on the table; greedily reallocating it (highest-conviction leg first) puts more of the budget to work.'
           }
         ]
       },
@@ -1181,7 +1235,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'Can a redundancy-flagged candidate still be picked by a strategy?',
+            prompt:
+              'Can a redundancy-flagged candidate still be picked by a strategy?',
             options: [
               'Yes — it is de-prioritized (ranking penalized), not excluded; a strong enough edge can still win',
               'No — redundancy flags are a hard exclusion',
@@ -1190,7 +1245,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'Yes — it is de-prioritized (ranking penalized), not excluded; a strong enough edge can still win',
-            explanation: 'The 0.5× penalty on the ranking key nudges away from redundancy without ever hard-blocking a genuinely compelling candidate.'
+            explanation:
+              'The 0.5× penalty on the ranking key nudges away from redundancy without ever hard-blocking a genuinely compelling candidate.'
           },
           {
             id: 'q3',
@@ -1206,7 +1262,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             correctAnswer:
               'A hard exclusion could reject a genuinely exceptional opportunity purely for being in an already-common category, while a penalty still lets a strong enough edge win — nudging toward diversification without a rigid quota',
             explanation:
-              'This mirrors the broader philosophy across the engine (e.g. the eligibility gates, Level 2) — softly discourage, don\'t rigidly forbid, unless there\'s a genuinely hard constraint (like a volatility cap) that must never be crossed.'
+              "This mirrors the broader philosophy across the engine (e.g. the eligibility gates, Level 2) — softly discourage, don't rigidly forbid, unless there's a genuinely hard constraint (like a volatility cap) that must never be crossed."
           }
         ]
       }
@@ -1229,22 +1285,31 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '## Reading the numbers\n\n' +
           'Higher is better for both. As a rough industry convention: below 1.0 is considered weak, 1.0–2.0 decent, above 2.0 very good for a systematic strategy — though these thresholds are heuristics, not hard cutoffs, and depend heavily on the asset class and time period being measured.',
         furtherReading: [
-          { title: 'Sharpe ratio — Wikipedia', url: 'https://en.wikipedia.org/wiki/Sharpe_ratio' },
-          { title: 'Sortino ratio — Wikipedia', url: 'https://en.wikipedia.org/wiki/Sortino_ratio' }
+          {
+            title: 'Sharpe ratio — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Sharpe_ratio'
+          },
+          {
+            title: 'Sortino ratio — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Sortino_ratio'
+          }
         ],
         quiz: [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'What is the key difference between Sharpe and Sortino ratios?',
+            prompt:
+              'What is the key difference between Sharpe and Sortino ratios?',
             options: [
               'Sharpe penalizes all volatility (up and down); Sortino only penalizes downside volatility',
               'Sortino is only used for bonds, Sharpe only for stocks',
               'They are identical formulas with different names',
               'Sharpe uses daily returns, Sortino uses monthly returns'
             ],
-            correctAnswer: 'Sharpe penalizes all volatility (up and down); Sortino only penalizes downside volatility',
-            explanation: 'A strategy with strong upside spikes and calm downside will show a notably higher Sortino than Sharpe.'
+            correctAnswer:
+              'Sharpe penalizes all volatility (up and down); Sortino only penalizes downside volatility',
+            explanation:
+              'A strategy with strong upside spikes and calm downside will show a notably higher Sortino than Sharpe.'
           },
           {
             id: 'q2',
@@ -1288,7 +1353,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'An equity curve goes: $10,000 → $12,000 (new peak) → $9,000 (trough) → $11,000 (new peak) → $8,000 (trough). Compute the max drawdown over the WHOLE path — not just the first decline.',
             correctAnswer: '27.3%',
             explanation:
-              'First decline: (12,000−9,000)/12,000 = 25%. Second decline: (11,000−8,000)/11,000 ≈ 27.27%. Max drawdown takes the WORST decline from ANY peak to a LATER trough across the whole path, not just the first one you notice — here that\'s the second decline, **≈27.3%**, even though the first peak ($12,000) was numerically higher than the second ($11,000).'
+              "First decline: (12,000−9,000)/12,000 = 25%. Second decline: (11,000−8,000)/11,000 ≈ 27.27%. Max drawdown takes the WORST decline from ANY peak to a LATER trough across the whole path, not just the first one you notice — here that's the second decline, **≈27.3%**, even though the first peak ($12,000) was numerically higher than the second ($11,000)."
           },
           {
             id: 'q2',
@@ -1297,7 +1362,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'A backtest starts at $10,000 and ends at $11,000 after 126 trading days (half a year). Compute the CAGR (round to 1 decimal place, as a %).',
             correctAnswer: '21.0%',
             explanation:
-              '(11,000/10,000)^(252/126) − 1 = 1.1^2 − 1 = 1.21 − 1 = 0.21 = **21.0%** — note how compounding a half-year\'s +10% into an annualized figure roughly doubles it, which is exactly why comparing raw (non-annualized) returns across different-length backtests is misleading.'
+              "(11,000/10,000)^(252/126) − 1 = 1.1^2 − 1 = 1.21 − 1 = 0.21 = **21.0%** — note how compounding a half-year's +10% into an annualized figure roughly doubles it, which is exactly why comparing raw (non-annualized) returns across different-length backtests is misleading."
           },
           {
             id: 'q3',
@@ -1305,11 +1370,11 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             prompt:
               'Strategy A: CAGR 15%, max drawdown 10% (Calmar = 1.5). Strategy B: CAGR 30%, max drawdown 35% (Calmar ≈ 0.86). Which strategy would most investors find easier to actually stick with through a bad stretch, and does the higher raw CAGR (Strategy B) tell the full story?',
             correctAnswer:
-              'Strategy A — despite B\'s higher CAGR, its much deeper drawdown (35% vs 10%) makes it far more likely an investor abandons it at the worst possible moment',
+              "Strategy A — despite B's higher CAGR, its much deeper drawdown (35% vs 10%) makes it far more likely an investor abandons it at the worst possible moment",
             options: [
-              'Strategy A — despite B\'s higher CAGR, its much deeper drawdown (35% vs 10%) makes it far more likely an investor abandons it at the worst possible moment',
+              "Strategy A — despite B's higher CAGR, its much deeper drawdown (35% vs 10%) makes it far more likely an investor abandons it at the worst possible moment",
               'Strategy B, since a higher CAGR is always better regardless of drawdown',
-              'They are equally easy to stick with, since Calmar doesn\'t actually reflect real investor behavior',
+              "They are equally easy to stick with, since Calmar doesn't actually reflect real investor behavior",
               'Impossible to compare without knowing the exposure percentage'
             ],
             explanation:
@@ -1340,7 +1405,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'A strategy shows an excellent Sharpe ratio but only 8% exposure. What should you keep in mind?',
+            prompt:
+              'A strategy shows an excellent Sharpe ratio but only 8% exposure. What should you keep in mind?',
             options: [
               'The strategy was rarely actually in the market, so the impressive risk-adjusted number reflects only a small, possibly lucky slice of time, not sustained market exposure',
               'Exposure has no bearing on interpreting Sharpe',
@@ -1349,16 +1415,18 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'The strategy was rarely actually in the market, so the impressive risk-adjusted number reflects only a small, possibly lucky slice of time, not sustained market exposure',
-            explanation: 'Exposure is the context needed to correctly interpret every other risk/return metric alongside it.'
+            explanation:
+              'Exposure is the context needed to correctly interpret every other risk/return metric alongside it.'
           },
           {
             id: 'q3',
             type: 'calculation',
             prompt:
               'A backtest ran for 200 tradable bars (days), and the strategy held an open position for 50 of them. Compute the exposure percentage, and explain in one sentence what it would mean if this same strategy also reported a very high Sharpe ratio.',
-            correctAnswer: '25%; a high Sharpe on only 25% exposure is based on a small slice of time and says less about full-time investing than the number alone suggests',
+            correctAnswer:
+              '25%; a high Sharpe on only 25% exposure is based on a small slice of time and says less about full-time investing than the number alone suggests',
             explanation:
-              'exposure = 50/200 = **25%**. A strategy only in the market a quarter of the time producing an impressive Sharpe ratio is a real but narrower claim than it might first appear — three-quarters of the time, the strategy\'s risk/return properties simply don\'t apply, since there\'s no position at all.'
+              "exposure = 50/200 = **25%**. A strategy only in the market a quarter of the time producing an impressive Sharpe ratio is a real but narrower claim than it might first appear — three-quarters of the time, the strategy's risk/return properties simply don't apply, since there's no position at all."
           }
         ]
       },
@@ -1367,23 +1435,25 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         title: 'Out-of-sample testing & slippage',
         theory:
           '## Why in-sample results alone are not trustworthy\n\n' +
-          'Any backtest can be quietly overfit to its own historical window — tuning until the numbers on that exact data look great tells you very little about how a rule performs on data it hasn\'t seen. The engine addresses this directly by holding out the **last 30% of the backtest window** as out-of-sample: metrics are computed separately on the first 70% (in-sample) and the last 30% (out-of-sample, re-based to its own starting equity), and comparing the two windows is far more honest than reporting a single blended number.\n\n' +
+          "Any backtest can be quietly overfit to its own historical window — tuning until the numbers on that exact data look great tells you very little about how a rule performs on data it hasn't seen. The engine addresses this directly by holding out the **last 30% of the backtest window** as out-of-sample: metrics are computed separately on the first 70% (in-sample) and the last 30% (out-of-sample, re-based to its own starting equity), and comparing the two windows is far more honest than reporting a single blended number.\n\n" +
           '## Slippage\n\n' +
           'A backtest assumes fills happen at exactly the last known close, but real trades never execute at a perfectly clean price — the bid/ask spread and market impact mean the real fill is always slightly worse than the theoretical one. The engine bakes in a **10 basis points (0.10%) slippage per side** by default (configurable via `?slippageBps=`), applied to both entry and exit, so the reported edge already accounts for at least a baseline amount of real-world friction rather than an idealized, frictionless fill.',
         quiz: [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'Why does the engine hold out the last 30% of a backtest window as "out-of-sample"?',
+            prompt:
+              'Why does the engine hold out the last 30% of a backtest window as "out-of-sample"?',
             options: [
-              'To check whether the strategy\'s edge holds up on data the rule wasn\'t effectively tuned against, guarding against overfitting',
+              "To check whether the strategy's edge holds up on data the rule wasn't effectively tuned against, guarding against overfitting",
               'Because Yahoo Finance only provides 70% of the requested history',
               'To make the backtest run faster',
               'It is a regulatory requirement for backtesting'
             ],
             correctAnswer:
-              'To check whether the strategy\'s edge holds up on data the rule wasn\'t effectively tuned against, guarding against overfitting',
-            explanation: 'Comparing in-sample vs. out-of-sample results is one of the most basic, important honesty checks against a backtest that just looks good by chance.'
+              "To check whether the strategy's edge holds up on data the rule wasn't effectively tuned against, guarding against overfitting",
+            explanation:
+              'Comparing in-sample vs. out-of-sample results is one of the most basic, important honesty checks against a backtest that just looks good by chance.'
           },
           {
             id: 'q2',
@@ -1401,14 +1471,15 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         title: 'The honest evidence: does trading actually beat holding?',
         theory:
           '## The whole-watchlist finding\n\n' +
-          'The engine has been backtested across roughly 150 names in the watchlist, comparing the *actual trading rule* (DIP/REVERSAL entries, the exit machine) against simply buying and holding the same name for the same window. The honest result: only a **minority — well under a third** — of names showed the trading rule actually beating buy-and-hold, with a meaningfully negative average edge across the whole set. Some of the market\'s biggest winners over the period were **completely missed** by the active rule, because a rule designed to buy dips and manage risk will, by construction, sometimes sit out a name that simply never dipped and just kept climbing.\n\n' +
+          "The engine has been backtested across roughly 150 names in the watchlist, comparing the *actual trading rule* (DIP/REVERSAL entries, the exit machine) against simply buying and holding the same name for the same window. The honest result: only a **minority — well under a third** — of names showed the trading rule actually beating buy-and-hold, with a meaningfully negative average edge across the whole set. Some of the market's biggest winners over the period were **completely missed** by the active rule, because a rule designed to buy dips and manage risk will, by construction, sometimes sit out a name that simply never dipped and just kept climbing.\n\n" +
           '## Why the engine reports this instead of hiding it\n\n' +
           'This finding is not a bug to be quietly fixed — it is the honest reason the portfolio leans 60% toward a diversified fund core (Level 4) rather than assuming every signal is worth betting the whole portfolio on. A system that only ever reports its wins would be far more dangerous to actually rely on than one that tells you, plainly, "trading usually loses to holding — treat individual stock signals as a smaller, higher-conviction satellite, not the main event."',
         quiz: [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'What did the whole-watchlist backtest find, comparing the active trading rule to simple buy-and-hold?',
+            prompt:
+              'What did the whole-watchlist backtest find, comparing the active trading rule to simple buy-and-hold?',
             options: [
               'Only a minority of names had the trading rule beat buy-and-hold, with a meaningfully negative average edge — some big winners were missed entirely',
               'The trading rule beat buy-and-hold on every single name tested',
@@ -1417,12 +1488,14 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'Only a minority of names had the trading rule beat buy-and-hold, with a meaningfully negative average edge — some big winners were missed entirely',
-            explanation: 'This is the documented, honest empirical finding behind the whole design — not an assumption, an actual measured result.'
+            explanation:
+              'This is the documented, honest empirical finding behind the whole design — not an assumption, an actual measured result.'
           },
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'How does this finding directly connect to the 60/40 funds/stocks philosophy (Level 4)?',
+            prompt:
+              'How does this finding directly connect to the 60/40 funds/stocks philosophy (Level 4)?',
             options: [
               'It is the empirical evidence behind leaning most of the portfolio on a cheap diversified core, since individual trading rules do not reliably outperform holding',
               'It has no connection — the split was chosen for unrelated reasons',
@@ -1431,7 +1504,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'It is the empirical evidence behind leaning most of the portfolio on a cheap diversified core, since individual trading rules do not reliably outperform holding',
-            explanation: 'The 60/40 split is a direct, honest response to this exact backtest finding, not an arbitrary default.'
+            explanation:
+              'The 60/40 split is a direct, honest response to this exact backtest finding, not an arbitrary default.'
           }
         ]
       }
@@ -1462,16 +1536,25 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'It is never priced — only stocks have prices',
               'Bloomberg Terminal'
             ],
-            correctAnswer: 'A MANUAL data source (scraped NAV), not Yahoo Finance',
-            explanation: 'Funds (especially Nordic broker house funds) generally are not covered by Yahoo Finance, so they use a MANUAL scraper-based pricing mechanism instead.'
+            correctAnswer:
+              'A MANUAL data source (scraped NAV), not Yahoo Finance',
+            explanation:
+              'Funds (especially Nordic broker house funds) generally are not covered by Yahoo Finance, so they use a MANUAL scraper-based pricing mechanism instead.'
           },
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'What fee threshold requires an explicit justification for a fund to be added to the catalog?',
-            options: ['Above 0.40%', 'Above 1.0%', 'Above 2.0%', 'There is no such threshold'],
+            prompt:
+              'What fee threshold requires an explicit justification for a fund to be added to the catalog?',
+            options: [
+              'Above 0.40%',
+              'Above 1.0%',
+              'Above 2.0%',
+              'There is no such threshold'
+            ],
             correctAnswer: 'Above 0.40%',
-            explanation: 'Any fund fee above 0.40% needs either a written justification or to be covered by an explicit screening criterion.'
+            explanation:
+              'Any fund fee above 0.40% needs either a written justification or to be covered by an explicit screening criterion.'
           },
           {
             id: 'q3',
@@ -1481,7 +1564,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             options: [
               'It lets the engine (and the user) see actual company-level exposure — e.g. realizing that both a "usa" fund and a separately-picked Nvidia stock position are both concentrated in the same single company, which a category label alone would hide',
               'It has no practical use beyond satisfying curiosity',
-              'It is only used to compute the fund\'s fee',
+              "It is only used to compute the fund's fee",
               'Category labels are always more accurate than real holdings data'
             ],
             correctAnswer:
@@ -1497,42 +1580,48 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         theory:
           '## Two mechanisms, one goal: daily-updating NAV without manual work\n\n' +
           'Ghostfolio has a built-in generic mechanism for MANUAL-datasource symbols: a `scraperConfiguration` (a URL + a selector) that the existing hourly data-gathering job automatically uses to fetch and record a fresh price every day — no bespoke cron needed, just configuration. Two live sources currently feed this:\n\n' +
-          '- **Avanza\'s public JSON API** (`fund-guide/guide/{orderBookId}`) — works for most Nordic funds.\n' +
-          '- **Nordnet\'s own public fund pages** (scraped via a CSS selector matching the NAV label) — used for Nordnet\'s own house funds, which a competitor platform like Avanza structurally cannot list.\n\n' +
+          "- **Avanza's public JSON API** (`fund-guide/guide/{orderBookId}`) — works for most Nordic funds.\n" +
+          "- **Nordnet's own public fund pages** (scraped via a CSS selector matching the NAV label) — used for Nordnet's own house funds, which a competitor platform like Avanza structurally cannot list.\n\n" +
           '## The lesson in the fallback\n\n' +
           'Before the Nordnet-direct mechanism existed, a handful of Nordnet-only funds fell back to a **static seed price** — a one-time snapshot that a person had to update manually, exactly the kind of "manual work" a good system should eliminate. Recognizing and fixing that gap (preferring a real live scrape over a frozen fallback whenever one is available) is a concrete example of the broader principle: any manually-maintained number is a liability waiting to go stale.',
         quiz: [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'Why does Nordnet\'s own fund page need to be scraped directly, rather than relying only on Avanza?',
+            prompt:
+              "Why does Nordnet's own fund page need to be scraped directly, rather than relying only on Avanza?",
             options: [
-              'Avanza, a competing broker, does not list Nordnet\'s own house funds',
+              "Avanza, a competing broker, does not list Nordnet's own house funds",
               'Nordnet funds are illegal to price via Avanza',
               'Avanza charges for its fund NAV API',
               'There is no difference — either source works identically for every fund'
             ],
-            correctAnswer: 'Avanza, a competing broker, does not list Nordnet\'s own house funds',
-            explanation: 'A competitor platform structurally has no reason to list another broker\'s proprietary fund products, so a direct source was needed.'
+            correctAnswer:
+              "Avanza, a competing broker, does not list Nordnet's own house funds",
+            explanation:
+              "A competitor platform structurally has no reason to list another broker's proprietary fund products, so a direct source was needed."
           },
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'What is the practical downside of a "static seed" NAV fallback?',
+            prompt:
+              'What is the practical downside of a "static seed" NAV fallback?',
             options: [
               'It never updates on its own — it goes stale until a person manually refreshes it',
               'It updates too frequently, causing rate-limit issues',
               'It only works for stocks, not funds',
               'It requires a paid API subscription'
             ],
-            correctAnswer: 'It never updates on its own — it goes stale until a person manually refreshes it',
-            explanation: 'A frozen snapshot is exactly the kind of manual dependency a live scraper mechanism is meant to eliminate.'
+            correctAnswer:
+              'It never updates on its own — it goes stale until a person manually refreshes it',
+            explanation:
+              'A frozen snapshot is exactly the kind of manual dependency a live scraper mechanism is meant to eliminate.'
           },
           {
             id: 'q3',
             type: 'multiple-choice',
             prompt:
-              'Ghostfolio\'s generic MANUAL scraperConfiguration mechanism (a URL + a selector) is reused as-is for fund pricing, rather than building a brand-new fund-specific pricing pipeline. What does this illustrate about good engineering practice?',
+              "Ghostfolio's generic MANUAL scraperConfiguration mechanism (a URL + a selector) is reused as-is for fund pricing, rather than building a brand-new fund-specific pricing pipeline. What does this illustrate about good engineering practice?",
             options: [
               'Reusing an existing, already-tested generic mechanism for a new use case is preferable to building bespoke new infrastructure, when the existing one genuinely fits the job',
               'Generic mechanisms are always worse than purpose-built ones',
@@ -1550,8 +1639,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         id: 'l6-etf-ter',
         title: 'ETFs and TER (total expense ratio)',
         theory:
-          '## TER — the ETF world\'s fee%\n\n' +
-          'An ETF\'s **Total Expense Ratio** is the annual cost of holding it, expressed as a fraction (e.g. `0.0018` = 18 basis points = 0.18%/year) — deducted continuously from the fund\'s own returns, not billed separately. Unlike the MANUAL fund catalog\'s `feePct`, ETF TER is hand-curated in a small separate table (`etf-ter-catalog.ts`) sourced from issuer/exchange fact sheets, since ETFs are priced normally through Yahoo Finance (next lesson) and don\'t need a scraper of their own — TER is the one extra piece of data Yahoo doesn\'t reliably provide.\n\n' +
+          "## TER — the ETF world's fee%\n\n" +
+          "An ETF's **Total Expense Ratio** is the annual cost of holding it, expressed as a fraction (e.g. `0.0018` = 18 basis points = 0.18%/year) — deducted continuously from the fund's own returns, not billed separately. Unlike the MANUAL fund catalog's `feePct`, ETF TER is hand-curated in a small separate table (`etf-ter-catalog.ts`) sourced from issuer/exchange fact sheets, since ETFs are priced normally through Yahoo Finance (next lesson) and don't need a scraper of their own — TER is the one extra piece of data Yahoo doesn't reliably provide.\n\n" +
           '## Why this number matters over long holding periods\n\n' +
           'An 18bps TER sounds negligible day to day, but compounded over years it is a real, guaranteed drag on returns — unlike a stock-picking edge (uncertain), the fee is certain. Two ETFs tracking the same index with different TERs will, all else equal, diverge in exactly the amount of that TER difference over time — which is exactly why the strategy layer\'s `terPct` field exists (currently plumbed through for future ranking use, per Level 4\'s "not yet used" precedent).',
         quiz: [
@@ -1567,7 +1656,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'Why is TER a more "certain" cost than a stock-picking edge?',
+            prompt:
+              'Why is TER a more "certain" cost than a stock-picking edge?',
             options: [
               'The fee is deducted continuously regardless of performance, while any trading edge is only an estimate that may or may not materialize',
               'TER only applies in years the fund loses money',
@@ -1576,7 +1666,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'The fee is deducted continuously regardless of performance, while any trading edge is only an estimate that may or may not materialize',
-            explanation: 'A guaranteed cost compounding over years is a much more reliable number to reason about than an uncertain future edge.'
+            explanation:
+              'A guaranteed cost compounding over years is a much more reliable number to reason about than an uncertain future edge.'
           },
           {
             id: 'q3',
@@ -1601,7 +1692,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         title: 'Why ETFs live in the stock sleeve, not the fund sleeve',
         theory:
           '## The key distinction: data availability, not just legal structure\n\n' +
-          'Both funds and ETFs are diversified baskets, but they are treated completely differently by this engine because of one practical fact: an ETF trades on an exchange with a **full daily OHLC price history via Yahoo Finance**, exactly like a stock — so every technical indicator, the composite score, EV ranking, and even backtesting all work on an ETF exactly as they do on AAPL or any other stock. A MANUAL-priced fund, by contrast, has no such history (Level 3 of the previous session\'s work confirmed Nordnet\'s own NAV history isn\'t even retrievable without a live login) — so it structurally cannot be evaluated the same way.\n\n' +
+          "Both funds and ETFs are diversified baskets, but they are treated completely differently by this engine because of one practical fact: an ETF trades on an exchange with a **full daily OHLC price history via Yahoo Finance**, exactly like a stock — so every technical indicator, the composite score, EV ranking, and even backtesting all work on an ETF exactly as they do on AAPL or any other stock. A MANUAL-priced fund, by contrast, has no such history (Level 3 of the previous session's work confirmed Nordnet's own NAV history isn't even retrievable without a live login) — so it structurally cannot be evaluated the same way.\n\n" +
           '## The practical consequence\n\n' +
           'This is why an ETF like a semiconductor-theme or clean-energy-theme basket sits in the **40% stock sleeve**, ranked and possibly bought/sold by the exact same conviction engine as an individual stock — while a fund sits in the **60% core sleeve**, valued for its category share but never technically traded by the engine. The theme-category taxonomy for ETFs (`etf-semiconductors`, `etf-ai`, etc.) exists specifically to avoid stacking several ETFs that all bet on the same underlying theme without realizing it.',
         furtherReading: [
@@ -1614,7 +1705,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'What is the core practical reason ETFs sit in the stock sleeve while funds sit in the fund sleeve?',
+            prompt:
+              'What is the core practical reason ETFs sit in the stock sleeve while funds sit in the fund sleeve?',
             options: [
               'ETFs have full daily OHLC history via Yahoo Finance, so the entire technical/EV/backtest machinery works on them exactly like a stock; MANUAL-priced funds do not have this history',
               'ETFs are legally required to be treated as stocks',
@@ -1623,26 +1715,30 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'ETFs have full daily OHLC history via Yahoo Finance, so the entire technical/EV/backtest machinery works on them exactly like a stock; MANUAL-priced funds do not have this history',
-            explanation: 'The data-availability difference, not the legal wrapper, is what actually drives which sleeve an instrument belongs to in this engine.'
+            explanation:
+              'The data-availability difference, not the legal wrapper, is what actually drives which sleeve an instrument belongs to in this engine.'
           },
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'Why does the ETF catalog use theme categories like `etf-semiconductors` or `etf-ai`?',
+            prompt:
+              'Why does the ETF catalog use theme categories like `etf-semiconductors` or `etf-ai`?',
             options: [
               'To avoid unknowingly stacking several ETFs that all bet on the same underlying theme',
               'Because Yahoo Finance requires a category field',
               'To determine the TER automatically',
               'Purely for alphabetical sorting in the UI'
             ],
-            correctAnswer: 'To avoid unknowingly stacking several ETFs that all bet on the same underlying theme',
-            explanation: 'The same redundancy-avoidance logic from Level 4 applies here — knowing the theme lets the system (and the user) spot accidental over-concentration.'
+            correctAnswer:
+              'To avoid unknowingly stacking several ETFs that all bet on the same underlying theme',
+            explanation:
+              'The same redundancy-avoidance logic from Level 4 applies here — knowing the theme lets the system (and the user) spot accidental over-concentration.'
           },
           {
             id: 'q3',
             type: 'multiple-choice',
             prompt:
-              'Suppose Nordnet\'s fund-history API suddenly became retrievable without login, giving MANUAL funds a full daily OHLC history just like ETFs. Would that alone be enough to move funds into the stock sleeve and start technically trading them the same way as ETFs?',
+              "Suppose Nordnet's fund-history API suddenly became retrievable without login, giving MANUAL funds a full daily OHLC history just like ETFs. Would that alone be enough to move funds into the stock sleeve and start technically trading them the same way as ETFs?",
             options: [
               'Plausibly yes for the DATA side of the argument — the stated reason funds are excluded is the lack of history, so real history would remove that specific blocker (though other design decisions, like the 60/40 philosophy itself, might still argue for keeping some funds in the core sleeve regardless)',
               'No — funds could never be traded the same way as ETFs no matter what data becomes available, for legal reasons',
@@ -1652,7 +1748,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             correctAnswer:
               'Plausibly yes for the DATA side of the argument — the stated reason funds are excluded is the lack of history, so real history would remove that specific blocker (though other design decisions, like the 60/40 philosophy itself, might still argue for keeping some funds in the core sleeve regardless)',
             explanation:
-              'This tests whether you understand WHY the current split exists (a genuine data limitation) versus treating it as an arbitrary, permanent rule — the reasoning in this lesson is conditional on today\'s data constraints, not a claim that funds could never in principle be evaluated the same way.'
+              "This tests whether you understand WHY the current split exists (a genuine data limitation) versus treating it as an arbitrary, permanent rule — the reasoning in this lesson is conditional on today's data constraints, not a claim that funds could never in principle be evaluated the same way."
           }
         ]
       }
@@ -1674,7 +1770,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '| Input | Weight | Scoring |\n|---|---|---|\n| Forward P/E | 0.30 | `100 − 2·P/E` (clamped); 20 flat if unprofitable |\n| Return on equity | 0.25 | `50 + 100·ROE` (clamped) |\n| Earnings growth | 0.25 | `50 + 100·growth` (clamped) |\n| Analyst consensus | 0.20 | net buy-lean ratio `(2·strongBuy + buy − sell − 2·strongSell) / total` → `50 + 25·ratio` |\n\n' +
           'Every input is null-guarded and the weights re-normalize over whichever are actually available (the identical pattern used by the technical composite score, Level 2) — a stock with only ROE data available still gets a meaningful, fully-weighted quality-only score rather than a diluted or missing one.\n\n' +
           '## The data source\n\n' +
-          'This all comes from Yahoo Finance\'s free `quoteSummary` fundamentals modules (`defaultKeyStatistics`, `financialData`, `recommendationTrend`) — the same npm package already used for prices, just previously untapped for fundamentals data. No paid subscription, no new integration risk.',
+          "This all comes from Yahoo Finance's free `quoteSummary` fundamentals modules (`defaultKeyStatistics`, `financialData`, `recommendationTrend`) — the same npm package already used for prices, just previously untapped for fundamentals data. No paid subscription, no new integration risk.",
         quiz: [
           {
             id: 'q1',
@@ -1733,7 +1829,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'Why are the technical and fundamentals scores kept as two separate numbers instead of one blended score?',
+            prompt:
+              'Why are the technical and fundamentals scores kept as two separate numbers instead of one blended score?',
             options: [
               'They answer genuinely different questions ("is this oversold right now" vs. "is this a good business at a fair price"), and blending them would hide which kind of attractive a name currently is',
               'They use incompatible units and cannot mathematically be combined',
@@ -1742,12 +1839,14 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'They answer genuinely different questions ("is this oversold right now" vs. "is this a good business at a fair price"), and blending them would hide which kind of attractive a name currently is',
-            explanation: 'A stock can be fundamentally excellent but technically overbought, or vice versa — collapsing that distinction into one number destroys real information.'
+            explanation:
+              'A stock can be fundamentally excellent but technically overbought, or vice versa — collapsing that distinction into one number destroys real information.'
           },
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'What is the current role of the fundamentals score in the EV/conviction ranking (Level 3)?',
+            prompt:
+              'What is the current role of the fundamentals score in the EV/conviction ranking (Level 3)?',
             options: [
               'It is not yet used in ranking at all — shown for context only, following the same cautious rollout precedent as the ETF TER field',
               'It fully replaces the technical score in ranking',
@@ -1756,7 +1855,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'It is not yet used in ranking at all — shown for context only, following the same cautious rollout precedent as the ETF TER field',
-            explanation: 'A deliberate "compute and observe before deciding how to use it" rollout, consistent with how TER was introduced.'
+            explanation:
+              'A deliberate "compute and observe before deciding how to use it" rollout, consistent with how TER was introduced.'
           },
           {
             id: 'q3',
@@ -1766,7 +1866,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             options: [
               'The distinction between "technically cheap but a genuinely bad business" and "moderately attractive on both dimensions" — both scenarios could produce the same ~51.5 blended number',
               'Nothing would be lost — averaging always preserves the same information as two separate numbers',
-              'Only the technical score\'s information would be lost, never the fundamentals score\'s',
+              "Only the technical score's information would be lost, never the fundamentals score's",
               'The blended number would actually be MORE informative than either score alone'
             ],
             correctAnswer:
@@ -1782,17 +1882,17 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
     id: 'level-8',
     title: 'Level 8 — Certification track: complex instruments',
     description:
-      'Educational preparation for the real knowledge/appropriateness tests Nordic brokers require before trading leveraged ETFs, certificates, warrants, and mini-futures — real regulatory grounding (MiFID II, ESMA), not a copy of any broker\'s actual quiz.',
+      "Educational preparation for the real knowledge/appropriateness tests Nordic brokers require before trading leveraged ETFs, certificates, warrants, and mini-futures — real regulatory grounding (MiFID II, ESMA), not a copy of any broker's actual quiz.",
     lessons: [
       {
         id: 'l8-disclaimer',
         title: 'What this track is (and is not)',
         theory:
           '## What this is\n\n' +
-          'A conceptual introduction to the real mechanics behind leveraged ETFs, mini-futures/turbo warrants, certificates, and options/warrants — the categories of instrument that Nordic brokers (Nordnet, Avanza, Nordea and others) legally must gate behind a knowledge/appropriateness test before you can trade them. The material here is grounded in real, cited sources: Nordnet\'s own public FAQ on its knowledge tests, the EU\'s MiFID II framework (Article 25 appropriateness assessment), ESMA\'s published guidance on why leverage is treated as inherent complexity, and Nordnet\'s own Academy page on mini futures.\n\n' +
+          "A conceptual introduction to the real mechanics behind leveraged ETFs, mini-futures/turbo warrants, certificates, and options/warrants — the categories of instrument that Nordic brokers (Nordnet, Avanza, Nordea and others) legally must gate behind a knowledge/appropriateness test before you can trade them. The material here is grounded in real, cited sources: Nordnet's own public FAQ on its knowledge tests, the EU's MiFID II framework (Article 25 appropriateness assessment), ESMA's published guidance on why leverage is treated as inherent complexity, and Nordnet's own Academy page on mini futures.\n\n" +
           '## What this is *not*\n\n' +
-          '- **Not** a copy of Nordnet\'s, Avanza\'s, or any broker\'s actual test — those exact questions are not public, and this track does not pretend otherwise.\n' +
-          '- **Not** official certification — passing these lessons/quizzes does not certify you with Nordnet or satisfy any broker\'s actual appropriateness test. Nothing here is submitted anywhere.\n' +
+          "- **Not** a copy of Nordnet's, Avanza's, or any broker's actual test — those exact questions are not public, and this track does not pretend otherwise.\n" +
+          "- **Not** official certification — passing these lessons/quizzes does not certify you with Nordnet or satisfy any broker's actual appropriateness test. Nothing here is submitted anywhere.\n" +
           '- **Not** investment advice on whether you *should* trade these instruments — only an explanation of how they actually work, so that if/when you do encounter a real test (or these instruments themselves), you understand the mechanics rather than guessing.',
         furtherReading: [
           {
@@ -1804,15 +1904,18 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'Does completing this Level 8 track officially certify you to trade complex instruments on Nordnet?',
+            prompt:
+              'Does completing this Level 8 track officially certify you to trade complex instruments on Nordnet?',
             options: [
               'No — this is independent educational preparation, not an official test, and nothing here is submitted to Nordnet',
               'Yes — it automatically unlocks trading permissions',
               'Yes, but only for leveraged ETFs specifically',
               'It replaces the need for any broker-side test'
             ],
-            correctAnswer: 'No — this is independent educational preparation, not an official test, and nothing here is submitted to Nordnet',
-            explanation: 'This track exists purely to build real understanding — any actual broker certification process is separate and unaffected by this content.'
+            correctAnswer:
+              'No — this is independent educational preparation, not an official test, and nothing here is submitted to Nordnet',
+            explanation:
+              'This track exists purely to build real understanding — any actual broker certification process is separate and unaffected by this content.'
           },
           {
             id: 'q2',
@@ -1828,7 +1931,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'Mini futures never require any test on Nordnet'
             ],
             explanation:
-              'This track and Nordnet\'s actual, official kunskapstest are completely separate systems — understanding the real mechanics here is valuable preparation, but it has no technical or contractual link to Nordnet\'s own gatekeeping process.'
+              "This track and Nordnet's actual, official kunskapstest are completely separate systems — understanding the real mechanics here is valuable preparation, but it has no technical or contractual link to Nordnet's own gatekeeping process."
           }
         ]
       },
@@ -1839,16 +1942,18 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '## The legal basis\n\n' +
           'Nordic brokers gate complex instruments behind a knowledge test because of **MiFID II Article 25(3)** (implemented in Sweden via the Securities Market Act) — for "execution-only" (non-advised) trading, an investment firm must assess whether a client has sufficient knowledge and experience to understand the risks of a given product before allowing the trade, and must warn the client if it appears the product may not be appropriate for them.\n\n' +
           '## Why leverage specifically triggers this\n\n' +
-          'ESMA (the EU\'s securities regulator) has explicitly stated that leveraged structures should be regarded as complex "by virtue of the leverage effect, since the average retail investor would find this feature challenging to understand." The regulatory concern isn\'t that these products are exotic for its own sake — it\'s that retail investors systematically underestimate how leverage interacts with volatility and time (Level 8, next lesson makes this concrete with real numbers).\n\n' +
-          '## What is and isn\'t covered\n\n' +
+          "ESMA (the EU's securities regulator) has explicitly stated that leveraged structures should be regarded as complex \"by virtue of the leverage effect, since the average retail investor would find this feature challenging to understand.\" The regulatory concern isn't that these products are exotic for its own sake — it's that retail investors systematically underestimate how leverage interacts with volatility and time (Level 8, next lesson makes this concrete with real numbers).\n\n" +
+          "## What is and isn't covered\n\n" +
           'Plain shares and standard UCITS funds can be traded execution-only without this test — it applies specifically to instruments regulators classify as complex: leveraged ETFs, certificates, warrants, mini-futures, standardized options, and similar. This is not a Nordnet-specific invention — Avanza and Nordea implement functionally equivalent tests for the same categories, since all three are executing the same EU-wide regulatory requirement.',
         furtherReading: [
           {
-            title: 'ESMA — Article 25, Assessment of suitability and appropriateness',
+            title:
+              'ESMA — Article 25, Assessment of suitability and appropriateness',
             url: 'https://www.esma.europa.eu/publications-and-data/interactive-single-rulebook/mifid-ii/article-25-assessment-suitability-and'
           },
           {
-            title: 'Markets in Financial Instruments Directive 2014 (MiFID II) — Wikipedia',
+            title:
+              'Markets in Financial Instruments Directive 2014 (MiFID II) — Wikipedia',
             url: 'https://en.wikipedia.org/wiki/Markets_in_Financial_Instruments_Directive_2014'
           }
         ],
@@ -1856,15 +1961,24 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q1',
             type: 'multiple-choice',
-            prompt: 'What EU regulation requires brokers to assess a client\'s knowledge before allowing them to trade complex instruments execution-only?',
-            options: ['MiFID II, Article 25(3) (the appropriateness assessment)', 'GDPR', 'PRIIPs Regulation only', 'There is no such requirement — it is purely a Nordnet policy'],
-            correctAnswer: 'MiFID II, Article 25(3) (the appropriateness assessment)',
-            explanation: 'This is the actual legal basis Nordnet itself cites, implemented into Swedish law via the Securities Market Act.'
+            prompt:
+              "What EU regulation requires brokers to assess a client's knowledge before allowing them to trade complex instruments execution-only?",
+            options: [
+              'MiFID II, Article 25(3) (the appropriateness assessment)',
+              'GDPR',
+              'PRIIPs Regulation only',
+              'There is no such requirement — it is purely a Nordnet policy'
+            ],
+            correctAnswer:
+              'MiFID II, Article 25(3) (the appropriateness assessment)',
+            explanation:
+              'This is the actual legal basis Nordnet itself cites, implemented into Swedish law via the Securities Market Act.'
           },
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'According to ESMA, what specifically makes leveraged products "complex" enough to require this test?',
+            prompt:
+              'According to ESMA, what specifically makes leveraged products "complex" enough to require this test?',
             options: [
               'The leverage effect itself — the average retail investor is considered likely to find how leverage interacts with volatility and time genuinely hard to understand',
               'Their price is too high for retail investors',
@@ -1873,7 +1987,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'The leverage effect itself — the average retail investor is considered likely to find how leverage interacts with volatility and time genuinely hard to understand',
-            explanation: 'This is ESMA\'s own stated reasoning — leverage, not exoticism for its own sake, is the trigger for complex-instrument treatment.'
+            explanation:
+              "This is ESMA's own stated reasoning — leverage, not exoticism for its own sake, is the trigger for complex-instrument treatment."
           },
           {
             id: 'q3',
@@ -1887,7 +2002,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'No — Avanza and Nordea implement functionally equivalent tests for the same categories, since all three follow the same EU-wide MiFID II requirement',
-            explanation: 'This is standard Nordic-market MiFID II implementation, not a broker-specific policy.'
+            explanation:
+              'This is standard Nordic-market MiFID II implementation, not a broker-specific policy.'
           }
         ]
       },
@@ -1900,13 +2016,13 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '## A concrete worked example\n\n' +
           'Suppose an index goes: 100 → 90 (−10%) → 100 (+11.11%), ending back exactly flat over two days. A 2x leveraged ETF over the same two days: 100 → 80 (−20%, i.e. 2×−10%) → 97.78 (+22.22%, i.e. 2×+11.11%). The index ended **completely flat**, but the 2x fund ended **down about 2.2%** — pure "volatility decay," created entirely by the daily reset compounding losses and gains asymmetrically. The more volatile and choppy (sideways) the underlying, and the higher the leverage multiple, the worse this decay becomes — in a genuinely choppy, flat market, a 3x fund can lose a large fraction of its value over time even while the underlying index goes precisely nowhere.\n\n' +
           '## The practical implication\n\n' +
-          'This is exactly why these products are explicitly designed and marketed for **short-term, often intraday-to-few-day** directional trades — not buy-and-hold. Holding one through an extended choppy or sideways stretch is one of the most reliable ways to lose money on a position where the underlying asset itself didn\'t even move against you.',
+          "This is exactly why these products are explicitly designed and marketed for **short-term, often intraday-to-few-day** directional trades — not buy-and-hold. Holding one through an extended choppy or sideways stretch is one of the most reliable ways to lose money on a position where the underlying asset itself didn't even move against you.",
         quiz: [
           {
             id: 'q1',
             type: 'calculation',
             prompt:
-              'An index goes 100 → 90 (Day 1) → 100 (Day 2), ending flat. Compute the 2x leveraged ETF\'s value after Day 1 and Day 2 (2 decimal places), and its total % change over the two days.',
+              "An index goes 100 → 90 (Day 1) → 100 (Day 2), ending flat. Compute the 2x leveraged ETF's value after Day 1 and Day 2 (2 decimal places), and its total % change over the two days.",
             correctAnswer: 'Day 1: 80.00, Day 2: 97.78, total change: -2.22%',
             explanation:
               'Day 1: index −10% → ETF −20% → 100×0.80 = **80.00**. Day 2: index +11.11% → ETF +22.22% → 80×1.2222 ≈ **97.78**. Total change: 97.78/100 − 1 = **−2.22%**, even though the index itself ended perfectly flat.'
@@ -1914,7 +2030,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'Why can a 2x leveraged ETF lose money over a period where its underlying index ends completely flat?',
+            prompt:
+              'Why can a 2x leveraged ETF lose money over a period where its underlying index ends completely flat?',
             options: [
               'Daily rebalancing means gains and losses compound asymmetrically day over day — this "volatility decay" accumulates in choppy/sideways markets independent of the index\'s net move',
               'The fund manager charges an unusually high fee that erases the leveraged gains',
@@ -1923,20 +2040,24 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'Daily rebalancing means gains and losses compound asymmetrically day over day — this "volatility decay" accumulates in choppy/sideways markets independent of the index\'s net move',
-            explanation: 'This is precisely the mechanism the worked example demonstrates — it is a structural feature of daily-reset leverage, not a fee or a special/rare case.'
+            explanation:
+              'This is precisely the mechanism the worked example demonstrates — it is a structural feature of daily-reset leverage, not a fee or a special/rare case.'
           },
           {
             id: 'q3',
             type: 'multiple-choice',
-            prompt: 'What holding period are leveraged ETFs generally designed and marketed for?',
+            prompt:
+              'What holding period are leveraged ETFs generally designed and marketed for?',
             options: [
               'Short-term (often intraday to a few days), not buy-and-hold',
               'Multi-year buy-and-hold, exactly like a standard index fund',
               'Retirement-account holding periods of 10+ years',
               'There is no recommended holding period — all periods behave identically'
             ],
-            correctAnswer: 'Short-term (often intraday to a few days), not buy-and-hold',
-            explanation: 'The daily-reset decay mechanic makes them structurally unsuited to long holding periods through choppy markets.'
+            correctAnswer:
+              'Short-term (often intraday to a few days), not buy-and-hold',
+            explanation:
+              'The daily-reset decay mechanic makes them structurally unsuited to long holding periods through choppy markets.'
           }
         ]
       },
@@ -1965,7 +2086,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q1',
             type: 'calculation',
             prompt:
-              'A Mini Long on an underlying trading at 100 has a financing level of 80. Using the simplified parity relationship `miniFutureValue = underlyingPrice − financingLevel` and `effectiveLeverage = underlyingPrice / miniFutureValue`, compute today\'s mini future value and effective leverage. Then the underlying rises to 115 (financing level unchanged for this exercise). Recompute the mini future value and effective leverage, and state whether leverage rose or fell as the position gained value.',
+              "A Mini Long on an underlying trading at 100 has a financing level of 80. Using the simplified parity relationship `miniFutureValue = underlyingPrice − financingLevel` and `effectiveLeverage = underlyingPrice / miniFutureValue`, compute today's mini future value and effective leverage. Then the underlying rises to 115 (financing level unchanged for this exercise). Recompute the mini future value and effective leverage, and state whether leverage rose or fell as the position gained value.",
             correctAnswer: 'Value 20→35, leverage 5.0x→3.29x, leverage fell',
             explanation:
               'Today: value = 100−80 = **20**, leverage = 100/20 = **5.0x**. After the rise: value = 115−80 = **35**, leverage = 115/35 ≈ **3.29x**. Leverage **fell** as the position gained value — exactly the "leverage changes continuously, decreasing as the position gains value" mechanic from the theory above, concretely demonstrated with real numbers rather than just asserted.'
@@ -1973,7 +2094,8 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'What happens if the underlying asset touches a mini future\'s knock-out/stop-loss barrier?',
+            prompt:
+              "What happens if the underlying asset touches a mini future's knock-out/stop-loss barrier?",
             options: [
               'The product is automatically terminated, and the holder may receive a small residual value or, in some cases, zero — total loss is a real possibility',
               'Nothing — the position simply continues at reduced leverage',
@@ -1982,34 +2104,40 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'The product is automatically terminated, and the holder may receive a small residual value or, in some cases, zero — total loss is a real possibility',
-            explanation: 'The "built-in stop-loss" framing should not be mistaken for a guarantee of meaningful recovered value.'
+            explanation:
+              'The "built-in stop-loss" framing should not be mistaken for a guarantee of meaningful recovered value.'
           },
           {
             id: 'q3',
             type: 'multiple-choice',
-            prompt: 'How does a mini future\'s leverage behave as the underlying moves, compared to a leveraged ETF\'s fixed daily-reset multiple?',
+            prompt:
+              "How does a mini future's leverage behave as the underlying moves, compared to a leveraged ETF's fixed daily-reset multiple?",
             options: [
               'It changes continuously — decreasing as the position gains value, increasing as it loses value — rather than being reset to a fixed multiple each day',
-              'It is identical to a leveraged ETF\'s mechanic',
+              "It is identical to a leveraged ETF's mechanic",
               'It is always fixed at exactly 2x for the life of the product',
               'Leverage only changes once per year'
             ],
             correctAnswer:
               'It changes continuously — decreasing as the position gains value, increasing as it loses value — rather than being reset to a fixed multiple each day',
-            explanation: 'This is a genuinely different mechanic from the leveraged-ETF daily reset covered in the previous lesson — and exactly what q1\'s worked example just demonstrated numerically.'
+            explanation:
+              "This is a genuinely different mechanic from the leveraged-ETF daily reset covered in the previous lesson — and exactly what q1's worked example just demonstrated numerically."
           },
           {
             id: 'q4',
             type: 'multiple-choice',
-            prompt: 'What ongoing cost is specific to mini futures, separate from any decay-type effect?',
+            prompt:
+              'What ongoing cost is specific to mini futures, separate from any decay-type effect?',
             options: [
               'A daily financing cost on the leveraged/borrowed portion, deducted by nudging the financing level upward each day',
               'A one-time upfront commission only',
               'A currency conversion fee charged only at knock-out',
               'There is no ongoing cost beyond the initial purchase'
             ],
-            correctAnswer: 'A daily financing cost on the leveraged/borrowed portion, deducted by nudging the financing level upward each day',
-            explanation: 'This is effectively an implicit interest charge for the borrowed exposure, distinct from the knock-out risk itself.'
+            correctAnswer:
+              'A daily financing cost on the leveraged/borrowed portion, deducted by nudging the financing level upward each day',
+            explanation:
+              'This is effectively an implicit interest charge for the borrowed exposure, distinct from the knock-out risk itself.'
           }
         ]
       },
@@ -2018,9 +2146,9 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         title: 'Certificates vs. funds: issuer/counterparty risk',
         theory:
           '## A structural distinction that matters more than it sounds\n\n' +
-          'A certificate (a tracker, a Bull & Bear certificate, a credit certificate) is a **debt instrument — a bond-like note issued by a bank or issuer** — that promises a payout linked to an underlying asset\'s performance. It is fundamentally *not* a fund that actually holds the underlying assets in a legally segregated, ring-fenced structure the way a regulated UCITS fund does.\n\n' +
+          "A certificate (a tracker, a Bull & Bear certificate, a credit certificate) is a **debt instrument — a bond-like note issued by a bank or issuer** — that promises a payout linked to an underlying asset's performance. It is fundamentally *not* a fund that actually holds the underlying assets in a legally segregated, ring-fenced structure the way a regulated UCITS fund does.\n\n" +
           '## Why this matters: issuer/counterparty credit risk\n\n' +
-          'Because a certificate is really just a promise from the issuing bank, if that issuer becomes insolvent, a holder can lose the **entire invested amount regardless of how the underlying asset actually performed** — even if the underlying index went up the whole time, an insolvent issuer can still mean a total loss. This risk simply does not exist in the same form for a genuine fund, where the fund\'s assets are legally separated from the fund manager\'s own balance sheet and are not exposed to the manager\'s own solvency.\n\n' +
+          "Because a certificate is really just a promise from the issuing bank, if that issuer becomes insolvent, a holder can lose the **entire invested amount regardless of how the underlying asset actually performed** — even if the underlying index went up the whole time, an insolvent issuer can still mean a total loss. This risk simply does not exist in the same form for a genuine fund, where the fund's assets are legally separated from the fund manager's own balance sheet and are not exposed to the manager's own solvency.\n\n" +
           '## The practical takeaway\n\n' +
           'When evaluating a certificate, "which underlying does this track" is only half the picture — "which bank issued this, and do I trust their solvency" is the other half, and it is a question that simply doesn\'t apply in the same way to an ordinary fund.',
         quiz: [
@@ -2036,21 +2164,24 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             ],
             correctAnswer:
               'A debt instrument (a bond-like note) issued by a bank, promising a payout linked to an underlying — not a fund holding the actual assets in a segregated structure',
-            explanation: 'This is the key structural fact that drives the issuer-risk difference from a genuine fund.'
+            explanation:
+              'This is the key structural fact that drives the issuer-risk difference from a genuine fund.'
           },
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'If a certificate\'s underlying index rose 20% over its holding period, but the issuing bank became insolvent, what can happen to the holder?',
+            prompt:
+              "If a certificate's underlying index rose 20% over its holding period, but the issuing bank became insolvent, what can happen to the holder?",
             options: [
-              'The holder can still lose the entire invested amount, because the payout depended on the issuer\'s own solvency, not directly on holding the underlying assets',
-              'The holder is fully protected regardless of the issuer\'s solvency, since the underlying performed well',
+              "The holder can still lose the entire invested amount, because the payout depended on the issuer's own solvency, not directly on holding the underlying assets",
+              "The holder is fully protected regardless of the issuer's solvency, since the underlying performed well",
               'This scenario is impossible by regulation',
               'The holder automatically receives the underlying assets directly instead of cash'
             ],
             correctAnswer:
-              'The holder can still lose the entire invested amount, because the payout depended on the issuer\'s own solvency, not directly on holding the underlying assets',
-            explanation: 'This is exactly the issuer/counterparty risk that distinguishes a certificate from a real fund holding segregated assets.'
+              "The holder can still lose the entire invested amount, because the payout depended on the issuer's own solvency, not directly on holding the underlying assets",
+            explanation:
+              'This is exactly the issuer/counterparty risk that distinguishes a certificate from a real fund holding segregated assets.'
           },
           {
             id: 'q3',
@@ -2070,9 +2201,12 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '## The right, not the obligation\n\n' +
           'A warrant (or option) gives the holder the **right, but not the obligation**, to buy or sell an underlying asset at a predetermined ("strike") price by or on a set maturity date. A **turbo warrant** adds a knock-out barrier feature similar to a mini future (Level 8, previous lesson) — Nordnet itself describes these as "very high risk, specifically developed for active short-term trading," not an instrument category meant for passive holding.\n\n' +
           '## Why pricing is genuinely harder to reason about\n\n' +
-          'Unlike a share, a warrant/option\'s price is driven not just by the underlying\'s price but by **time decay** (the closer to maturity with no favorable move, the less time value remains) and **implied volatility** (the market\'s expectation of future price swings) — both of which behave in ways that are not intuitive to most retail investors. This is exactly why ESMA and MiFID II treat any leverage/optionality-based structure as inherently complex (Level 8, earlier lesson): the core issue is not that the products are exotic for its own sake, but that the *interaction* of leverage, time, and volatility routinely produces outcomes that diverge sharply from what a simple "the underlying went up/down by X%, so I should have made/lost roughly X%" intuition would predict.',
+          "Unlike a share, a warrant/option's price is driven not just by the underlying's price but by **time decay** (the closer to maturity with no favorable move, the less time value remains) and **implied volatility** (the market's expectation of future price swings) — both of which behave in ways that are not intuitive to most retail investors. This is exactly why ESMA and MiFID II treat any leverage/optionality-based structure as inherently complex (Level 8, earlier lesson): the core issue is not that the products are exotic for its own sake, but that the *interaction* of leverage, time, and volatility routinely produces outcomes that diverge sharply from what a simple \"the underlying went up/down by X%, so I should have made/lost roughly X%\" intuition would predict.",
         furtherReading: [
-          { title: 'Option (finance) — Wikipedia', url: 'https://en.wikipedia.org/wiki/Option_(finance)' }
+          {
+            title: 'Option (finance) — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Option_(finance)'
+          }
         ],
         quiz: [
           {
@@ -2082,30 +2216,34 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             options: [
               'The right, but not the obligation, to buy or sell the underlying at a predetermined strike price by a set maturity date',
               'Direct, immediate ownership of the underlying shares',
-              'A guaranteed fixed return regardless of the underlying\'s price',
+              "A guaranteed fixed return regardless of the underlying's price",
               'Voting rights in the issuing company'
             ],
-            correctAnswer: 'The right, but not the obligation, to buy or sell the underlying at a predetermined strike price by a set maturity date',
-            explanation: 'This "right, not obligation" framing is the core definition shared by warrants and options.'
+            correctAnswer:
+              'The right, but not the obligation, to buy or sell the underlying at a predetermined strike price by a set maturity date',
+            explanation:
+              'This "right, not obligation" framing is the core definition shared by warrants and options.'
           },
           {
             id: 'q2',
             type: 'multiple-choice',
-            prompt: 'Beyond the underlying\'s price, what two factors make warrant/option pricing behave in non-intuitive ways?',
+            prompt:
+              "Beyond the underlying's price, what two factors make warrant/option pricing behave in non-intuitive ways?",
             options: [
               'Time decay and implied volatility',
               'Currency exchange rates and dividend dates only',
-              'The broker\'s own commission schedule',
+              "The broker's own commission schedule",
               'Nothing else — price moves exactly proportional to the underlying'
             ],
             correctAnswer: 'Time decay and implied volatility',
-            explanation: 'These two forces are exactly why regulators treat leverage/optionality-based products as inherently complex — the simple "underlying moved X%, so I made/lost X%" intuition breaks down.'
+            explanation:
+              'These two forces are exactly why regulators treat leverage/optionality-based products as inherently complex — the simple "underlying moved X%, so I made/lost X%" intuition breaks down.'
           },
           {
             id: 'q3',
             type: 'multiple-choice',
             prompt:
-              'A call warrant has only 2 trading days left before maturity. The underlying then genuinely rises 5% in a single day — a real, favorable move in the right direction. Is it guaranteed that the warrant\'s price rises by a proportional (leveraged) amount?',
+              "A call warrant has only 2 trading days left before maturity. The underlying then genuinely rises 5% in a single day — a real, favorable move in the right direction. Is it guaranteed that the warrant's price rises by a proportional (leveraged) amount?",
             options: [
               'No — with so little time left, rapid time decay and/or a drop in implied volatility could partly or fully offset the favorable underlying move, so the warrant could underperform, and could even fall in price despite the "right" move happening',
               'Yes — a favorable underlying move always translates into a proportional warrant gain, guaranteed',
@@ -2124,7 +2262,10 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
 ];
 
 const LESSON_BY_ID = new Map<string, AcademyLesson>(
-  ACADEMY_LEVELS.flatMap((level) => level.lessons).map((lesson) => [lesson.id, lesson])
+  ACADEMY_LEVELS.flatMap((level) => level.lessons).map((lesson) => [
+    lesson.id,
+    lesson
+  ])
 );
 
 export function findAcademyLesson(lessonId: string): AcademyLesson | null {

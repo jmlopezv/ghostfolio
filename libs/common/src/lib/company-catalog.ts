@@ -21,11 +21,12 @@ export interface CatalogCategory {
   companies: CatalogCompany[];
 }
 
-const y = (
-  symbol: string,
-  name: string,
-  currency: string
-): CatalogCompany => ({ currency, dataSource: 'YAHOO', name, symbol });
+const y = (symbol: string, name: string, currency: string): CatalogCompany => ({
+  currency,
+  dataSource: 'YAHOO',
+  name,
+  symbol
+});
 
 export const COMPANY_CATALOG: CatalogCategory[] = [
   {
@@ -301,10 +302,7 @@ export const COMPANY_CATALOG: CatalogCategory[] = [
   },
   {
     category: 'reits',
-    companies: [
-      y('PLD', 'Prologis', 'USD'),
-      y('AMT', 'American Tower', 'USD')
-    ]
+    companies: [y('PLD', 'Prologis', 'USD'), y('AMT', 'American Tower', 'USD')]
   },
   {
     category: 'industrials',
@@ -430,7 +428,9 @@ export const COMPANY_CATALOG: CatalogCategory[] = [
   },
   {
     category: 'etf-new-energy',
-    companies: [y('NRJ.PA', 'Amundi MSCI New Energy ESG Screened UCITS ETF', 'EUR')]
+    companies: [
+      y('NRJ.PA', 'Amundi MSCI New Energy ESG Screened UCITS ETF', 'EUR')
+    ]
   },
   {
     category: 'etf-datacenter-reits',
@@ -479,16 +479,14 @@ export const COMPANY_CATALOG: CatalogCategory[] = [
   },
   {
     category: 'etf-nasdaq100',
-    companies: [y('LYMS.DE', 'Amundi Core Nasdaq-100 Swap UCITS ETF Acc', 'EUR')]
+    companies: [
+      y('LYMS.DE', 'Amundi Core Nasdaq-100 Swap UCITS ETF Acc', 'EUR')
+    ]
   },
   {
     category: 'etf-clean-energy',
     companies: [
-      y(
-        'IQQH.DE',
-        'iShares Global Clean Energy Transition UCITS ETF',
-        'USD'
-      )
+      y('IQQH.DE', 'iShares Global Clean Energy Transition UCITS ETF', 'USD')
     ]
   },
   {
@@ -515,7 +513,9 @@ export const COMPANY_CATALOG: CatalogCategory[] = [
     // Optional second semiconductor-index flavor alongside etf-semiconductors'
     // VVSM.DE (VanEck) - this one tracks a different (iShares/MSCI) index.
     category: 'etf-semiconductors-alt',
-    companies: [y('SEC0.DE', 'iShares MSCI Global Semiconductors UCITS ETF', 'USD')]
+    companies: [
+      y('SEC0.DE', 'iShares MSCI Global Semiconductors UCITS ETF', 'USD')
+    ]
   }
 ];
 
