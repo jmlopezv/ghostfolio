@@ -38,6 +38,7 @@ import {
   QuoteSummaryResult
 } from 'yahoo-finance2/esm/src/modules/quoteSummary';
 import { SearchQuoteNonYahoo } from 'yahoo-finance2/esm/src/modules/search';
+import { getCrumbClear } from 'yahoo-finance2/lib/getCrumb';
 
 @Injectable()
 export class YahooFinanceService implements DataProviderInterface {
@@ -83,7 +84,7 @@ export class YahooFinanceService implements DataProviderInterface {
 
     try {
       const historicalResult = this.convertToDividendResult(
-        await this.yahooFinance.chart(
+        await this.fetchChart(
           this.yahooFinanceDataEnhancerService.convertToYahooFinanceSymbol(
             symbol
           ),
@@ -131,7 +132,7 @@ export class YahooFinanceService implements DataProviderInterface {
 
     try {
       const historicalResult = this.convertToHistoricalResult(
-        await this.yahooFinance.chart(
+        await this.fetchChart(
           this.yahooFinanceDataEnhancerService.convertToYahooFinanceSymbol(
             symbol
           ),
@@ -201,9 +202,23 @@ export class YahooFinanceService implements DataProviderInterface {
       } catch (error) {
         this.logger.error(error);
 
-        this.logger.warn('Fallback to yahooFinance.quoteSummary()');
+        // yahoo-finance2 caches its crumb-fetch promise module-wide and only
+        // resets it on success, so a single transient network failure (e.g. a
+        // connection reset during the boot-time request burst) would otherwise
+        // poison every future Yahoo request in this process with the same
+        // stale rejection. Clear the cache and retry once before degrading to
+        // the per-symbol quoteSummary fallback.
+        await this.clearCrumbCache();
 
-        quotes = await this.getQuotesWithQuoteSummary(yahooFinanceSymbols);
+        try {
+          quotes = await this.yahooFinance.quote(yahooFinanceSymbols);
+        } catch (retryError) {
+          this.logger.error(retryError);
+
+          this.logger.warn('Fallback to yahooFinance.quoteSummary()');
+
+          quotes = await this.getQuotesWithQuoteSummary(yahooFinanceSymbols);
+        }
       }
 
       for (const quote of quotes) {
@@ -336,6 +351,41 @@ export class YahooFinanceService implements DataProviderInterface {
     }
 
     return { items };
+  }
+
+  private async fetchChart(
+    yahooFinanceSymbol: string,
+    params: {
+      events?: 'dividends';
+      interval: '1d' | '1mo';
+      period1: string;
+      period2: string;
+    }
+  ): Promise<ChartResultArray> {
+    try {
+      return await this.yahooFinance.chart(yahooFinanceSymbol, params);
+    } catch (error) {
+      this.logger.error(error);
+
+      // Same crumb-cache-poisoning issue as getQuotes(): a single transient
+      // failure (e.g. during the post-restart request burst) otherwise
+      // poisons every subsequent chart() call in this process forever.
+      await this.clearCrumbCache();
+
+      return this.yahooFinance.chart(yahooFinanceSymbol, params);
+    }
+  }
+
+  private async clearCrumbCache() {
+    try {
+      const { cookieJar } = this.yahooFinance._opts;
+
+      if (cookieJar) {
+        await getCrumbClear(cookieJar);
+      }
+    } catch (error) {
+      this.logger.warn(`Could not clear the crumb cache: ${error}`);
+    }
   }
 
   private convertToDividendResult(

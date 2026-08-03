@@ -80,6 +80,66 @@
       </td>
     </ng-container>
 
+    <ng-container matColumnDef="sma50">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        i18n
+        mat-header-cell
+        mat-sort-header="sma50"
+      >
+        SMA50
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right small" mat-cell>
+        @if (isNumber(element?.sma50)) {
+          <span
+            [class.text-danger]="
+              isNumber(element?.marketPrice) &&
+              element?.marketPrice < element?.sma50
+            "
+            [class.text-success]="
+              isNumber(element?.marketPrice) &&
+              element?.marketPrice >= element?.sma50
+            "
+          >
+            {{ element?.sma50 | number: '1.2-2' }}
+          </span>
+        } @else {
+          —
+        }
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="sma200">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        i18n
+        mat-header-cell
+        mat-sort-header="sma200"
+      >
+        SMA200
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right small" mat-cell>
+        @if (isNumber(element?.sma200)) {
+          <span
+            [class.text-danger]="
+              isNumber(element?.marketPrice) &&
+              element?.marketPrice < element?.sma200
+            "
+            [class.text-success]="
+              isNumber(element?.marketPrice) &&
+              element?.marketPrice >= element?.sma200
+            "
+          >
+            {{ element?.sma200 | number: '1.2-2' }}
+          </span>
+        } @else {
+          —
+        }
+      </td>
+    </ng-container>
+
     <ng-container matColumnDef="periodReturn">
       <th
         *matHeaderCellDef

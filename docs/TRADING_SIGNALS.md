@@ -20,6 +20,7 @@ Every month's contribution is split to **steer the actual mix back toward 60/40*
 - **~450 USD → the fund sleeve.** Commission-free at Nordnet; follow the weekly fund recommendation for which fund(s) keep the mix diversified. No timing — this buys automatically cheaper units in drawdowns.
 - **~300 USD → the stock/ETF sleeve, at most ONE stock order per month** (the $5 Nordnet fee ≈ 1.7% of the order) **or up to TWO ETF orders** (2 × $150, only when two distinct ETF dip signals are genuinely live — the doubled fee ≈ 3.3% must be worth the diversification).
 - **Picks come from the conviction/EV ranking** (`GET /signals/strategies`), never from enthusiasm. While bear-market flags are up, prefer **REVERSAL-confirmed** entries over raw dips (a confirmed bottom + capitulation volume beats catching a falling knife).
+- **Read the 📋 pre-buy screen block before acting on a BUY** (§18): 200-day trend, sector tailwind, analyst/EPS direction, next earnings date, headlines. Advisory only — but the simulation evidence says favor DIPs above their 200-day in rising sectors, and treat a REVERSAL as guilty until a real catalyst proves otherwise.
 - **Sell only when the exit machine fires** (stop-loss / trailing) — never on a schedule. The backtest evidence (§0.3) is unambiguous: planned reselling is the falsified strategy; entry-timing + stop-discipline on held positions is what the engine is for.
 - If the engine says "nothing compelling" (negative EV across the board), the stock-sleeve cash **waits in the account** — deploying into a bad month is not a goal.
 - **Auto-plan on the 25th (added 2026-07-09):** a cron (`0 9 25 * *` on `SignalsService`) sends the full plan to Telegram on the 25th, assuming the `SIGNAL_MONTHLY_CONTRIBUTION_USD = 750` deposit when it hasn't been logged yet (clearly labeled; a real, higher balance wins). A boot catch-up sends it on the next start if the machine was off on the 25th (Property `SIGNAL_MONTHLY_PLAN_LAST_SENT` dedups per month). Logging the deposit still triggers the classic cash-delta plan too.
@@ -790,3 +791,49 @@ The engine is otherwise **100% technical** (price/volume only). This adds one in
 | Lazy fetch + wiring   | `resolveFundamentalsScore` / `evaluateSymbol` in `apps/api/src/services/signals/signals.service.ts`                                                    |
 | Cache                 | `fundamentals:<symbol>` in Redis, 24h TTL (2h on a retryable miss) — fundamentals move on an earnings cadence, not daily                               |
 | Data source           | `yahoo-finance2`'s `quoteSummary` (`defaultKeyStatistics`, `financialData`, `recommendationTrend` modules) — free, already a dependency, no extra auth |
+
+---
+
+## 18. Pre-buy screen (advisory context for fired BUY signals, added 2026-07-14)
+
+Born from the first month of Simulation evidence: the engine fires on price geometry alone and is blind to _why_ a stock moves. Winners (Apple, Nvidia, Cloudflare, Alphabet) had catalysts, uptrends, and rising sectors; losers (Volkswagen, Norsk Hydro, solar ETFs) were downtrends with deteriorating analyst sentiment — and DIP entries decisively beat REVERSAL entries. The screen makes that context **systematic**: whenever a BUY (DIP or REVERSAL) actually fires, a second Telegram message summarizes the non-price evidence.
+
+### 18.1 Advisory ONLY — by design
+
+The screen **never blocks or re-ranks a signal**. Its filters look good on one month of simulation data but are unvalidated as hard rules — hard-coding them would violate §0.2 (no built-in optimism) the same way regime-based tranching would. Read the block, then decide. REVERSAL signals get the harder framing (`⚠️ REVERSAL — confirm a real catalyst before buying:`) because that is exactly the pattern the simulation punished.
+
+### 18.2 What the block shows (each line best-effort, omitted when unavailable)
+
+```
+📋 Pre-buy screen (advisory — informs, never blocks)
+
+Nvidia (NVDA)
+200d trend: ▲ above · Sector (semiconductors): RISING
+Analysts: IMPROVING · EPS estimates: UP
+Earnings: 2026-08-27 (in 44d)
+• Nvidia unveils next-gen chip... (Reuters)
+```
+
+| Line            | Source & rule                                                                                                                                                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 200d trend      | The signal's own indicator snapshot (`sma200` now carried on `TradingSignal`) — live price ≥/< its 200-day SMA. No fetch.                                                                                                       |
+| Sector tailwind | In-house, zero API: average 3-month return across watchlist symbols sharing the candidate's `company-catalog` category. > +3% RISING, < −3% FALLING, else MIXED (`SIGNAL_SCREEN_SECTOR_TAILWIND_PCT`).                          |
+| Analysts        | Yahoo `recommendationTrend`: net-buy ratio (§17.2's formula, shared code) of the latest month vs the month before — the DIRECTION Yahoo was already returning and we were discarding. Finnhub `/stock/recommendation` fallback. |
+| EPS estimates   | Yahoo `earningsTrend`: current-year consensus estimate now vs 30 days ago (±2% = `SIGNAL_SCREEN_EPS_REVISION_PCT`).                                                                                                             |
+| Earnings date   | Yahoo `calendarEvents`, Finnhub `/calendar/earnings` fallback — flags an imminent report (gap risk) before you enter.                                                                                                           |
+| Headlines       | Finnhub `/company-news`, last 7 days, top 3. **US-listed companies only on the free tier** — European names simply omit this line (documented, not hidden).                                                                     |
+
+### 18.3 Setup + rate-limit discipline
+
+- Optional: `FINNHUB_API_KEY=<your key>` in `.env` (free account). Without it the Yahoo-only fields still populate; with nothing resolvable at all, the old "🔎 Paste into Google" prompt (§10.4) is sent instead — zero regression.
+- The screen is fetched **lazily, only for the symbols that actually fired** — never for the whole ~400-row watchlist (Finnhub free tier = 60 calls/min). Cached 6h per symbol (1h on a miss), key `prebuy-screen:v1:<symbol>`.
+- The screen result is persisted into the fired signal's `SignalLog.metrics.preBuyScreen`, so Analytics/Simulation can later show what the screen said at buy time.
+- The Simulation summary now also shows **DIP vs REVERSAL win rates** side by side (`dipWinRate` / `reversalWinRate` cards) so the evidence that motivated this section stays visible.
+
+### 18.4 Relevant source files
+
+| Concern                     | File                                                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Fetch + classify + cache    | `apps/api/src/services/signals/screening.service.ts` (pure helpers exported + unit-tested)                     |
+| Wiring into the notify path | `attachPreBuyScreens` / `formatPreBuyScreens` in `apps/api/src/services/signals/signals.service.ts`            |
+| Config                      | `FINNHUB_API_KEY` (`configuration.service.ts`), `SIGNAL_SCREEN_*` thresholds (`libs/common/src/lib/config.ts`) |

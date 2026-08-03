@@ -6,6 +6,7 @@ import {
   SimulationResponse,
   User
 } from '@ghostfolio/common/interfaces';
+import { openBenchmarkDetailDialog } from '@ghostfolio/ui/benchmark/benchmark-detail-dialog/open-benchmark-detail-dialog';
 import { GfLineChartComponent } from '@ghostfolio/ui/line-chart';
 import { DataService } from '@ghostfolio/ui/services';
 
@@ -14,6 +15,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  computed,
   DestroyRef,
   effect,
   inject,
@@ -22,11 +24,14 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { MatDialog } from '@angular/material/dialog';
 import { MatSort, MatSortModule } from '@angular/material/sort';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { IonIcon } from '@ionic/angular/standalone';
+import { DataSource } from '@prisma/client';
 import { addIcons } from 'ionicons';
 import { refreshOutline } from 'ionicons/icons';
+import { DeviceDetectorService } from 'ngx-device-detector';
 import { NgxSkeletonLoaderModule } from 'ngx-skeleton-loader';
 
 interface CalculatorResult {
@@ -41,6 +46,7 @@ const DISPLAYED_COLUMNS = [
   'name',
   'signalType',
   'status',
+  'tracked',
   'buyDate',
   'buyPrice',
   'scoreAtBuy',
@@ -50,6 +56,8 @@ const DISPLAYED_COLUMNS = [
   'takeProfit',
   'stopLoss',
   'currentOrSellPrice',
+  'vsSignalPct',
+  'vsBuyPct',
   'sellSignal',
   'sellDate',
   'holdingDays',
@@ -87,11 +95,16 @@ export class GfHomeSimulationComponent implements OnInit {
   protected trades: SimulatedTrade[] = [];
   protected user: User;
 
+  protected readonly deviceType = computed(
+    () => this.deviceDetectorService.deviceInfo().deviceType
+  );
   protected readonly sort = viewChild(MatSort);
 
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
   private readonly dataService = inject(DataService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly deviceDetectorService = inject(DeviceDetectorService);
+  private readonly dialog = inject(MatDialog);
   private readonly userService = inject(UserService);
 
   public constructor() {
@@ -165,6 +178,19 @@ export class GfHomeSimulationComponent implements OnInit {
     return this.selectedTradeIndex != null
       ? (this.trades[this.selectedTradeIndex] ?? null)
       : null;
+  }
+
+  /** Opens the same asset-detail dialog Watchlist's ticker click opens. */
+  protected onOpenAsset(dataSource: DataSource, symbol: string) {
+    openBenchmarkDetailDialog({
+      colorScheme: this.user?.settings?.colorScheme,
+      dataSource,
+      destroyRef: this.destroyRef,
+      deviceType: this.deviceType(),
+      dialog: this.dialog,
+      locale: this.user?.settings?.locale,
+      symbol
+    });
   }
 
   protected onRefresh() {

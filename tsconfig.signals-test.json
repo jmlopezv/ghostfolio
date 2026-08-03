@@ -22,6 +22,7 @@
     "apps/api/src/services/signals/forecast.service.spec.ts",
     "apps/api/src/services/signals/strategies.service.spec.ts",
     "apps/api/src/services/signals/fundamentals.service.spec.ts",
+    "apps/api/src/services/signals/screening.service.spec.ts",
     "apps/api/src/app/endpoints/academy/academy.service.spec.ts"
   ]
 }

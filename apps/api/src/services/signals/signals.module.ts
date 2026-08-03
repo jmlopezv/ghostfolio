@@ -2,6 +2,7 @@ import { AccountModule } from '@ghostfolio/api/app/account/account.module';
 import { ActivitiesModule } from '@ghostfolio/api/app/activities/activities.module';
 import { WatchlistModule } from '@ghostfolio/api/app/endpoints/watchlist/watchlist.module';
 import { RedisCacheModule } from '@ghostfolio/api/app/redis-cache/redis-cache.module';
+import { ConfigurationModule } from '@ghostfolio/api/services/configuration/configuration.module';
 import { DataProviderModule } from '@ghostfolio/api/services/data-provider/data-provider.module';
 import { ExchangeRateDataModule } from '@ghostfolio/api/services/exchange-rate-data/exchange-rate-data.module';
 import { MarketDataModule } from '@ghostfolio/api/services/market-data/market-data.module';
@@ -18,6 +19,8 @@ import { FundamentalsService } from '@ghostfolio/api/services/signals/fundamenta
 import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
 import { MarketRegimeService } from '@ghostfolio/api/services/signals/market-regime.service';
 import { OhlcService } from '@ghostfolio/api/services/signals/ohlc.service';
+import { ScreeningService } from '@ghostfolio/api/services/signals/screening.service';
+import { SignalTradeTrackingService } from '@ghostfolio/api/services/signals/signal-trade-tracking.service';
 import { SignalsService } from '@ghostfolio/api/services/signals/signals.service';
 import { StrategiesService } from '@ghostfolio/api/services/signals/strategies.service';
 import { SymbolProfileModule } from '@ghostfolio/api/services/symbol-profile/symbol-profile.module';
@@ -37,6 +40,7 @@ import { Module } from '@nestjs/common';
   imports: [
     AccountModule,
     ActivitiesModule,
+    ConfigurationModule,
     DataProviderModule,
     ExchangeRateDataModule,
     MarketDataModule,
@@ -59,6 +63,8 @@ import { Module } from '@nestjs/common';
     IndicatorsService,
     MarketRegimeService,
     OhlcService,
+    ScreeningService,
+    SignalTradeTrackingService,
     SignalsService,
     StrategiesService
   ]

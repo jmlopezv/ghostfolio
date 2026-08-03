@@ -78,6 +78,50 @@
               </div>
             </div>
           </div>
+          <div class="col-6 col-md-3">
+            <div class="card h-100">
+              <div class="card-body py-2">
+                <div class="small text-muted text-uppercase">
+                  <span class="badge bg-success" i18n>DIP</span>
+                  <span class="ms-1" i18n>win rate</span>
+                </div>
+                <div class="h4 m-0">
+                  {{ simulation?.summary?.dipWinRate ?? 0 | percent: '1.0-0' }}
+                </div>
+                <div class="small text-muted">
+                  {{ simulation?.summary?.dipClosedTrades ?? 0 }}
+                  <ng-container i18n>closed</ng-container> · avg
+                  {{
+                    simulation?.summary?.dipAvgNetReturnPct ?? 0
+                      | number: '1.1-1'
+                  }}%
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="card h-100">
+              <div class="card-body py-2">
+                <div class="small text-muted text-uppercase">
+                  <span class="badge bg-warning text-dark" i18n>REVERSAL</span>
+                  <span class="ms-1" i18n>win rate</span>
+                </div>
+                <div class="h4 m-0">
+                  {{
+                    simulation?.summary?.reversalWinRate ?? 0 | percent: '1.0-0'
+                  }}
+                </div>
+                <div class="small text-muted">
+                  {{ simulation?.summary?.reversalClosedTrades ?? 0 }}
+                  <ng-container i18n>closed</ng-container> · avg
+                  {{
+                    simulation?.summary?.reversalAvgNetReturnPct ?? 0
+                      | number: '1.1-1'
+                  }}%
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Charts + calculator -->
@@ -272,7 +316,11 @@
                   class="font-weight-bold text-nowrap"
                   mat-cell
                 >
-                  {{ trade.symbol }}
+                  <span
+                    class="cursor-pointer text-decoration-underline"
+                    (click)="onOpenAsset(trade.dataSource, trade.symbol)"
+                    >{{ trade.symbol }}</span
+                  >
                 </td>
               </ng-container>
 
@@ -319,6 +367,52 @@
                     }"
                     >{{ trade.status }}</span
                   >
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="tracked">
+                <th
+                  *matHeaderCellDef
+                  class="text-center"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                >
+                  Tracked
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-center"
+                  mat-cell
+                  [title]="
+                    trade.trackedPeakPrice != null
+                      ? 'Peak since target: ' + trade.trackedPeakPrice
+                      : ''
+                  "
+                >
+                  @if (trade.trackedStatus === 'TRACKING') {
+                    <span
+                      class="badge bg-info"
+                      i18n
+                      title="Real buy detected — watching the frozen target/stop"
+                      >Tracking</span
+                    >
+                  } @else if (trade.trackedStatus === 'TRAILING') {
+                    <span
+                      class="badge bg-success"
+                      i18n
+                      title="Target reached — riding the trend, watching for a reversal"
+                      >Riding trend 🎯</span
+                    >
+                  } @else if (trade.trackedStatus === 'STOP_HIT') {
+                    <span class="badge bg-danger" i18n>Stop hit</span>
+                  } @else if (trade.trackedStatus === 'TRAILING_EXIT') {
+                    <span class="badge bg-warning text-dark" i18n
+                      >Trend reversed</span
+                    >
+                  } @else {
+                    <span class="text-muted">—</span>
+                  }
                 </td>
               </ng-container>
 
@@ -520,6 +614,66 @@
                     <span class="small text-muted">{{ trade.currency }}</span>
                   } @else {
                     —
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="vsSignalPct">
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                  title="Current/sell price vs. the engine's live price at the moment the signal fired"
+                >
+                  Δ vs Signal
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end text-nowrap"
+                  mat-cell
+                  [ngClass]="{
+                    'text-success': trade.vsSignalPct >= 0,
+                    'text-danger': trade.vsSignalPct < 0
+                  }"
+                >
+                  @if (trade.vsSignalPct != null) {
+                    {{ trade.vsSignalPct >= 0 ? '+' : ''
+                    }}{{ trade.vsSignalPct | number: '1.1-1' }}%
+                  } @else {
+                    <span class="text-muted">—</span>
+                  }
+                </td>
+              </ng-container>
+
+              <ng-container matColumnDef="vsBuyPct">
+                <th
+                  *matHeaderCellDef
+                  class="text-end"
+                  i18n
+                  mat-header-cell
+                  mat-sort-header
+                  title="Current/sell price vs. the real price you actually paid (tracked trades only)"
+                >
+                  Δ vs Buy
+                </th>
+                <td
+                  *matCellDef="let trade"
+                  class="text-end text-nowrap"
+                  mat-cell
+                  [ngClass]="{
+                    'text-success': trade.vsBuyPct >= 0,
+                    'text-danger': trade.vsBuyPct < 0
+                  }"
+                >
+                  @if (trade.vsBuyPct != null) {
+                    {{ trade.vsBuyPct >= 0 ? '+' : ''
+                    }}{{ trade.vsBuyPct | number: '1.1-1' }}%
+                  } @else {
+                    <span class="text-muted" title="Not a tracked real trade"
+                      >—</span
+                    >
                   }
                 </td>
               </ng-container>

@@ -25,6 +25,14 @@ import {
 } from '@ghostfolio/api/services/signals/market-regime.service';
 import { OhlcService } from '@ghostfolio/api/services/signals/ohlc.service';
 import {
+  classifySectorTailwind,
+  ScreeningService
+} from '@ghostfolio/api/services/signals/screening.service';
+import {
+  readTrackedMetrics,
+  SignalTradeTrackingService
+} from '@ghostfolio/api/services/signals/signal-trade-tracking.service';
+import {
   FundCandidate,
   StrategiesService,
   StrategyCandidate
@@ -147,6 +155,9 @@ interface SignalsComputation {
   trailingByKey: Map<string, number | null>;
   // Keys that just transitioned WATCHING -> TRAILING this run (target reached).
   enteredTrailing: TradingSignal[];
+  // Live price per symbol from this cycle's already-fetched quotes — reused by
+  // SignalTradeTrackingService.checkTrackedTradesAndAlert to avoid a second fetch.
+  livePriceBySymbol: Map<string, number>;
 }
 
 // Per-position exit evaluation: the signal to surface plus the next trailing peak.
@@ -191,6 +202,8 @@ export class SignalsService implements OnApplicationBootstrap {
     private readonly ollamaService: OllamaService,
     private readonly prismaService: PrismaService,
     private readonly propertyService: PropertyService,
+    private readonly screeningService: ScreeningService,
+    private readonly signalTradeTrackingService: SignalTradeTrackingService,
     private readonly strategiesService: StrategiesService,
     private readonly telegramBotService: TelegramBotService,
     private readonly watchlistService: WatchlistService
@@ -1104,6 +1117,7 @@ export class SignalsService implements OnApplicationBootstrap {
         fundsValue,
         fundValueByCategory,
         fundValueBySymbol,
+        livePriceBySymbol: new Map<string, number>(),
         response,
         stockCandidates,
         stocksValue,
@@ -1119,6 +1133,14 @@ export class SignalsService implements OnApplicationBootstrap {
       this.dataProviderService.getQuotes({ items, useCache: true }),
       this.getHistory(items)
     ]);
+
+    const livePriceBySymbol = new Map<string, number>();
+
+    for (const [symbol, quote] of Object.entries(quotes)) {
+      if (quote?.marketPrice) {
+        livePriceBySymbol.set(symbol, quote.marketPrice);
+      }
+    }
 
     let sellFired = false;
 
@@ -1283,6 +1305,7 @@ export class SignalsService implements OnApplicationBootstrap {
       fundsValue: Math.round(fundsValue * 100) / 100,
       fundValueByCategory,
       fundValueBySymbol,
+      livePriceBySymbol,
       response,
       stockCandidates,
       stocksValue: Math.round(stocksValue * 100) / 100,
@@ -1364,10 +1387,22 @@ export class SignalsService implements OnApplicationBootstrap {
     if (changed.length > 0) {
       await this.telegramBotService.sendMessage(this.formatMessage(changed));
 
-      const newsPrompt = this.formatNewsPrompt(changed);
+      // Advisory pre-buy screen for the BUYs that just fired (also persisted
+      // to SignalLog.metrics below). Falls back to the plain "paste into
+      // Google" prompt when no screen data could be resolved, so behavior
+      // without connectivity/keys is unchanged.
+      await this.attachPreBuyScreens(userId, changed);
 
-      if (newsPrompt) {
-        await this.telegramBotService.sendMessage(newsPrompt);
+      const screenMessage = this.formatPreBuyScreens(changed);
+
+      if (screenMessage) {
+        await this.telegramBotService.sendMessage(screenMessage);
+      } else {
+        const newsPrompt = this.formatNewsPrompt(changed);
+
+        if (newsPrompt) {
+          await this.telegramBotService.sendMessage(newsPrompt);
+        }
       }
     }
 
@@ -1383,6 +1418,46 @@ export class SignalsService implements OnApplicationBootstrap {
 
     // Propose budget strategies when fresh cash has become available.
     await this.maybeSendStrategies({ computation, now, userId });
+
+    // Real-buy auto-detection + frozen-target alerting — independent of the
+    // dynamic signal/exit-machine notify path above; best-effort so a bug
+    // here never blocks the main notification cycle.
+    try {
+      await this.signalTradeTrackingService.detectAndTrackNewBuys(userId);
+      await this.signalTradeTrackingService.checkTrackedTradesAndAlert(
+        userId,
+        computation.livePriceBySymbol
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Tracked-trade check failed for user ${userId}: ${error?.message ?? error}`
+      );
+    }
+  }
+
+  /**
+   * On-demand refresh of the tracked-trade detector/alerter (manual trigger
+   * for verification/debugging — the cron path above calls the two steps
+   * directly to avoid recomputing computeSignalsInternal twice).
+   */
+  public async refreshTrackedTrades(userId: string): Promise<void> {
+    const { livePriceBySymbol } = await this.computeSignalsInternal(userId);
+
+    await this.signalTradeTrackingService.detectAndTrackNewBuys(userId);
+    await this.signalTradeTrackingService.checkTrackedTradesAndAlert(
+      userId,
+      livePriceBySymbol
+    );
+  }
+
+  /**
+   * The 5-minute intraday reversal check for real tracked positions past
+   * their frozen take-profit target, across every user. Delegates to
+   * SignalTradeTrackingService — thin wrapper so the Bull processor only
+   * needs to depend on SignalsService, matching every other job here.
+   */
+  public async checkTrailingPositionsIntraday(): Promise<void> {
+    await this.signalTradeTrackingService.checkTrailingPositionsIntraday();
   }
 
   /**
@@ -1437,10 +1512,17 @@ export class SignalsService implements OnApplicationBootstrap {
       livePrice: livePrice ?? null,
       macdHistogram: signal.macdHistogram ?? null,
       // Forward-compat Json column; keeps the log queryable by asset type
-      // (metrics->>'assetSubClass') without a schema migration.
-      metrics: signal.assetSubClass
-        ? { assetSubClass: signal.assetSubClass }
-        : undefined,
+      // (metrics->>'assetSubClass') and preserves what the advisory pre-buy
+      // screen said at fire time — without a schema migration.
+      metrics:
+        signal.assetSubClass || signal.preBuyScreen
+          ? JSON.parse(
+              JSON.stringify({
+                assetSubClass: signal.assetSubClass,
+                preBuyScreen: signal.preBuyScreen
+              })
+            )
+          : undefined,
       name: signal.name ?? null,
       newsScore: signal.newsScore ?? null,
       reachProbability: reachProbability ?? null,
@@ -1677,7 +1759,35 @@ export class SignalsService implements OnApplicationBootstrap {
       (trade) => numeric(trade.netReturnPct) && trade.netReturnPct > 0
     );
 
+    // Per-signal-type breakdown, so the DIP-vs-REVERSAL evidence the user
+    // found in the CSV export stays visible on the page itself.
+    const typeBreakdown = (signalType: 'DIP' | 'REVERSAL') => {
+      const ofType = closedTrades.filter(
+        (trade) => trade.signalType === signalType
+      );
+      const wins = ofType.filter(
+        (trade) => numeric(trade.netReturnPct) && trade.netReturnPct > 0
+      );
+
+      return {
+        avgNetReturnPct: round2(
+          average(ofType.map((trade) => trade.netReturnPct).filter(numeric))
+        ),
+        closedTrades: ofType.length,
+        winRate: ofType.length > 0 ? round2(wins.length / ofType.length) : 0
+      };
+    };
+
+    const dipBreakdown = typeBreakdown('DIP');
+    const reversalBreakdown = typeBreakdown('REVERSAL');
+
     const summary: SimulationSummary = {
+      dipAvgNetReturnPct: dipBreakdown.avgNetReturnPct,
+      dipClosedTrades: dipBreakdown.closedTrades,
+      dipWinRate: dipBreakdown.winRate,
+      reversalAvgNetReturnPct: reversalBreakdown.avgNetReturnPct,
+      reversalClosedTrades: reversalBreakdown.closedTrades,
+      reversalWinRate: reversalBreakdown.winRate,
       avgEffectiveAnnualRatePct: round2(
         average(
           closedTrades
@@ -1730,6 +1840,7 @@ export class SignalsService implements OnApplicationBootstrap {
       currency: string | null;
       dataSource: DataSource;
       livePrice: number | null;
+      metrics: Prisma.JsonValue | null;
       name: string | null;
       reachProbability: number | null;
       rsi: number | null;
@@ -1776,6 +1887,21 @@ export class SignalsService implements OnApplicationBootstrap {
         (Math.pow(1 + netReturnPct / 100, 365 / holdingDays) - 1) * 100;
     }
 
+    // Real-buy tracking (see SignalTradeTrackingService) — absent for any
+    // signal the user never actually acted on, which is the common case.
+    const tracked = readTrackedMetrics(buyRow.metrics);
+
+    const vsSignalPct =
+      sellPrice != null
+        ? round2(((sellPrice - buyPrice) / buyPrice) * 100)
+        : undefined;
+    const vsBuyPct =
+      tracked?.realBuyPrice != null && sellPrice != null
+        ? round2(
+            ((sellPrice - tracked.realBuyPrice) / tracked.realBuyPrice) * 100
+          )
+        : undefined;
+
     return {
       assumedNotionalUsd: SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD,
       buyDate: buyRow.createdAt.toISOString(),
@@ -1795,6 +1921,8 @@ export class SignalsService implements OnApplicationBootstrap {
       name: buyRow.name ?? undefined,
       netReturnPct: netReturnPct != null ? round2(netReturnPct) : undefined,
       reachProbabilityAtBuy: buyRow.reachProbability ?? undefined,
+      realBuyDate: tracked?.realBuyDate ?? undefined,
+      realBuyPrice: tracked?.realBuyPrice ?? undefined,
       rsiAtBuy: buyRow.rsi ?? undefined,
       scoreAtBuy: buyRow.score ?? undefined,
       sellDate: sellRow ? sellRow.createdAt.toISOString() : undefined,
@@ -1803,7 +1931,12 @@ export class SignalsService implements OnApplicationBootstrap {
       status: sellRow ? 'CLOSED' : 'OPEN',
       stopLoss: buyRow.stopLoss ?? undefined,
       symbol: buyRow.symbol,
-      takeProfit: buyRow.takeProfit ?? undefined
+      takeProfit: buyRow.takeProfit ?? undefined,
+      tracked: tracked != null,
+      trackedPeakPrice: tracked?.trackedPeakPrice ?? undefined,
+      trackedStatus: tracked?.trackedStatus ?? undefined,
+      vsBuyPct,
+      vsSignalPct
     };
   }
 
@@ -2141,6 +2274,7 @@ export class SignalsService implements OnApplicationBootstrap {
       bollingerPctB: snapshot.bollinger?.pctB,
       macdHistogram: snapshot.macd?.histogram,
       rsi: snapshot.rsi,
+      sma200: snapshot.sma200 ?? undefined,
       symbol: entry.symbol
     };
 
@@ -2950,7 +3084,9 @@ export class SignalsService implements OnApplicationBootstrap {
         return3mPct: pick(dev?.threeMonths, series.return3mPct),
         return6mPct: pick(dev?.sixMonths, series.return6mPct),
         rsi: snapshot.rsi,
-        score
+        score,
+        sma50: snapshot.sma50 ?? undefined,
+        sma200: snapshot.sma200 ?? undefined
       });
     }
 
@@ -3092,6 +3228,198 @@ export class SignalsService implements OnApplicationBootstrap {
     });
 
     return `📊 *Trading signals* (${format(new Date(), DATE_FORMAT)})\n\n${lines.join('\n\n')}`;
+  }
+
+  /**
+   * Fetches the advisory pre-buy screen for every YAHOO BUY signal that just
+   * fired and attaches it to the signal (`preBuyScreen`), so both the Telegram
+   * block and the persisted SignalLog row carry it. Sector tailwind and the
+   * 200-day trend are computed in-house (watchlist peer returns / the signal's
+   * own snapshot) — only analyst/EPS/earnings/headlines need a network fetch,
+   * and only for the handful of symbols that actually fired (never the whole
+   * watchlist; Finnhub free tier = 60 calls/min). Best-effort: any failure
+   * just leaves the field absent.
+   */
+  private async attachPreBuyScreens(
+    userId: string,
+    signals: TradingSignal[]
+  ): Promise<void> {
+    const buySignals = signals.filter(
+      (signal) =>
+        signal.category === 'BUY' && signal.dataSource === DataSource.YAHOO
+    );
+
+    if (buySignals.length === 0) {
+      return;
+    }
+
+    try {
+      const watchlist = await this.getWatchlist(userId);
+      const yahooItems = watchlist.filter(
+        (item) => item.dataSource === DataSource.YAHOO
+      );
+
+      // Peer 3-month returns per catalog category (for the sector tailwind),
+      // computed once for only the categories that actually fired.
+      const firedCategories = new Set(
+        buySignals
+          .map((signal) => categoryForSymbol(signal.symbol))
+          .filter((category): category is string => category !== null)
+      );
+
+      const peersByCategory = new Map<string, string[]>();
+
+      for (const item of yahooItems) {
+        const category = categoryForSymbol(item.symbol);
+
+        if (category && firedCategories.has(category)) {
+          const peers = peersByCategory.get(category) ?? [];
+          peers.push(item.symbol);
+          peersByCategory.set(category, peers);
+        }
+      }
+
+      const peerSymbols = [...peersByCategory.values()].flat();
+      const peerHistory = await this.getHistory(
+        yahooItems.filter(({ symbol }) => peerSymbols.includes(symbol))
+      );
+
+      const tailwindByCategory = new Map<
+        string,
+        ReturnType<typeof classifySectorTailwind>
+      >();
+
+      for (const [category, symbols] of peersByCategory) {
+        const peerReturns = symbols
+          .map(
+            (symbol) =>
+              computeSeriesMetrics(peerHistory[symbol] ?? []).return3mPct
+          )
+          .filter((value): value is number => value != null);
+
+        tailwindByCategory.set(category, classifySectorTailwind(peerReturns));
+      }
+
+      for (const signal of buySignals) {
+        const screen = await this.screeningService.getScreen(signal.symbol);
+        const category = categoryForSymbol(signal.symbol);
+        const sectorTailwind = category
+          ? (tailwindByCategory.get(category) ?? null)
+          : null;
+        const trend200d =
+          signal.sma200 != null
+            ? signal.livePrice >= signal.sma200
+              ? 'ABOVE'
+              : 'BELOW'
+            : null;
+
+        if (screen === null && sectorTailwind === null && trend200d === null) {
+          continue;
+        }
+
+        signal.preBuyScreen = {
+          analystTrend: screen?.analystTrend ?? undefined,
+          daysToEarnings: screen?.daysToEarnings ?? undefined,
+          epsRevisionTrend: screen?.epsRevisionTrend ?? undefined,
+          headlines: screen?.headlines?.length ? screen.headlines : undefined,
+          nextEarningsDate: screen?.nextEarningsDate ?? undefined,
+          sectorTailwind: sectorTailwind ?? undefined,
+          trend200d: trend200d ?? undefined
+        };
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Pre-buy screen failed: ${error?.message ?? error} — signals sent without it`
+      );
+    }
+  }
+
+  /**
+   * Renders the attached pre-buy screens as one Telegram message. Advisory by
+   * design (unvalidated as hard rules) — REVERSAL buys get the harder framing
+   * because the simulation evidence shows they lose without a real catalyst.
+   * Returns null when no signal carries a screen.
+   */
+  private formatPreBuyScreens(signals: TradingSignal[]): string | null {
+    const seen = new Set<string>();
+    const blocks: string[] = [];
+
+    for (const signal of signals) {
+      if (!signal.preBuyScreen || seen.has(signal.symbol)) {
+        continue;
+      }
+
+      seen.add(signal.symbol);
+
+      const screen = signal.preBuyScreen;
+      const category = categoryForSymbol(signal.symbol);
+      const lines: string[] = [`*${signal.name} (${signal.symbol})*`];
+
+      if (signal.signalType === 'REVERSAL') {
+        lines.push('⚠️ REVERSAL — confirm a real catalyst before buying:');
+      }
+
+      const trendParts: string[] = [];
+
+      if (screen.trend200d) {
+        trendParts.push(
+          screen.trend200d === 'ABOVE'
+            ? '200d trend: ▲ above'
+            : '200d trend: ▼ below'
+        );
+      }
+
+      if (screen.sectorTailwind) {
+        trendParts.push(
+          `Sector${category ? ` (${category})` : ''}: ${screen.sectorTailwind}`
+        );
+      }
+
+      if (trendParts.length > 0) {
+        lines.push(trendParts.join(' · '));
+      }
+
+      const analystParts: string[] = [];
+
+      if (screen.analystTrend) {
+        analystParts.push(`Analysts: ${screen.analystTrend}`);
+      }
+
+      if (screen.epsRevisionTrend) {
+        analystParts.push(`EPS estimates: ${screen.epsRevisionTrend}`);
+      }
+
+      if (analystParts.length > 0) {
+        lines.push(analystParts.join(' · '));
+      }
+
+      if (screen.nextEarningsDate) {
+        const days = screen.daysToEarnings;
+        lines.push(
+          `Earnings: ${screen.nextEarningsDate}${days != null ? ` (in ${days}d)` : ''}`
+        );
+      }
+
+      if (screen.headlines?.length) {
+        lines.push(
+          ...screen.headlines.map(
+            (headline) =>
+              `• ${headline.title}${headline.source ? ` (${headline.source})` : ''}`
+          )
+        );
+      }
+
+      blocks.push(lines.join('\n'));
+    }
+
+    if (blocks.length === 0) {
+      return null;
+    }
+
+    return [
+      '📋 *Pre-buy screen* (advisory — informs, never blocks)',
+      ...blocks
+    ].join('\n\n');
   }
 
   /**

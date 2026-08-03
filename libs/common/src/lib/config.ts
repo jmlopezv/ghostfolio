@@ -220,6 +220,17 @@ export const FUND_SIGNALS_PROCESS_JOB_OPTIONS: JobOptions = {
   removeOnFail: true
 };
 
+// Intraday (5-min) reversal check for real tracked positions that have
+// already reached their frozen take-profit target (see
+// SignalTradeTrackingService). Only touches the handful of TRAILING
+// positions, never the full watchlist.
+export const INTRADAY_TRAILING_CHECK_PROCESS_JOB_NAME =
+  'INTRADAY_TRAILING_CHECK';
+export const INTRADAY_TRAILING_CHECK_PROCESS_JOB_OPTIONS: JobOptions = {
+  removeOnComplete: true,
+  removeOnFail: true
+};
+
 // Tag used to mark a holding as actively traded (eligible for take-profit SELL signals).
 export const SIGNAL_TAG_ACTIVE_TRADE = 'ACTIVE_TRADE';
 
@@ -287,6 +298,26 @@ export const SIGNAL_TAKE_PROFIT_FLOOR_PCT = 0.134;
 export const SIGNAL_TAKE_PROFIT_VOL_MULT = 1.5; // target band: 1.5σ over the horizon
 export const SIGNAL_STOP_VOL_MULT = 2; // stop-loss: 2σ below entry (defined downside)
 export const SIGNAL_TRAIL_VOL_MULT = 1; // trailing stop: 1σ below the running peak
+
+// Real-buy tracking (see SignalTradeTrackingService). A real BUY Order only
+// looks for a matching engine signal within this many days beforehand...
+export const SIGNAL_TRACKED_TRADE_LOOKBACK_DAYS = 30;
+// ...but only actually FREEZES that signal's own stop/target if it fired
+// within this much tighter window of the real purchase (a signal can re-fire
+// repeatedly for the same ticker over weeks as conditions recur — matching
+// to a stale one whose entry price has nothing to do with the real fill
+// would freeze a nonsensical target). Beyond this gap, a fresh target/stop is
+// computed straight from the real buy price instead (see
+// computeFreshLevels), so tracking always anchors to when you actually
+// bought, not an old, unrelated signal fire.
+export const SIGNAL_TRACKED_TRADE_MAX_MATCH_GAP_DAYS = 5;
+// Once a tracked position's frozen take-profit is reached, it stops watching
+// the (now-stale) daily band and starts riding the trend, watched every 5 min
+// via intraday bars — reusing the same volatility-scaled trailing-stop shape
+// as SIGNAL_TRAIL_VOL_MULT above, just with intraday inputs instead of daily.
+export const SIGNAL_INTRADAY_MIN_BARS = 6; // ~30 min of 5-min bars before trusting the vol estimate
+export const SIGNAL_INTRADAY_HORIZON_BARS = 6; // horizon for the intraday band, in 5-min bars
+export const SIGNAL_INTRADAY_TRAIL_VOL_MULT = 2; // looser than the daily 1x — intraday noise is proportionally larger over a short horizon
 
 // BUY hardening: minimum composite "buy attractiveness" score (0–100) and the
 // news-sentiment floor ([-1, +1]) below which a dip-buy is suppressed.
@@ -369,6 +400,19 @@ export const SIGNAL_STRATEGY_REDUNDANCY_PENALTY = 0.5;
 // (never to) this floor. "De-prioritize, never exclude": a strong enough
 // momentum edge always survives the floor and can still win.
 export const SIGNAL_FUND_OVERLAP_PENALTY_FLOOR = 0.4;
+
+// Pre-buy screen (advisory only — shown with a fired BUY signal, never blocks
+// it; these filters look good on one month of simulation data but are
+// unvalidated as hard rules).
+// Sector tailwind: average 3-month return across watchlist symbols sharing
+// the candidate's catalog category. Above +3% = RISING, below -3% = FALLING.
+export const SIGNAL_SCREEN_SECTOR_TAILWIND_PCT = 3;
+// Analyst rating trend: net-buy-ratio delta (latest month vs prior month)
+// beyond which the trend counts as IMPROVING/DETERIORATING instead of FLAT.
+export const SIGNAL_SCREEN_ANALYST_TREND_DELTA = 0.15;
+// EPS revision trend: relative change of the current-year consensus EPS
+// estimate vs 30 days ago beyond which it counts as UP/DOWN instead of FLAT.
+export const SIGNAL_SCREEN_EPS_REVISION_PCT = 2;
 
 // Cash balance (in base currency) above which a REINVEST suggestion is raised.
 export const SIGNAL_DEFAULT_CASH_THRESHOLD = 250;

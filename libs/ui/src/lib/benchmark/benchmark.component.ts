@@ -100,7 +100,7 @@ export class GfBenchmarkComponent {
       ...(this.showIcon() ? ['icon'] : []),
       'name',
       ...(this.showSignalColumns()
-        ? ['marketPrice', 'currency', 'feePct']
+        ? ['marketPrice', 'currency', 'feePct', 'sma50', 'sma200']
         : []),
       ...(this.user()?.settings?.isExperimentalFeatures
         ? ['trend50d', 'trend200d']
@@ -149,6 +149,9 @@ export class GfBenchmarkComponent {
           }
           if (property === 'feePct') {
             return (item as Benchmark).feePct ?? Infinity;
+          }
+          if (property === 'sma50' || property === 'sma200') {
+            return (item as Benchmark)[property] ?? -Infinity;
           }
           return getLowercase(item, property);
         };

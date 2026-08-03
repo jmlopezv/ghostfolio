@@ -115,7 +115,11 @@
                   Symbol
                 </th>
                 <td *matCellDef="let entry" class="text-nowrap" mat-cell>
-                  <span class="font-weight-bold">{{ entry.symbol }}</span>
+                  <span
+                    class="cursor-pointer font-weight-bold text-decoration-underline"
+                    (click)="onOpenAsset(entry.dataSource, entry.symbol)"
+                    >{{ entry.symbol }}</span
+                  >
                 </td>
               </ng-container>
 

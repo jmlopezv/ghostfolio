@@ -132,6 +132,24 @@ export class SignalsController {
     return this.fundHistoryService.syncAll();
   }
 
+  @Post('tracked/refresh')
+  @HttpCode(200)
+  @UseGuards(AuthGuard('jwt'))
+  public async refreshTrackedTrades(): Promise<{ status: string }> {
+    await this.signalsService.refreshTrackedTrades(this.request.user.id);
+
+    return { status: 'ok' };
+  }
+
+  @Post('tracked/refresh-intraday')
+  @HttpCode(200)
+  @UseGuards(AuthGuard('jwt'))
+  public async refreshTrackedTradesIntraday(): Promise<{ status: string }> {
+    await this.signalsService.checkTrailingPositionsIntraday();
+
+    return { status: 'ok' };
+  }
+
   @Get('strategies')
   @UseGuards(AuthGuard('jwt'))
   public async getStrategies(): Promise<InvestmentStrategiesResponse> {

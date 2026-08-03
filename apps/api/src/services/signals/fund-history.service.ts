@@ -6,14 +6,21 @@ import { nordnetUrlForName } from '@ghostfolio/common/nordnet-fund-urls';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { AssetSubClass, DataSource } from '@prisma/client';
+import { differenceInCalendarDays, subDays } from 'date-fns';
 
 const NORDNET_BASE_URL = 'https://www.nordnet.se';
 // Nordnet's public price-time-series CDN (the fund chart's own data source).
 const NORDNET_CDN_URL =
   'https://api.prod.nntech.io/market-data/v3/price-time-series';
-// Below this many local closes a fund has no usable daily curve for the
-// technical indicators, so we backfill one from Nordnet's price CDN.
-const MIN_CLOSES_FOR_INDICATORS = 30;
+// A fund whose most recent stored close is older than this (relative to
+// today) has a real gap - re-run the CDN year-backfill to heal it, not just
+// once at bootstrap. Loose enough to tolerate weekends/bank holidays.
+const STALE_AFTER_DAYS = 3;
+// How far back to look for an internal hole between two stored closes - a
+// fresh NAV point at the tail can otherwise mask an older multi-week gap
+// (e.g. a vacation) sitting right behind it.
+const GAP_CHECK_LOOKBACK_DAYS = 45;
+const MAX_ALLOWED_GAP_DAYS = 5;
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
@@ -806,11 +813,31 @@ export class FundHistoryService implements OnApplicationBootstrap {
     summary: FundSyncSummary;
     symbol: string;
   }): Promise<void> {
-    const existing = await this.prismaService.marketData.count({
-      where: { dataSource: DataSource.MANUAL, symbol }
-    });
+    const recentDates = (
+      await this.prismaService.marketData.findMany({
+        orderBy: { date: 'asc' },
+        select: { date: true },
+        where: {
+          dataSource: DataSource.MANUAL,
+          date: { gt: subDays(new Date(), GAP_CHECK_LOOKBACK_DAYS) },
+          symbol
+        }
+      })
+    ).map(({ date }) => date);
 
-    if (existing >= MIN_CLOSES_FOR_INDICATORS) {
+    const mostRecent = recentDates[recentDates.length - 1];
+
+    const isFresh =
+      mostRecent != null &&
+      differenceInCalendarDays(new Date(), mostRecent) <= STALE_AFTER_DAYS;
+
+    // Gap-aware, not just a one-time bootstrap: a fund with months of local
+    // history but a new multi-day hole (e.g. after downtime) must still heal
+    // - even when its most recent point looks fresh, since a lone fresh NAV
+    // can mask an older gap sitting right behind it. createMany's
+    // skipDuplicates below makes re-running this safe - it can only insert
+    // the days that are actually missing.
+    if (isFresh && !this.hasGapLargerThan(recentDates, MAX_ALLOWED_GAP_DAYS)) {
       return;
     }
 
@@ -855,6 +882,17 @@ export class FundHistoryService implements OnApplicationBootstrap {
     this.logger.log(
       `${symbol}: backfilled ${count} Nordnet daily NAVs from the price-time-series CDN`
     );
+  }
+
+  /** `dates` must already be sorted ascending. */
+  private hasGapLargerThan(dates: Date[], maxGapDays: number): boolean {
+    for (let i = 1; i < dates.length; i++) {
+      if (differenceInCalendarDays(dates[i], dates[i - 1]) > maxGapDays) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private async fetchJson(

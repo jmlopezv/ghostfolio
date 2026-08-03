@@ -4,6 +4,20 @@ import type { LineChartItem } from './line-chart-item.interface';
 
 export type TradingSignalCategory = 'BUY' | 'HOLD' | 'REINVEST' | 'SELL';
 
+/**
+ * Advisory pre-buy screen snapshot for a fired BUY signal. Every field is
+ * best-effort and independently optional — the screen informs, never blocks.
+ */
+export interface PreBuyScreenResult {
+  analystTrend?: 'IMPROVING' | 'DETERIORATING' | 'FLAT';
+  daysToEarnings?: number;
+  epsRevisionTrend?: 'UP' | 'DOWN' | 'FLAT';
+  headlines?: { publishedAt?: string; source?: string; title: string }[];
+  nextEarningsDate?: string;
+  sectorTailwind?: 'RISING' | 'FALLING' | 'MIXED';
+  trend200d?: 'ABOVE' | 'BELOW';
+}
+
 export interface TradingSignal {
   category: TradingSignalCategory;
   /** Volatility-adaptive reference price for the active threshold. */
@@ -39,6 +53,14 @@ export interface TradingSignal {
   macdHistogram?: number;
   /** Bollinger %B(20): position within the band, 0 = lower, 1 = upper. */
   bollingerPctB?: number;
+  /** 200-day SMA at evaluation (drives the pre-buy screen's trend line). */
+  sma200?: number;
+  /**
+   * Advisory pre-buy screen attached when a BUY fires — analyst rating
+   * direction, EPS revisions, sector tailwind, next earnings, headlines.
+   * Never blocks a signal; persisted to SignalLog.metrics for later review.
+   */
+  preBuyScreen?: PreBuyScreenResult;
   /** Analytic terminal probability [0-1] of reaching the upside target (drift 0). */
   reachProbability?: number;
   /** Upside target gain as a fraction (horizon-scaled band). */
@@ -119,6 +141,9 @@ export interface WatchlistMetric {
   return6mPct?: number;
   rsi?: number;
   score?: number;
+  /** Simple moving averages of the close, for trend-at-a-glance columns. */
+  sma50?: number;
+  sma200?: number;
 }
 
 export interface WatchlistMetricsResponse {
@@ -149,6 +174,10 @@ export interface SimulatedTrade {
   netReturnPct?: number;
   /** Analytic TERMINAL reach-probability (0-1) at BUY time (the SignalLog row's `reachProbability`). */
   reachProbabilityAtBuy?: number;
+  /** Real fill date (ISO) from the matched Order, once tracked (see `tracked`). */
+  realBuyDate?: string;
+  /** Real fill price from the matched Order, once tracked (see `tracked`). */
+  realBuyPrice?: number;
   /** Composite 0-100 RSI at BUY time (the SignalLog row's `rsi`). */
   rsiAtBuy?: number;
   /** Composite 0-100 buy-attractiveness score at BUY time (the SignalLog row's `score`). */
@@ -163,6 +192,16 @@ export interface SimulatedTrade {
   symbol: string;
   /** Upside target price set at BUY time (the SignalLog row's `takeProfit`). */
   takeProfit?: number;
+  /** True once a real BUY Order has been auto-matched to this signal (SignalTradeTrackingService). */
+  tracked?: boolean;
+  /** Highest price seen since the frozen target was reached (TRAILING state only). */
+  trackedPeakPrice?: number;
+  /** TRACKING (watching frozen levels) -> STOP_HIT, or TRAILING (target hit, riding the trend) -> TRAILING_EXIT. */
+  trackedStatus?: 'STOP_HIT' | 'TRACKING' | 'TRAILING' | 'TRAILING_EXIT';
+  /** % change of current/sell price vs. the real fill price — only present for tracked trades. */
+  vsBuyPct?: number;
+  /** % change of current/sell price vs. the signal's own live price at fire time (buyPrice). */
+  vsSignalPct?: number;
 }
 
 export interface SimulationSummary {
@@ -173,6 +212,14 @@ export interface SimulationSummary {
   totalFeesUsd: number;
   /** Fraction (0-1) of closed trades with netReturnPct > 0. */
   winRate: number;
+  /** Per-signal-type breakdown (closed trades only) — the simulation evidence
+   * that DIP entries outperform REVERSAL entries, kept visible. */
+  dipAvgNetReturnPct?: number;
+  dipClosedTrades?: number;
+  dipWinRate?: number;
+  reversalAvgNetReturnPct?: number;
+  reversalClosedTrades?: number;
+  reversalWinRate?: number;
 }
 
 export interface SimulationResponse {

@@ -1,4 +1,5 @@
 import { RedisCacheService } from '@ghostfolio/api/app/redis-cache/redis-cache.service';
+import { netBuyRatio } from '@ghostfolio/api/services/signals/screening.service';
 
 import { Injectable, Logger } from '@nestjs/common';
 import YahooFinance from 'yahoo-finance2';
@@ -150,25 +151,11 @@ export class FundamentalsService {
       const debtToEquity = financialData?.debtToEquity ?? null;
       const earningsGrowth = financialData?.earningsGrowth ?? null;
 
-      let analystNetBuyRatio: number | null = null;
-
-      if (recommendation) {
-        const total =
-          recommendation.strongBuy +
-          recommendation.buy +
-          recommendation.hold +
-          recommendation.sell +
-          recommendation.strongSell;
-
-        if (total > 0) {
-          analystNetBuyRatio =
-            (recommendation.strongBuy * 2 +
-              recommendation.buy -
-              recommendation.sell -
-              recommendation.strongSell * 2) /
-            total;
-        }
-      }
+      // Shared with the pre-buy screen, which compares this ratio's DIRECTION
+      // (trend[0] vs trend[1]) while the fundamentals score uses its LEVEL.
+      const analystNetBuyRatio = recommendation
+        ? netBuyRatio(recommendation)
+        : null;
 
       if (
         forwardPE === null &&

@@ -28,9 +28,29 @@ import { InjectQueue } from '@nestjs/bull';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DataSource } from '@prisma/client';
 import { JobOptions, Queue } from 'bull';
-import { format, min, subDays, subMilliseconds, subYears } from 'date-fns';
+import {
+  addDays,
+  differenceInCalendarDays,
+  format,
+  max,
+  min,
+  subDays,
+  subMilliseconds,
+  subYears
+} from 'date-fns';
 import { isEmpty } from 'lodash';
 import ms, { StringValue } from 'ms';
+
+// How far back to look when deciding whether a symbol's recent market data
+// is genuinely complete, or has a hole hiding behind a single fresh day
+// (e.g. after a multi-week outage). Wide enough to cover a long vacation.
+const GAP_CHECK_LOOKBACK_DAYS = 45;
+// A symbol's most recent CLOSE may be this many calendar days old and still
+// count as "fresh" (tolerates weekends plus a holiday Monday/Friday).
+const RECENT_CLOSE_TOLERANCE_DAYS = 4;
+// A gap larger than this between two consecutive stored CLOSE dates is
+// treated as missing data, not just an ordinary weekend/holiday break.
+const MAX_ALLOWED_GAP_DAYS = 5;
 
 @Injectable()
 export class DataGatheringService {
@@ -343,31 +363,74 @@ export class DataGatheringService {
     });
   }
 
+  /**
+   * A symbol only counts as "complete" (safe to skip gathering) when BOTH:
+   * - its most recent CLOSE is fresh (tolerant of weekends/a holiday Monday)
+   * - there is no multi-day hole between any two of its recent CLOSE rows
+   *
+   * Checking freshness alone is what let a single fresh day (written by a
+   * live quote fetch's incidental "today" row, or by a prior run that only
+   * looked back a fixed number of days) mask a real gap sitting just behind
+   * it - e.g. a 2-week vacation gap that a later day's data made invisible
+   * to a naive "6+ CLOSE rows in the last 7 days" check.
+   */
   private async getAssetProfileIdentifiersWithCompleteMarketData(): Promise<
     AssetProfileIdentifier[]
   > {
-    return (
-      await this.prismaService.marketData.groupBy({
-        _count: true,
-        by: ['dataSource', 'symbol'],
-        orderBy: [{ symbol: 'asc' }],
-        where: {
-          date: { gt: subDays(resetHours(new Date()), 7) },
-          state: 'CLOSE'
-        }
-      })
-    )
-      .filter(({ _count }) => {
-        return _count >= 6;
-      })
-      .map(({ dataSource, symbol }) => {
-        return { dataSource, symbol };
-      });
+    const rows = await this.prismaService.marketData.findMany({
+      orderBy: { date: 'asc' },
+      select: { dataSource: true, date: true, symbol: true },
+      where: {
+        date: { gt: subDays(resetHours(new Date()), GAP_CHECK_LOOKBACK_DAYS) },
+        state: 'CLOSE'
+      }
+    });
+
+    const byIdentifier = new Map<
+      string,
+      { dataSource: DataSource; dates: Date[]; symbol: string }
+    >();
+
+    for (const { dataSource, date, symbol } of rows) {
+      const key = getAssetProfileIdentifier({ dataSource, symbol });
+      const entry = byIdentifier.get(key) ?? { dataSource, dates: [], symbol };
+      entry.dates.push(date);
+      byIdentifier.set(key, entry);
+    }
+
+    const complete: AssetProfileIdentifier[] = [];
+
+    for (const { dataSource, dates, symbol } of byIdentifier.values()) {
+      const mostRecentDate = dates[dates.length - 1];
+
+      const isFresh =
+        differenceInCalendarDays(resetHours(new Date()), mostRecentDate) <=
+        RECENT_CLOSE_TOLERANCE_DAYS;
+
+      if (isFresh && !this.hasGapLargerThan(dates, MAX_ALLOWED_GAP_DAYS)) {
+        complete.push({ dataSource, symbol });
+      }
+    }
+
+    return complete;
+  }
+
+  /** `dates` must already be sorted ascending. */
+  private hasGapLargerThan(dates: Date[], maxGapDays: number): boolean {
+    for (let i = 1; i < dates.length; i++) {
+      if (differenceInCalendarDays(dates[i], dates[i - 1]) > maxGapDays) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private async getCurrencies7D(): Promise<DataGatheringItem[]> {
     const assetProfileIdentifiersWithCompleteMarketData =
       await this.getAssetProfileIdentifiersWithCompleteMarketData();
+
+    const lastCloseDateMap = await this.getLastCloseDates();
 
     return this.exchangeRateDataService
       .getCurrencyPairs()
@@ -380,13 +443,75 @@ export class DataGatheringService {
         return {
           dataSource,
           symbol,
-          date: subDays(resetHours(new Date()), 7)
+          date: this.getSinceLastCloseDate(
+            { dataSource, symbol },
+            lastCloseDateMap
+          )
         };
       });
   }
 
   private getEarliestDate(aStartDate: Date) {
     return min([aStartDate, subYears(new Date(), 10)]);
+  }
+
+  /**
+   * Returns the most recent CLOSE market data date per asset profile, so
+   * gap-fill gathering can resume exactly where it left off instead of using
+   * a fixed lookback window that cannot recover an outage longer than that
+   * window (e.g. a multi-week vacation). Only CLOSE rows count - an
+   * INTRADAY row written as a side effect of a live quote fetch must not be
+   * mistaken for a real historical close, or the gap behind it would never
+   * get backfilled.
+   */
+  private async getLastCloseDates(): Promise<Map<string, Date>> {
+    const rows = await this.prismaService.marketData.groupBy({
+      _max: { date: true },
+      by: ['dataSource', 'symbol'],
+      where: { state: 'CLOSE' }
+    });
+
+    const map = new Map<string, Date>();
+
+    for (const { _max, dataSource, symbol } of rows) {
+      if (_max.date) {
+        map.set(getAssetProfileIdentifier({ dataSource, symbol }), _max.date);
+      }
+    }
+
+    return map;
+  }
+
+  /**
+   * Resumes the day after the last stored close (capped at ~1 year back so
+   * this lightweight job never requests unbounded history - a truly
+   * ancient/never-gathered symbol is handled by gatherMax() instead), but
+   * never later than the gap-check lookback window's start. Without that
+   * floor, a symbol whose most recent close is fresh (e.g. yesterday) but
+   * which has an older internal hole (e.g. a 2-week vacation gap sitting
+   * behind that one fresh day) would resume from "yesterday" and never
+   * actually re-fetch the days that are missing.
+   */
+  private getSinceLastCloseDate(
+    { dataSource, symbol }: AssetProfileIdentifier,
+    lastCloseDateMap: Map<string, Date>
+  ) {
+    const oneYearAgo = subYears(resetHours(new Date()), 1);
+    const gapCheckWindowStart = subDays(
+      resetHours(new Date()),
+      GAP_CHECK_LOOKBACK_DAYS
+    );
+    const lastCloseDate = lastCloseDateMap.get(
+      getAssetProfileIdentifier({ dataSource, symbol })
+    );
+
+    if (!lastCloseDate) {
+      return oneYearAgo;
+    }
+
+    const sinceLastClose = max([addDays(lastCloseDate, 1), oneYearAgo]);
+
+    return min([sinceLastClose, gapCheckWindowStart]);
   }
 
   private async getSymbols7D({
@@ -404,6 +529,8 @@ export class DataGatheringService {
     const assetProfileIdentifiersWithCompleteMarketData =
       await this.getAssetProfileIdentifiersWithCompleteMarketData();
 
+    const lastCloseDateMap = await this.getLastCloseDates();
+
     return symbolProfiles
       .filter(({ dataSource, scraperConfiguration, symbol }) => {
         const manualDataSourceWithScraperConfiguration =
@@ -419,7 +546,7 @@ export class DataGatheringService {
       .map((symbolProfile) => {
         return {
           ...symbolProfile,
-          date: subDays(resetHours(new Date()), 7)
+          date: this.getSinceLastCloseDate(symbolProfile, lastCloseDateMap)
         };
       });
   }

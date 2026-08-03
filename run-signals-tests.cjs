@@ -44,4 +44,5 @@ require('./dist-test-signals/apps/api/src/services/signals/indicators.service.sp
 require('./dist-test-signals/apps/api/src/services/signals/forecast.service.spec.js');
 require('./dist-test-signals/apps/api/src/services/signals/strategies.service.spec.js');
 require('./dist-test-signals/apps/api/src/services/signals/fundamentals.service.spec.js');
+require('./dist-test-signals/apps/api/src/services/signals/screening.service.spec.js');
 require('./dist-test-signals/apps/api/src/app/endpoints/academy/academy.service.spec.js');

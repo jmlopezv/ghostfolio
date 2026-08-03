@@ -4,6 +4,7 @@ import {
   SignalLogResponse,
   User
 } from '@ghostfolio/common/interfaces';
+import { openBenchmarkDetailDialog } from '@ghostfolio/ui/benchmark/benchmark-detail-dialog/open-benchmark-detail-dialog';
 import { DataService } from '@ghostfolio/ui/services';
 
 import { CommonModule } from '@angular/common';
@@ -11,6 +12,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  computed,
   DestroyRef,
   effect,
   inject,
@@ -18,12 +20,15 @@ import {
   viewChild
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatDialog } from '@angular/material/dialog';
 import { MatSort, MatSortModule } from '@angular/material/sort';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { RouterModule } from '@angular/router';
 import { IonIcon } from '@ionic/angular/standalone';
+import { DataSource } from '@prisma/client';
 import { addIcons } from 'ionicons';
 import { refreshOutline } from 'ionicons/icons';
+import { DeviceDetectorService } from 'ngx-device-detector';
 import { NgxSkeletonLoaderModule } from 'ngx-skeleton-loader';
 
 const CATEGORY_ORDER = ['BUY', 'REVERSAL', 'SELL', 'REINVEST'];
@@ -100,11 +105,16 @@ export class GfHomeAnalyticsComponent implements OnInit {
   }[] = [];
   protected user: User;
 
+  protected readonly deviceType = computed(
+    () => this.deviceDetectorService.deviceInfo().deviceType
+  );
   protected readonly sort = viewChild(MatSort);
 
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
   private readonly dataService = inject(DataService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly deviceDetectorService = inject(DeviceDetectorService);
+  private readonly dialog = inject(MatDialog);
   private readonly userService = inject(UserService);
 
   public constructor() {
@@ -172,6 +182,19 @@ export class GfHomeAnalyticsComponent implements OnInit {
         (this.selectedCategory === 'REVERSAL' &&
           entry.signalType === 'REVERSAL')
     );
+  }
+
+  /** Opens the same asset-detail dialog Watchlist's ticker click opens. */
+  protected onOpenAsset(dataSource: DataSource, symbol: string) {
+    openBenchmarkDetailDialog({
+      colorScheme: this.user?.settings?.colorScheme,
+      dataSource,
+      destroyRef: this.destroyRef,
+      deviceType: this.deviceType(),
+      dialog: this.dialog,
+      locale: this.user?.settings?.locale,
+      symbol
+    });
   }
 
   protected onRefresh() {

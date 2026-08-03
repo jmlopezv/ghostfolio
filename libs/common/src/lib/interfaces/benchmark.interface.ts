@@ -36,6 +36,9 @@ export interface Benchmark {
   rsi?: number;
   /** Composite 0-100 buy-attractiveness score (watchlist metrics). */
   score?: number;
+  /** Simple moving averages of the close (watchlist metrics). */
+  sma50?: number;
+  sma200?: number;
   performances: {
     allTimeHigh: {
       date: Date;

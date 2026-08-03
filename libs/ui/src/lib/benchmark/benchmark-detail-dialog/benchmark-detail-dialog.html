@@ -80,6 +80,37 @@
       </ng-template>
 
       <div class="container mt-3 p-0">
+        <!--
+          External ticker links — shown for any real, YAHOO-sourced asset
+          (stock or ETF alike), independent of the fund/ETF-only style-box
+          content below (kept as its own, separate check rather than woven
+          into that chain, since it applies regardless of which branch of it
+          is active). MANUAL funds have no real market ticker page on either
+          site (confirmed both 404 live), so neither link renders for them.
+        -->
+        @if (detailLoaded && !detailLoadError && data.dataSource === 'YAHOO') {
+          <div class="d-flex flex-column mb-2">
+            <a
+              class="small"
+              i18n
+              rel="noopener noreferrer"
+              target="_blank"
+              [href]="
+                'https://finance.yahoo.com/quote/' + data.symbol + '/profile/'
+              "
+              >View on Yahoo Finance ↗</a
+            >
+            <a
+              class="small"
+              i18n
+              rel="noopener noreferrer"
+              target="_blank"
+              [href]="'https://www.perplexity.ai/finance/' + data.symbol"
+              >View on Perplexity Finance ↗</a
+            >
+          </div>
+        }
+
         @if (!detailLoaded) {
           <p class="text-muted" i18n>Loading…</p>
         } @else if (detailLoadError) {
@@ -101,18 +132,6 @@
                 }}<span class="text-muted">{{
                   '☆☆☆☆☆'.slice(0, 5 - sb.morningStarRating)
                 }}</span></span
-              >
-            }
-            @if (data.dataSource === 'YAHOO') {
-              <a
-                class="small ms-auto"
-                i18n
-                rel="noopener noreferrer"
-                target="_blank"
-                [href]="
-                  'https://finance.yahoo.com/quote/' + data.symbol + '/profile/'
-                "
-                >View on Yahoo Finance ↗</a
               >
             }
           </div>

@@ -2,6 +2,7 @@ import { SignalsService } from '@ghostfolio/api/services/signals/signals.service
 import {
   EVALUATE_TRADING_SIGNALS_PROCESS_JOB_NAME,
   FUND_SIGNALS_PROCESS_JOB_NAME,
+  INTRADAY_TRAILING_CHECK_PROCESS_JOB_NAME,
   PORTFOLIO_REPORT_PROCESS_JOB_NAME,
   TRADING_SIGNALS_QUEUE
 } from '@ghostfolio/common/config';
@@ -54,6 +55,20 @@ export class TradingSignalsProcessor {
       await this.signalsService.sendFundRecommendationsToAllUsers();
 
       this.logger.log('Weekly fund recommendation has been completed');
+    } catch (error) {
+      this.logger.error(error);
+
+      throw error;
+    }
+  }
+
+  @Process({
+    concurrency: 1,
+    name: INTRADAY_TRAILING_CHECK_PROCESS_JOB_NAME
+  })
+  public async checkIntradayTrailingPositions() {
+    try {
+      await this.signalsService.checkTrailingPositionsIntraday();
     } catch (error) {
       this.logger.error(error);
 

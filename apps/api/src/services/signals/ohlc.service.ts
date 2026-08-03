@@ -9,6 +9,7 @@ const USER_AGENT =
   '(KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 const FETCH_TIMEOUT_MS = 8000;
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const INTRADAY_CACHE_TTL = 4 * 60 * 1000; // 4 min — short enough to stay fresh for the 5-min trailing check
 
 /**
  * Fetches daily OHLC from Yahoo's public chart endpoint and returns a Yang-Zhang
@@ -40,6 +41,27 @@ export class OhlcService {
   }
 
   /**
+   * Today's 5-minute OHLC bars, for intraday trend-reversal detection on real
+   * tracked positions once their frozen take-profit has been reached (see
+   * SignalTradeTrackingService). Cached briefly (not the full 1h daily TTL)
+   * so the 5-min cron always sees fresh-enough data. Never throws; null on
+   * any failure or lack of data (e.g. outside market hours).
+   */
+  public async getIntradayBars(
+    symbol: string
+  ): Promise<
+    { close: number; high: number; low: number; open: number }[] | null
+  > {
+    const chart = await this.fetchChart(symbol, {
+      cacheKey: `ohlc:intraday:${symbol}`,
+      cacheTtl: INTRADAY_CACHE_TTL,
+      query: 'range=1d&interval=5m'
+    });
+
+    return chart?.bars ?? null;
+  }
+
+  /**
    * Recent volume as a multiple of the 20-day average (capitulation /
    * participation confirmation for the reversal buy path). null when no data.
    */
@@ -58,12 +80,21 @@ export class OhlcService {
     return avg > 0 ? recent / avg : null;
   }
 
-  /** Fetches daily OHLCV from Yahoo's chart endpoint, cached 1h. Never throws. */
-  private async fetchChart(symbol: string): Promise<{
+  /**
+   * Fetches OHLCV from Yahoo's chart endpoint, cached. Defaults to the daily
+   * 3mo/1d window; pass `options` to fetch a different range/interval (e.g.
+   * intraday 5-min bars) under its own cache key/TTL. Never throws.
+   */
+  private async fetchChart(
+    symbol: string,
+    options?: { cacheKey?: string; cacheTtl?: number; query?: string }
+  ): Promise<{
     bars: { close: number; high: number; low: number; open: number }[];
     volumes: number[];
   } | null> {
-    const cacheKey = `ohlc:chart:${symbol}`;
+    const cacheKey = options?.cacheKey ?? `ohlc:chart:${symbol}`;
+    const cacheTtl = options?.cacheTtl ?? CACHE_TTL;
+    const query = options?.query ?? 'range=3mo&interval=1d';
 
     try {
       const cached = await this.redisCacheService.get(cacheKey);
@@ -80,7 +111,7 @@ export class OhlcService {
 
     try {
       const response = await fetch(
-        `${CHART_URL}/${encodeURIComponent(symbol)}?range=3mo&interval=1d`,
+        `${CHART_URL}/${encodeURIComponent(symbol)}?${query}`,
         { headers: { 'User-Agent': USER_AGENT }, signal: controller.signal }
       );
 
@@ -124,7 +155,7 @@ export class OhlcService {
         await this.redisCacheService.set(
           cacheKey,
           JSON.stringify(result),
-          CACHE_TTL
+          cacheTtl
         );
       } catch {
         // best-effort cache

@@ -14,12 +14,12 @@ import {
 } from '@ghostfolio/common/config';
 import { getAssetProfileIdentifier } from '@ghostfolio/common/helper';
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { isWeekend } from 'date-fns';
 
 @Injectable()
-export class CronService {
+export class CronService implements OnApplicationBootstrap {
   private static readonly EVERY_HOUR_AT_RANDOM_MINUTE = `${new Date().getMinutes()} * * * *`;
   private static readonly EVERY_MONDAY_AT_LUNCH_TIME = '0 12 * * 1';
   private static readonly EVERY_SUNDAY_AT_LUNCH_TIME = '0 12 * * 0';
@@ -35,6 +35,17 @@ export class CronService {
     private readonly userService: UserService
   ) {}
 
+  public async onApplicationBootstrap() {
+    // Trigger a gap-fill gather immediately on boot instead of waiting for
+    // the next hourly tick - getSymbols7D()/getCurrencies7D() now resume
+    // from each symbol's actual last close date, so this heals any gap left
+    // by downtime (a long weekend, a stopped container, a vacation) right
+    // away and is a cheap no-op for symbols that are already current.
+    if (await this.isDataGatheringEnabled()) {
+      await this.dataGatheringService.gather7Days();
+    }
+  }
+
   @Cron(CronExpression.EVERY_30_MINUTES)
   public async runEvery30Minutes() {
     // Skip weekends - markets are closed and prices do not move.
@@ -43,6 +54,19 @@ export class CronService {
     }
 
     await this.tradingSignalsService.addEvaluationToQueue();
+  }
+
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  public async runEvery5Minutes() {
+    // Skip weekends - markets are closed and prices do not move. Only real
+    // tracked positions past their frozen target are checked here (typically
+    // a handful of symbols), not the full watchlist - see
+    // SignalTradeTrackingService.checkTrailingPositionsIntraday.
+    if (isWeekend(new Date())) {
+      return;
+    }
+
+    await this.tradingSignalsService.addIntradayTrailingCheckToQueue();
   }
 
   @Cron(CronExpression.EVERY_4_HOURS)

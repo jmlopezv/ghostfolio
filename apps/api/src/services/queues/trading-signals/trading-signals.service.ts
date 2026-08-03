@@ -3,6 +3,8 @@ import {
   EVALUATE_TRADING_SIGNALS_PROCESS_JOB_OPTIONS,
   FUND_SIGNALS_PROCESS_JOB_NAME,
   FUND_SIGNALS_PROCESS_JOB_OPTIONS,
+  INTRADAY_TRAILING_CHECK_PROCESS_JOB_NAME,
+  INTRADAY_TRAILING_CHECK_PROCESS_JOB_OPTIONS,
   PORTFOLIO_REPORT_PROCESS_JOB_NAME,
   PORTFOLIO_REPORT_PROCESS_JOB_OPTIONS,
   TRADING_SIGNALS_QUEUE
@@ -57,6 +59,18 @@ export class TradingSignalsService {
         ...FUND_SIGNALS_PROCESS_JOB_OPTIONS,
         // De-duplicate within the same day bucket (weekly cadence).
         jobId: `fund-signals-${format(new Date(), 'yyyyMMdd')}`
+      }
+    );
+  }
+
+  public async addIntradayTrailingCheckToQueue() {
+    return this.tradingSignalsQueue.add(
+      INTRADAY_TRAILING_CHECK_PROCESS_JOB_NAME,
+      {},
+      {
+        ...INTRADAY_TRAILING_CHECK_PROCESS_JOB_OPTIONS,
+        // De-duplicate overlapping runs within the same 5-minute bucket.
+        jobId: `intraday-trailing-${format(new Date(), 'yyyyMMddHHmm')}`
       }
     );
   }
