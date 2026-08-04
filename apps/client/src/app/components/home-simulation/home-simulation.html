@@ -21,6 +21,12 @@
         test your own amount.
       </p>
 
+      <gf-ticker-search
+        class="mb-3"
+        [value]="searchTerm"
+        (valueChange)="onSearchChange($event)"
+      />
+
       @if (isLoading) {
         <ngx-skeleton-loader
           animation="pulse"
@@ -126,51 +132,90 @@
 
         <!-- Charts + calculator -->
         <div class="row g-3 mb-4">
-          <div class="col-12 col-lg-8">
-            <div class="card mb-3">
-              <div class="card-body">
-                <div class="small text-muted text-uppercase mb-2" i18n>
-                  BUY (DIP) signals — effective annual rate over time
-                </div>
-                @if (dipSeries.length === 0) {
-                  <div class="text-center text-muted py-4 small" i18n>
-                    No closed DIP trades yet.
+          @if (chartSeries.length > 0) {
+            <div class="col-12 col-lg-8">
+              <div class="card">
+                <div class="card-body">
+                  <div
+                    class="align-items-center d-flex justify-content-between mb-2"
+                  >
+                    <div class="small text-muted text-uppercase" i18n>
+                      Performance — average % net return across trades
+                    </div>
+                    <div class="btn-group" role="group">
+                      @for (period of zoomPeriods; track period.key) {
+                        <button
+                          class="btn btn-sm"
+                          type="button"
+                          [class.btn-outline-secondary]="
+                            selectedZoomPeriod() !== period.key
+                          "
+                          [class.btn-primary]="
+                            selectedZoomPeriod() === period.key
+                          "
+                          (click)="onSelectZoomPeriod(period.key)"
+                        >
+                          {{ period.label }}
+                        </button>
+                      }
+                    </div>
                   </div>
-                } @else {
-                  <gf-line-chart
-                    unit="%"
+
+                  <gf-simulation-performance-chart
                     [colorScheme]="user?.settings?.colorScheme"
-                    [historicalDataItems]="dipSeries"
                     [locale]="user?.settings?.locale || undefined"
-                    [showXAxis]="true"
-                    [showYAxis]="true"
+                    [series]="chartSeries"
                   />
-                }
+
+                  @if (readoutRows.length > 0) {
+                    <div class="overflow-x-auto mt-3">
+                      <table class="small w-100">
+                        <thead>
+                          <tr class="text-muted">
+                            <th></th>
+                            @for (period of readoutPeriods; track period.key) {
+                              <th class="text-end">{{ period.label }}</th>
+                            }
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (row of readoutRows; track row.label) {
+                            <tr>
+                              <td [style.color]="row.color">{{ row.label }}</td>
+                              @for (value of row.values; track $index) {
+                                <td
+                                  class="text-end"
+                                  [class.text-danger]="
+                                    value != null && value < 0
+                                  "
+                                  [class.text-success]="
+                                    value != null && value >= 0
+                                  "
+                                >
+                                  {{
+                                    value != null
+                                      ? (value | number: '1.1-1') + '%'
+                                      : '—'
+                                  }}
+                                </td>
+                              }
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                    <p class="small text-muted mt-2 mb-0" i18n>
+                      Dip/Reversal/Tracked show "—" for a period the engine
+                      hasn't run long enough to cover yet (it only started
+                      logging signals a couple of months ago). S&P 500 uses its
+                      own real, full price history, so its longer periods are
+                      populated even when ours aren't.
+                    </p>
+                  }
+                </div>
               </div>
             </div>
-            <div class="card">
-              <div class="card-body">
-                <div class="small text-muted text-uppercase mb-2" i18n>
-                  ⚠️ REVERSAL (bear-market) signals — effective annual rate over
-                  time
-                </div>
-                @if (reversalSeries.length === 0) {
-                  <div class="text-center text-muted py-4 small" i18n>
-                    No closed REVERSAL trades yet.
-                  </div>
-                } @else {
-                  <gf-line-chart
-                    unit="%"
-                    [colorScheme]="user?.settings?.colorScheme"
-                    [historicalDataItems]="reversalSeries"
-                    [locale]="user?.settings?.locale || undefined"
-                    [showXAxis]="true"
-                    [showYAxis]="true"
-                  />
-                }
-              </div>
-            </div>
-          </div>
+          }
 
           <div class="col-12 col-lg-4">
             <div class="card h-100">

@@ -9,6 +9,11 @@
   </h1>
   <div class="row">
     <div class="col-12">
+      <gf-ticker-search
+        class="mb-3"
+        [value]="searchTerm"
+        (valueChange)="onSearchChange($event)"
+      />
       <div class="btn-group mb-3" role="group">
         <button
           class="btn"

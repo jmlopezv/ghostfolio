@@ -222,15 +222,52 @@ export interface SimulationSummary {
   reversalWinRate?: number;
 }
 
+/** A trailing-return readout period, from "as of today" out to 1 year back. */
+export type SimulationReadoutPeriod =
+  | '1d'
+  | '1w'
+  | '1m'
+  | '3m'
+  | '6m'
+  | 'ytd'
+  | '1y';
+
 export interface SimulationResponse {
-  /** One point per CLOSED DIP trade: { date: sellDate, value: effectiveAnnualRatePct }. */
+  /**
+   * S&P 500 (^GSPC), % change from the earliest point among
+   * dip/reversal/trackedSeries — for the chart overlay only. Omitted
+   * entirely if the live fetch fails.
+   */
+  benchmarkSeries?: LineChartItem[];
+  /**
+   * Real, calendar-anchored trailing price returns for the S&P 500, computed
+   * from its own full price history (NOT the chart-rebased benchmarkSeries
+   * above) — so a period the engine itself hasn't run long enough to cover
+   * (e.g. 1Y, when the engine is only 2 months old) still shows a genuine
+   * number for the benchmark, rather than being empty like dip/reversal/
+   * trackedSeries' own readouts necessarily are. A period key is omitted
+   * when even the S&P's own fetched history doesn't reach back that far.
+   */
+  benchmarkReadout?: Partial<Record<SimulationReadoutPeriod, number>>;
+  /**
+   * Daily mark-to-market AVERAGE % net return across all DIP-signal trades
+   * (open + closed), tracking how this bucket's return has developed over
+   * time, from the first DIP trade's buy date to today. Closed trades
+   * contribute their final locked netReturnPct from their sell date onward;
+   * open trades are marked to market against stored daily closes.
+   */
   dipSeries: LineChartItem[];
   generatedAt: string;
-  /** One point per CLOSED REVERSAL (bear-market) trade: { date: sellDate, value: effectiveAnnualRatePct }. */
+  /** Same shape as dipSeries, filtered to REVERSAL (bear-market) trades. */
   reversalSeries: LineChartItem[];
   summary: SimulationSummary;
   /** Closed + open trades, newest buyDate first. */
   trades: SimulatedTrade[];
+  /**
+   * Same shape as dipSeries, filtered to real tracked positions (see
+   * SignalTradeTrackingService) — how the user's own tracked buys are doing.
+   */
+  trackedSeries: LineChartItem[];
 }
 
 export interface SignalLogResponse {

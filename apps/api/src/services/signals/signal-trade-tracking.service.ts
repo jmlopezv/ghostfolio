@@ -92,6 +92,20 @@ function round1(value: number): number {
 }
 
 /**
+ * Builds the `dataSource:symbol` keys of every symbol the user has opted out
+ * of real-buy tracking (see SignalConfig.excludeFromTracking) — checked
+ * before detectAndTrackNewBuys matches or synthesizes a tracked entry for a
+ * real Order.
+ */
+export function computeExcludedTrackingKeys(
+  signalConfigs: { dataSource: string; symbol: string }[]
+): Set<string> {
+  return new Set(
+    signalConfigs.map((config) => `${config.dataSource}:${config.symbol}`)
+  );
+}
+
+/**
  * Tracks real BUY Orders the user placed after acting on an engine signal,
  * independent of the isActiveTrade-gated dynamic exit machine (evaluateExit).
  * Frozen at signal-time: the stop/target watched here are exactly what the
@@ -123,7 +137,7 @@ export class SignalTradeTrackingService {
   public async detectAndTrackNewBuys(userId: string): Promise<void> {
     const since = subDays(new Date(), SIGNAL_TRACKED_TRADE_LOOKBACK_DAYS);
 
-    const [orders, buyLogs] = await Promise.all([
+    const [orders, buyLogs, signalConfigs] = await Promise.all([
       this.prismaService.order.findMany({
         include: {
           SymbolProfile: {
@@ -136,8 +150,14 @@ export class SignalTradeTrackingService {
       this.prismaService.signalLog.findMany({
         orderBy: { createdAt: 'asc' },
         where: { category: 'BUY', createdAt: { gte: since }, userId }
+      }),
+      this.prismaService.signalConfig.findMany({
+        select: { dataSource: true, excludeFromTracking: true, symbol: true },
+        where: { excludeFromTracking: true, userId }
       })
     ]);
+
+    const excludedKeys = computeExcludedTrackingKeys(signalConfigs);
 
     const linkedOrderIds = new Set<string>();
     const linkedSignalIds = new Set<string>();
@@ -157,6 +177,13 @@ export class SignalTradeTrackingService {
       }
 
       const { dataSource, name, symbol } = order.SymbolProfile;
+
+      // The user has explicitly opted this position out of tracking (e.g. a
+      // long-term core holding never meant to be sold on a signal) — never
+      // match or synthesize a tracked entry for it.
+      if (excludedKeys.has(`${dataSource}:${symbol}`)) {
+        continue;
+      }
 
       // Same symbol, not already linked to another Order, fired on/before the
       // purchase and within SIGNAL_TRACKED_TRADE_MAX_MATCH_GAP_DAYS of it.

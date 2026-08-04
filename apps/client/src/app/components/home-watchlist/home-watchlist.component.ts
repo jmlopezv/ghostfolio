@@ -11,6 +11,7 @@ import { GfBenchmarkComponent } from '@ghostfolio/ui/benchmark';
 import { GfFabComponent } from '@ghostfolio/ui/fab';
 import { GfPremiumIndicatorComponent } from '@ghostfolio/ui/premium-indicator';
 import { DataService } from '@ghostfolio/ui/services';
+import { GfTickerSearchComponent } from '@ghostfolio/ui/ticker-search';
 
 import {
   ChangeDetectionStrategy,
@@ -40,6 +41,7 @@ const WATCHLIST_METRICS_REFRESH_MS = 30 * 60 * 1000;
     GfBenchmarkComponent,
     GfFabComponent,
     GfPremiumIndicatorComponent,
+    GfTickerSearchComponent,
     RouterModule
   ],
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
@@ -52,6 +54,7 @@ export class GfHomeWatchlistComponent implements OnInit {
   protected hasImpersonationId: boolean;
   protected hasPermissionToCreateWatchlistItem: boolean;
   protected hasPermissionToDeleteWatchlistItem: boolean;
+  protected searchTerm = '';
   protected user: User;
   protected watchlist: Benchmark[];
 
@@ -120,17 +123,32 @@ export class GfHomeWatchlistComponent implements OnInit {
   }
 
   protected get filteredWatchlist(): Benchmark[] {
-    if (!this.watchlist || this.assetTypeFilter === 'ALL') {
+    if (!this.watchlist) {
       return this.watchlist;
     }
 
+    let items = this.watchlist;
+
     if (this.assetTypeFilter === 'FUND') {
-      return this.watchlist.filter(this.isFund);
+      items = items.filter(this.isFund);
+    } else if (this.assetTypeFilter !== 'ALL') {
+      items = items.filter((item) => {
+        return item.assetSubClass === this.assetTypeFilter;
+      });
     }
 
-    return this.watchlist.filter((item) => {
-      return item.assetSubClass === this.assetTypeFilter;
-    });
+    const searchTerm = this.searchTerm.trim().toLowerCase();
+
+    if (searchTerm) {
+      items = items.filter((item) => {
+        return (
+          item.symbol?.toLowerCase().includes(searchTerm) ||
+          item.name?.toLowerCase().includes(searchTerm)
+        );
+      });
+    }
+
+    return items;
   }
 
   protected get etfCount(): number {
@@ -148,6 +166,11 @@ export class GfHomeWatchlistComponent implements OnInit {
       this.watchlist?.filter((item) => item.assetSubClass === 'STOCK').length ??
       0
     );
+  }
+
+  protected onSearchChange(searchTerm: string) {
+    this.searchTerm = searchTerm;
+    this.changeDetectorRef.markForCheck();
   }
 
   protected onSelectAssetTypeFilter(

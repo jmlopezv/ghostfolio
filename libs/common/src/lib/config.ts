@@ -299,9 +299,11 @@ export const SIGNAL_TAKE_PROFIT_VOL_MULT = 1.5; // target band: 1.5σ over the h
 export const SIGNAL_STOP_VOL_MULT = 2; // stop-loss: 2σ below entry (defined downside)
 export const SIGNAL_TRAIL_VOL_MULT = 1; // trailing stop: 1σ below the running peak
 
-// Real-buy tracking (see SignalTradeTrackingService). A real BUY Order only
-// looks for a matching engine signal within this many days beforehand...
-export const SIGNAL_TRACKED_TRADE_LOOKBACK_DAYS = 30;
+// Real-buy tracking (see SignalTradeTrackingService). A real BUY Order is
+// only even considered for tracking if it's within this many days old — and,
+// within that, only looks for a matching engine signal within this many days
+// beforehand...
+export const SIGNAL_TRACKED_TRADE_LOOKBACK_DAYS = 45;
 // ...but only actually FREEZES that signal's own stop/target if it fired
 // within this much tighter window of the real purchase (a signal can re-fire
 // repeatedly for the same ticker over weeks as conditions recur — matching

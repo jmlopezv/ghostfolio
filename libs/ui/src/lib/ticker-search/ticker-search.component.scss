@@ -1,0 +1,29 @@
+:host {
+  display: block;
+
+  .gf-ticker-search {
+    max-width: 20rem;
+
+    input {
+      padding-left: 2rem;
+    }
+
+    .gf-ticker-search-icon {
+      left: 0.5rem;
+      pointer-events: none;
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .gf-ticker-search-clear {
+      background: none;
+      border: none;
+      padding: 0 0.5rem;
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+  }
+}

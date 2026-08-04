@@ -23,6 +23,8 @@
     "apps/api/src/services/signals/strategies.service.spec.ts",
     "apps/api/src/services/signals/fundamentals.service.spec.ts",
     "apps/api/src/services/signals/screening.service.spec.ts",
+    "apps/api/src/services/signals/simulation-performance.spec.ts",
+    "apps/api/src/services/signals/signal-trade-tracking.spec.ts",
     "apps/api/src/app/endpoints/academy/academy.service.spec.ts"
   ]
 }

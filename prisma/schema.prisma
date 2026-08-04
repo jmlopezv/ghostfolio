@@ -184,17 +184,18 @@ model Settings {
 
 // Per-symbol trading-signal configuration (thresholds, core vs active-trade).
 model SignalConfig {
-  buyDropPct    Float      @default(0.1)
-  cashThreshold Float?
-  createdAt     DateTime   @default(now())
-  dataSource    DataSource
-  id            String     @id @default(uuid())
-  isActiveTrade Boolean    @default(false)
-  symbol        String
-  takeProfitPct Float      @default(0.3)
-  updatedAt     DateTime   @updatedAt
-  user          User       @relation(fields: [userId], onDelete: Cascade, references: [id])
-  userId        String
+  buyDropPct          Float      @default(0.1)
+  cashThreshold       Float?
+  createdAt           DateTime   @default(now())
+  dataSource          DataSource
+  excludeFromTracking Boolean    @default(false)
+  id                  String     @id @default(uuid())
+  isActiveTrade       Boolean    @default(false)
+  symbol              String
+  takeProfitPct       Float      @default(0.3)
+  updatedAt           DateTime   @updatedAt
+  user                User       @relation(fields: [userId], onDelete: Cascade, references: [id])
+  userId              String
 
   @@unique([userId, dataSource, symbol])
   @@index([userId])

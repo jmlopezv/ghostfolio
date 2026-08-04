@@ -12,6 +12,14 @@
         currently own — updates automatically as you buy or close positions.
       </p>
 
+      @if (!isLoading && symbols.length) {
+        <gf-ticker-search
+          class="mb-3"
+          [value]="searchTerm"
+          (valueChange)="onSearchChange($event)"
+        />
+      }
+
       @if (isLoading) {
         <ngx-skeleton-loader
           animation="pulse"
@@ -39,37 +47,39 @@
             </thead>
             <tbody>
               @for (row of symbols; track row.symbol; let i = $index) {
-                <tr>
-                  <th
-                    class="gf-matrix-row-header"
-                    [class.gf-matrix-owned]="row.owned"
-                    [title]="row.name + (row.owned ? ' (owned)' : '')"
-                    (click)="onOpenAsset(row.dataSource, row.symbol)"
-                  >
-                    {{ row.name }}
-                  </th>
-                  @for (col of symbols; track col.symbol; let j = $index) {
-                    @if (i === j) {
-                      <td class="gf-matrix-cell gf-matrix-diagonal"></td>
-                    } @else {
-                      <td
-                        class="gf-matrix-cell"
-                        [style.opacity]="intensity(matrix[i][j])"
-                        [title]="
-                          row.name +
-                          ' vs ' +
-                          col.name +
-                          ': ' +
-                          matrix[i][j] +
-                          '%'
-                        "
-                        (click)="onOpenAsset(row.dataSource, row.symbol)"
-                      >
-                        {{ matrix[i][j] | number: '1.0-0' }}
-                      </td>
+                @if (matchesSearch(row)) {
+                  <tr>
+                    <th
+                      class="gf-matrix-row-header"
+                      [class.gf-matrix-owned]="row.owned"
+                      [title]="row.name + (row.owned ? ' (owned)' : '')"
+                      (click)="onOpenAsset(row.dataSource, row.symbol)"
+                    >
+                      {{ row.name }}
+                    </th>
+                    @for (col of symbols; track col.symbol; let j = $index) {
+                      @if (i === j) {
+                        <td class="gf-matrix-cell gf-matrix-diagonal"></td>
+                      } @else {
+                        <td
+                          class="gf-matrix-cell"
+                          [style.opacity]="intensity(matrix[i][j])"
+                          [title]="
+                            row.name +
+                            ' vs ' +
+                            col.name +
+                            ': ' +
+                            matrix[i][j] +
+                            '%'
+                          "
+                          (click)="onOpenAsset(row.dataSource, row.symbol)"
+                        >
+                          {{ matrix[i][j] | number: '1.0-0' }}
+                        </td>
+                      }
                     }
-                  }
-                </tr>
+                  </tr>
+                }
               }
             </tbody>
           </table>

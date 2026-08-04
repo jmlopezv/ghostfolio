@@ -6,6 +6,7 @@ import {
 } from '@ghostfolio/common/interfaces';
 import { openBenchmarkDetailDialog } from '@ghostfolio/ui/benchmark/benchmark-detail-dialog/open-benchmark-detail-dialog';
 import { DataService } from '@ghostfolio/ui/services';
+import { GfTickerSearchComponent } from '@ghostfolio/ui/ticker-search';
 
 import { CommonModule } from '@angular/common';
 import {
@@ -79,6 +80,7 @@ const DISPLAYED_COLUMNS = [
   host: { class: 'page' },
   imports: [
     CommonModule,
+    GfTickerSearchComponent,
     IonIcon,
     MatSortModule,
     MatTableModule,
@@ -97,6 +99,7 @@ export class GfHomeAnalyticsComponent implements OnInit {
   protected readonly headerRow1 = HEADER_ROW_1;
   protected readonly headerRow2 = HEADER_ROW_2;
   protected isLoading = false;
+  protected searchTerm = '';
   protected selectedCategory: string | null = null;
   protected summaryCards: {
     category: string;
@@ -172,16 +175,28 @@ export class GfHomeAnalyticsComponent implements OnInit {
   }
 
   protected get filteredEntries(): SignalLogEntry[] {
-    if (!this.selectedCategory) {
-      return this.entries;
+    let entries = this.entries;
+
+    if (this.selectedCategory) {
+      entries = entries.filter(
+        (entry) =>
+          entry.category === this.selectedCategory ||
+          (this.selectedCategory === 'REVERSAL' &&
+            entry.signalType === 'REVERSAL')
+      );
     }
 
-    return this.entries.filter(
-      (entry) =>
-        entry.category === this.selectedCategory ||
-        (this.selectedCategory === 'REVERSAL' &&
-          entry.signalType === 'REVERSAL')
-    );
+    const searchTerm = this.searchTerm.trim().toLowerCase();
+
+    if (searchTerm) {
+      entries = entries.filter(
+        (entry) =>
+          entry.symbol?.toLowerCase().includes(searchTerm) ||
+          entry.name?.toLowerCase().includes(searchTerm)
+      );
+    }
+
+    return entries;
   }
 
   /** Opens the same asset-detail dialog Watchlist's ticker click opens. */
@@ -199,6 +214,12 @@ export class GfHomeAnalyticsComponent implements OnInit {
 
   protected onRefresh() {
     this.load();
+  }
+
+  protected onSearchChange(searchTerm: string) {
+    this.searchTerm = searchTerm;
+    this.dataSource.data = this.filteredEntries;
+    this.changeDetectorRef.markForCheck();
   }
 
   protected onSelectCategory(category: string | null) {

@@ -62,6 +62,89 @@ export class OhlcService {
   }
 
   /**
+   * Daily closes WITH dates (unlike fetchChart's bars, which discard the
+   * timestamp array) — used to build a %-change-since-a-given-date overlay,
+   * e.g. the S&P 500 comparison line on the Simulation chart. Cached under
+   * its own key, 1h TTL. Never throws; null on any failure or lack of data.
+   */
+  public async getDailyClosesWithDates(
+    symbol: string,
+    range: '1y' | '2y' | '5y'
+  ): Promise<{ close: number; date: string }[] | null> {
+    const cacheKey = `ohlc:dated-closes:${symbol}:${range}`;
+
+    try {
+      const cached = await this.redisCacheService.get(cacheKey);
+
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch {
+      // ignore cache read errors
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(
+        `${CHART_URL}/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,
+        { headers: { 'User-Agent': USER_AGENT }, signal: controller.signal }
+      );
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = await response.json();
+      const result = payload?.chart?.result?.[0];
+      const timestamps: (number | null)[] = result?.timestamp ?? [];
+      const closes: (number | null)[] =
+        result?.indicators?.quote?.[0]?.close ?? [];
+
+      const closesWithDates: { close: number; date: string }[] = [];
+
+      for (let i = 0; i < timestamps.length; i++) {
+        const epochSeconds = timestamps[i];
+        const close = closes[i];
+
+        if (
+          typeof epochSeconds === 'number' &&
+          typeof close === 'number' &&
+          close > 0
+        ) {
+          closesWithDates.push({
+            close,
+            date: new Date(epochSeconds * 1000).toISOString().slice(0, 10)
+          });
+        }
+      }
+
+      if (closesWithDates.length === 0) {
+        return null;
+      }
+
+      try {
+        await this.redisCacheService.set(
+          cacheKey,
+          JSON.stringify(closesWithDates),
+          CACHE_TTL
+        );
+      } catch {
+        // best-effort cache
+      }
+
+      return closesWithDates;
+    } catch (error) {
+      this.logger.warn(`Dated closes fetch failed for ${symbol}: ${error}`);
+
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
    * Recent volume as a multiple of the 20-day average (capitulation /
    * participation confirmation for the reversal buy path). null when no data.
    */

@@ -3,12 +3,13 @@ import { SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD } from '@ghostfolio/common/confi
 import {
   LineChartItem,
   SimulatedTrade,
+  SimulationReadoutPeriod,
   SimulationResponse,
   User
 } from '@ghostfolio/common/interfaces';
 import { openBenchmarkDetailDialog } from '@ghostfolio/ui/benchmark/benchmark-detail-dialog/open-benchmark-detail-dialog';
-import { GfLineChartComponent } from '@ghostfolio/ui/line-chart';
 import { DataService } from '@ghostfolio/ui/services';
+import { GfTickerSearchComponent } from '@ghostfolio/ui/ticker-search';
 
 import { CommonModule } from '@angular/common';
 import {
@@ -20,6 +21,7 @@ import {
   effect,
   inject,
   OnInit,
+  signal,
   viewChild
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -29,16 +31,132 @@ import { MatSort, MatSortModule } from '@angular/material/sort';
 import { MatTableDataSource, MatTableModule } from '@angular/material/table';
 import { IonIcon } from '@ionic/angular/standalone';
 import { DataSource } from '@prisma/client';
+import { startOfYear, subDays, subMonths, subWeeks, subYears } from 'date-fns';
 import { addIcons } from 'ionicons';
 import { refreshOutline } from 'ionicons/icons';
 import { DeviceDetectorService } from 'ngx-device-detector';
 import { NgxSkeletonLoaderModule } from 'ngx-skeleton-loader';
+
+import {
+  GfSimulationPerformanceChartComponent,
+  SimulationChartSeries
+} from '../simulation-performance-chart/simulation-performance-chart.component';
 
 interface CalculatorResult {
   feesUsd: number;
   grossProceedsUsd: number;
   netGainUsd: number;
   netProceedsUsd: number;
+}
+
+type ZoomPeriodKey = SimulationReadoutPeriod | 'max';
+type ReadoutPeriodKey = SimulationReadoutPeriod;
+
+const ZOOM_PERIODS: { key: ZoomPeriodKey; label: string }[] = [
+  { key: '1d', label: '1D' },
+  { key: '1w', label: '1W' },
+  { key: '1m', label: '1M' },
+  { key: '3m', label: '3M' },
+  { key: '6m', label: '6M' },
+  { key: 'ytd', label: 'YTD' },
+  { key: '1y', label: '1Y' },
+  { key: 'max', label: 'Max' }
+];
+
+const READOUT_PERIODS: { key: ReadoutPeriodKey; label: string }[] = [
+  { key: '1d', label: 'Today' },
+  { key: '1w', label: '1W' },
+  { key: '1m', label: '1M' },
+  { key: '3m', label: '3M' },
+  { key: '6m', label: '6M' },
+  { key: 'ytd', label: 'YTD' },
+  { key: '1y', label: '1Y' }
+];
+
+// Fixed per-series colors for the Simulation performance chart — local to
+// this page since no other chart needs a 4th/5th color.
+const DIP_COLOR = 'rgb(54, 207, 204)';
+const REVERSAL_COLOR = 'rgb(226, 106, 106)';
+const TRACKED_COLOR = 'rgb(84, 163, 84)';
+const BENCHMARK_COLOR = 'rgb(150, 150, 150)';
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/** null (not a real cutoff) for 'max' — the caller keeps the full series. */
+function periodCutoff(key: ZoomPeriodKey, now: Date): Date | null {
+  switch (key) {
+    case '1d':
+      return subDays(now, 1);
+    case '1w':
+      return subWeeks(now, 1);
+    case '1m':
+      return subMonths(now, 1);
+    case '3m':
+      return subMonths(now, 3);
+    case '6m':
+      return subMonths(now, 6);
+    case 'ytd':
+      return startOfYear(now);
+    case '1y':
+      return subYears(now, 1);
+    case 'max':
+      return null;
+  }
+}
+
+function filterByPeriod(
+  series: LineChartItem[],
+  key: ZoomPeriodKey
+): LineChartItem[] {
+  const cutoff = periodCutoff(key, new Date());
+
+  if (!cutoff) {
+    return series;
+  }
+
+  return series.filter((point) => new Date(point.date) >= cutoff);
+}
+
+/**
+ * Chain-links the trailing return over `key` from a cumulative-average-%
+ * curve — NOT a naive subtraction, since each point is already a cumulative
+ * average % return from the series' own inception, not a rebased daily
+ * return. Returns undefined — never a fabricated number — when the series
+ * doesn't actually go back far enough to cover the requested period (e.g. a
+ * 1Y readout when the engine itself has only run for two months).
+ */
+function trailingReturn(
+  series: LineChartItem[],
+  key: ReadoutPeriodKey
+): number | undefined {
+  if (series.length === 0) {
+    return undefined;
+  }
+
+  const last = series[series.length - 1];
+  const cutoff = periodCutoff(key, new Date());
+
+  if (cutoff && new Date(series[0].date) > cutoff) {
+    return undefined;
+  }
+
+  // Closest available point AT OR BEFORE the cutoff — the standard "value
+  // as of N days ago" convention — not the first point after it.
+  let past = series[0];
+
+  if (cutoff) {
+    for (const point of series) {
+      if (new Date(point.date) > cutoff) {
+        break;
+      }
+
+      past = point;
+    }
+  }
+
+  return round2(((1 + last.value / 100) / (1 + past.value / 100) - 1) * 100);
 }
 
 const DISPLAYED_COLUMNS = [
@@ -71,7 +189,8 @@ const DISPLAYED_COLUMNS = [
   imports: [
     CommonModule,
     FormsModule,
-    GfLineChartComponent,
+    GfSimulationPerformanceChartComponent,
+    GfTickerSearchComponent,
     IonIcon,
     MatSortModule,
     MatTableModule,
@@ -86,14 +205,16 @@ export class GfHomeSimulationComponent implements OnInit {
     SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD;
   protected readonly dataSource = new MatTableDataSource<SimulatedTrade>([]);
   protected readonly displayedColumns = DISPLAYED_COLUMNS;
-  protected dipSeries: LineChartItem[] = [];
   protected investedUsd = SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD;
   protected isLoading = false;
-  protected reversalSeries: LineChartItem[] = [];
+  protected readonly readoutPeriods = READOUT_PERIODS;
+  protected searchTerm = '';
   protected selectedTradeIndex: number | null = null;
-  protected simulation: SimulationResponse;
+  protected readonly selectedZoomPeriod = signal<ZoomPeriodKey>('max');
+  protected simulation: SimulationResponse | null = null;
   protected trades: SimulatedTrade[] = [];
   protected user: User;
+  protected readonly zoomPeriods = ZOOM_PERIODS;
 
   protected readonly deviceType = computed(
     () => this.deviceDetectorService.deviceInfo().deviceType
@@ -109,6 +230,14 @@ export class GfHomeSimulationComponent implements OnInit {
 
   public constructor() {
     addIcons({ refreshOutline });
+
+    this.dataSource.filterPredicate = (trade, filter) => {
+      return (
+        !filter ||
+        trade.symbol.toLowerCase().includes(filter) ||
+        (trade.name ?? '').toLowerCase().includes(filter)
+      );
+    };
 
     this.dataSource.sortingDataAccessor = (trade, property) => {
       switch (property) {
@@ -180,6 +309,117 @@ export class GfHomeSimulationComponent implements OnInit {
       : null;
   }
 
+  /**
+   * One dataset per non-empty bucket (Dip / Reversal / Tracked / S&P 500),
+   * sliced to the currently selected zoom period. Chart-zooming is a client-
+   * side slice of the already-fetched full daily curves — no re-fetch per
+   * button click.
+   */
+  protected get chartSeries(): SimulationChartSeries[] {
+    if (!this.simulation) {
+      return [];
+    }
+
+    const period = this.selectedZoomPeriod();
+    const series: SimulationChartSeries[] = [];
+
+    if (this.simulation.dipSeries.length > 0) {
+      series.push({
+        color: DIP_COLOR,
+        data: filterByPeriod(this.simulation.dipSeries, period),
+        label: $localize`Dip`
+      });
+    }
+
+    if (this.simulation.reversalSeries.length > 0) {
+      series.push({
+        color: REVERSAL_COLOR,
+        data: filterByPeriod(this.simulation.reversalSeries, period),
+        label: $localize`Reversal`
+      });
+    }
+
+    if (this.simulation.trackedSeries.length > 0) {
+      series.push({
+        color: TRACKED_COLOR,
+        data: filterByPeriod(this.simulation.trackedSeries, period),
+        label: $localize`Tracked`
+      });
+    }
+
+    if (this.simulation.benchmarkSeries?.length) {
+      series.push({
+        color: BENCHMARK_COLOR,
+        data: filterByPeriod(this.simulation.benchmarkSeries, period),
+        label: 'S&P 500'
+      });
+    }
+
+    return series;
+  }
+
+  /**
+   * One row per non-empty bucket, with a trailing return for every entry in
+   * readoutPeriods — independent of the chart's own zoom selection, so
+   * "Today / 1W / … / 1Y" always shows the full picture.
+   */
+  protected get readoutRows(): {
+    color: string;
+    label: string;
+    values: (number | undefined)[];
+  }[] {
+    if (!this.simulation) {
+      return [];
+    }
+
+    const rows: {
+      color: string;
+      label: string;
+      values: (number | undefined)[];
+    }[] = [];
+
+    const pushRow = (label: string, color: string, series: LineChartItem[]) => {
+      if (series.length === 0) {
+        return;
+      }
+
+      rows.push({
+        color,
+        label,
+        values: this.readoutPeriods.map((period) =>
+          trailingReturn(series, period.key)
+        )
+      });
+    };
+
+    pushRow($localize`Dip`, DIP_COLOR, this.simulation.dipSeries);
+    pushRow(
+      $localize`Reversal`,
+      REVERSAL_COLOR,
+      this.simulation.reversalSeries
+    );
+    pushRow($localize`Tracked`, TRACKED_COLOR, this.simulation.trackedSeries);
+
+    // S&P 500 uses real, calendar-anchored trailing returns computed
+    // server-side from its own full history (see benchmarkReadout) — NOT
+    // trailingReturn() on the chart-truncated benchmarkSeries, which only
+    // covers as far back as our own engine's oldest trade.
+    if (this.simulation.benchmarkReadout) {
+      const readout = this.simulation.benchmarkReadout;
+      rows.push({
+        color: BENCHMARK_COLOR,
+        label: 'S&P 500',
+        values: this.readoutPeriods.map((period) => readout[period.key])
+      });
+    }
+
+    return rows;
+  }
+
+  protected onSelectZoomPeriod(key: ZoomPeriodKey) {
+    this.selectedZoomPeriod.set(key);
+  }
+
   /** Opens the same asset-detail dialog Watchlist's ticker click opens. */
   protected onOpenAsset(dataSource: DataSource, symbol: string) {
     openBenchmarkDetailDialog({
@@ -195,6 +435,12 @@ export class GfHomeSimulationComponent implements OnInit {
 
   protected onRefresh() {
     this.load();
+  }
+
+  protected onSearchChange(searchTerm: string) {
+    this.searchTerm = searchTerm;
+    this.dataSource.filter = searchTerm.trim().toLowerCase();
+    this.changeDetectorRef.markForCheck();
   }
 
   /**
@@ -236,8 +482,6 @@ export class GfHomeSimulationComponent implements OnInit {
         this.simulation = response;
         this.trades = response.trades;
         this.dataSource.data = response.trades;
-        this.dipSeries = response.dipSeries;
-        this.reversalSeries = response.reversalSeries;
 
         if (
           this.selectedTradeIndex != null &&

@@ -4,6 +4,7 @@ import { CorrelationMatrixResponse, User } from '@ghostfolio/common/interfaces';
 import { GfBenchmarkDetailDialogComponent } from '@ghostfolio/ui/benchmark/benchmark-detail-dialog/benchmark-detail-dialog.component';
 import { BenchmarkDetailDialogParams } from '@ghostfolio/ui/benchmark/benchmark-detail-dialog/interfaces/interfaces';
 import { DataService } from '@ghostfolio/ui/services';
+import { GfTickerSearchComponent } from '@ghostfolio/ui/ticker-search';
 
 import { CommonModule } from '@angular/common';
 import {
@@ -24,7 +25,7 @@ import { NgxSkeletonLoaderModule } from 'ngx-skeleton-loader';
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'page' },
-  imports: [CommonModule, NgxSkeletonLoaderModule],
+  imports: [CommonModule, GfTickerSearchComponent, NgxSkeletonLoaderModule],
   selector: 'gf-home-correlation',
   styleUrls: ['./home-correlation.scss'],
   templateUrl: './home-correlation.html'
@@ -33,6 +34,7 @@ export class GfHomeCorrelationComponent implements OnInit {
   protected isLoading = true;
   protected matrix: number[][] = [];
   protected maxOverlapPct = 0;
+  protected searchTerm = '';
   protected symbols: CorrelationMatrixResponse['symbols'] = [];
   protected user: User;
 
@@ -62,11 +64,43 @@ export class GfHomeCorrelationComponent implements OnInit {
     this.load();
   }
 
+  /**
+   * Whether a row's asset matches `searchTerm` — used to hide non-matching
+   * ROWS while columns stay the full, unfiltered list, so a searched asset's
+   * overlap against every other watchlist asset stays visible (rather than
+   * shrinking to a small intersection square if columns were filtered too).
+   * The `i`/`j` matrix indices are untouched since `symbols` itself is never
+   * filtered, only conditionally hidden per row.
+   */
+  protected matchesSearch({
+    name,
+    symbol
+  }: {
+    name: string;
+    symbol: string;
+  }): boolean {
+    const searchTerm = this.searchTerm.trim().toLowerCase();
+
+    if (!searchTerm) {
+      return true;
+    }
+
+    return (
+      symbol.toLowerCase().includes(searchTerm) ||
+      name.toLowerCase().includes(searchTerm)
+    );
+  }
+
   /** 0.06-1 intensity for the cell background — a floor so even small overlaps register. */
   protected intensity(pct: number): number {
     return this.maxOverlapPct > 0
       ? Math.max(0.06, pct / this.maxOverlapPct)
       : 0;
+  }
+
+  protected onSearchChange(searchTerm: string) {
+    this.searchTerm = searchTerm;
+    this.changeDetectorRef.markForCheck();
   }
 
   protected onOpenAsset(dataSource: DataSource, symbol: string) {

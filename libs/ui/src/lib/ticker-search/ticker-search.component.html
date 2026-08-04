@@ -1,0 +1,19 @@
+<div class="gf-ticker-search position-relative">
+  <ion-icon class="gf-ticker-search-icon text-muted" name="search-outline" />
+  <input
+    class="form-control form-control-sm"
+    type="search"
+    [placeholder]="placeholder()"
+    [value]="value()"
+    (input)="onInput($event)"
+  />
+  @if (value()) {
+    <button
+      class="btn btn-sm gf-ticker-search-clear"
+      type="button"
+      (click)="onClear()"
+    >
+      <ion-icon class="text-muted" name="close-outline" />
+    </button>
+  }
+</div>

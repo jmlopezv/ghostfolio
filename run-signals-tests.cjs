@@ -45,4 +45,6 @@ require('./dist-test-signals/apps/api/src/services/signals/forecast.service.spec
 require('./dist-test-signals/apps/api/src/services/signals/strategies.service.spec.js');
 require('./dist-test-signals/apps/api/src/services/signals/fundamentals.service.spec.js');
 require('./dist-test-signals/apps/api/src/services/signals/screening.service.spec.js');
+require('./dist-test-signals/apps/api/src/services/signals/simulation-performance.spec.js');
+require('./dist-test-signals/apps/api/src/services/signals/signal-trade-tracking.spec.js');
 require('./dist-test-signals/apps/api/src/app/endpoints/academy/academy.service.spec.js');

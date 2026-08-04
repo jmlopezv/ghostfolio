@@ -14,6 +14,10 @@ export class UpdateSignalConfigDto {
 
   @IsBoolean()
   @IsOptional()
+  excludeFromTracking?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
   isActiveTrade?: boolean;
 
   @IsNumber()

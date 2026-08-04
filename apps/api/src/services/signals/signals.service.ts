@@ -33,6 +33,11 @@ import {
   SignalTradeTrackingService
 } from '@ghostfolio/api/services/signals/signal-trade-tracking.service';
 import {
+  buildPerformanceSeries,
+  computeTrailingPriceReturns,
+  normalizeBenchmarkSeries
+} from '@ghostfolio/api/services/signals/simulation-performance';
+import {
   FundCandidate,
   StrategiesService,
   StrategyCandidate
@@ -89,6 +94,7 @@ import {
   PortfolioReport,
   SignalLogResponse,
   SimulatedTrade,
+  SimulationReadoutPeriod,
   SimulationResponse,
   SimulationSummary,
   TradingSignal,
@@ -1709,44 +1715,35 @@ export class SignalsService implements OnApplicationBootstrap {
       (a, b) => new Date(b.buyDate).getTime() - new Date(a.buyDate).getTime()
     );
 
-    const bySellDateAsc = (a: LineChartItem, b: LineChartItem) =>
-      new Date(a.date).getTime() - new Date(b.date).getTime();
+    const marketDataBySymbol = await this.fetchMarketDataBySymbol(trades);
+    const todayStr = now.toISOString().slice(0, 10);
 
-    const dipSeries = closedTrades
-      .filter(
-        (
-          trade
-        ): trade is SimulatedTrade & {
-          effectiveAnnualRatePct: number;
-          sellDate: string;
-        } =>
-          trade.signalType === 'DIP' &&
-          trade.sellDate != null &&
-          trade.effectiveAnnualRatePct != null
-      )
-      .map((trade) => ({
-        date: trade.sellDate,
-        value: trade.effectiveAnnualRatePct
-      }))
-      .sort(bySellDateAsc);
+    const dipSeries = buildPerformanceSeries(
+      trades.filter((trade) => trade.signalType === 'DIP'),
+      marketDataBySymbol,
+      todayStr
+    );
+    const reversalSeries = buildPerformanceSeries(
+      trades.filter((trade) => trade.signalType === 'REVERSAL'),
+      marketDataBySymbol,
+      todayStr
+    );
+    const trackedSeries = buildPerformanceSeries(
+      trades.filter((trade) => trade.tracked),
+      marketDataBySymbol,
+      todayStr
+    );
 
-    const reversalSeries = closedTrades
-      .filter(
-        (
-          trade
-        ): trade is SimulatedTrade & {
-          effectiveAnnualRatePct: number;
-          sellDate: string;
-        } =>
-          trade.signalType === 'REVERSAL' &&
-          trade.sellDate != null &&
-          trade.effectiveAnnualRatePct != null
-      )
-      .map((trade) => ({
-        date: trade.sellDate,
-        value: trade.effectiveAnnualRatePct
-      }))
-      .sort(bySellDateAsc);
+    const overallStart = [dipSeries, reversalSeries, trackedSeries]
+      .flat()
+      .map((point) => point.date)
+      .sort()[0];
+
+    const benchmark = overallStart
+      ? await this.buildBenchmarkSeries(overallStart)
+      : undefined;
+    const benchmarkSeries = benchmark?.series;
+    const benchmarkReadout = benchmark?.readout;
 
     // netReturnPct/effectiveAnnualRatePct are undefined only in the rare case
     // where a matched SELL row itself is missing a price — filter those out
@@ -1810,12 +1807,101 @@ export class SignalsService implements OnApplicationBootstrap {
     };
 
     return {
+      benchmarkReadout,
+      benchmarkSeries,
       dipSeries,
       generatedAt: now.toISOString(),
       reversalSeries,
       summary,
+      trackedSeries,
       trades
     };
+  }
+
+  /**
+   * Fetches every symbol's stored daily closes touched by `trades`, from the
+   * earliest buy date onward — the source data buildPerformanceSeries marks
+   * open trades to market against, day by day.
+   */
+  private async fetchMarketDataBySymbol(
+    trades: SimulatedTrade[]
+  ): Promise<Map<string, { date: string; close: number }[]>> {
+    const bySymbol = new Map<string, { date: string; close: number }[]>();
+
+    if (trades.length === 0) {
+      return bySymbol;
+    }
+
+    const earliestBuyDate = trades.reduce(
+      (earliest, trade) =>
+        trade.buyDate < earliest ? trade.buyDate : earliest,
+      trades[0].buyDate
+    );
+
+    const keys = new Set(
+      trades.map((trade) => `${trade.dataSource}:${trade.symbol}`)
+    );
+
+    const rows = await this.prismaService.marketData.findMany({
+      orderBy: { date: 'asc' },
+      select: { dataSource: true, date: true, marketPrice: true, symbol: true },
+      where: {
+        date: { gte: new Date(earliestBuyDate) },
+        OR: [...keys].map((key) => {
+          const [dataSource, symbol] = key.split(':') as [DataSource, string];
+
+          return { dataSource, symbol };
+        })
+      }
+    });
+
+    for (const row of rows) {
+      const key = `${row.dataSource}:${row.symbol}`;
+      const list = bySymbol.get(key) ?? [];
+      list.push({
+        close: row.marketPrice,
+        date: row.date.toISOString().slice(0, 10)
+      });
+      bySymbol.set(key, list);
+    }
+
+    return bySymbol;
+  }
+
+  /**
+   * S&P 500 (^GSPC) — a live, Redis-cached fetch (see OhlcService), never
+   * added to the watchlist so it stays out of the signal-scoring universe.
+   * `series` is normalized to % change from the close nearest `startDate`
+   * (for the chart overlay, comparable against dip/reversal/trackedSeries);
+   * `readout` is computed from the SAME fetched closes before that
+   * truncation, so it can answer genuine 3M/6M/YTD/1Y trailing returns even
+   * though the engine's own series can't yet. Never throws — `undefined` on
+   * any failure, and the chart/readout simply omit the benchmark.
+   */
+  private async buildBenchmarkSeries(startDate: string): Promise<
+    | {
+        readout: Partial<Record<SimulationReadoutPeriod, number>>;
+        series: LineChartItem[] | undefined;
+      }
+    | undefined
+  > {
+    try {
+      const closes = await this.ohlcService.getDailyClosesWithDates(
+        '^GSPC',
+        '2y'
+      );
+
+      if (!closes) {
+        return undefined;
+      }
+
+      return {
+        readout: computeTrailingPriceReturns(closes),
+        series: normalizeBenchmarkSeries(closes, startDate)
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -1953,6 +2039,7 @@ export class SignalsService implements OnApplicationBootstrap {
     buyDropPct,
     cashThreshold,
     dataSource,
+    excludeFromTracking,
     isActiveTrade,
     symbol,
     takeProfitPct,
@@ -1961,6 +2048,7 @@ export class SignalsService implements OnApplicationBootstrap {
     buyDropPct?: number;
     cashThreshold?: number;
     dataSource: DataSource;
+    excludeFromTracking?: boolean;
     isActiveTrade?: boolean;
     symbol: string;
     takeProfitPct?: number;
@@ -1974,6 +2062,9 @@ export class SignalsService implements OnApplicationBootstrap {
     if (cashThreshold !== undefined) {
       update.cashThreshold = cashThreshold;
     }
+    if (excludeFromTracking !== undefined) {
+      update.excludeFromTracking = excludeFromTracking;
+    }
     if (isActiveTrade !== undefined) {
       update.isActiveTrade = isActiveTrade;
     }
@@ -1986,6 +2077,7 @@ export class SignalsService implements OnApplicationBootstrap {
         buyDropPct: buyDropPct ?? SIGNAL_DEFAULT_BUY_DROP_PCT,
         cashThreshold: cashThreshold ?? null,
         dataSource,
+        excludeFromTracking: excludeFromTracking ?? false,
         isActiveTrade: isActiveTrade ?? false,
         symbol,
         takeProfitPct: takeProfitPct ?? SIGNAL_DEFAULT_TAKE_PROFIT_PCT,

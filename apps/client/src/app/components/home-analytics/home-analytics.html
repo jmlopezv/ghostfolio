@@ -20,6 +20,12 @@
         <a [routerLink]="['/home', 'metrics']">Metrics</a> tab.
       </p>
 
+      <gf-ticker-search
+        class="mb-3"
+        [value]="searchTerm"
+        (valueChange)="onSearchChange($event)"
+      />
+
       @if (isLoading) {
         <ngx-skeleton-loader
           animation="pulse"
