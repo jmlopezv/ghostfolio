@@ -288,7 +288,10 @@ export class ExchangeRateDataService {
         this.dataProviderService.getDataSourceForExchangeRates();
       const symbol = `${aFromCurrency}${aToCurrency}`;
 
-      const marketData = await this.marketDataService.get({
+      // getAsOf, not get: an activity can be dated on a day the FX provider
+      // published nothing (a holiday, or a hole left by the gatherer), and an
+      // exact-date miss here yields NaN and an undefined conversion.
+      const marketData = await this.marketDataService.getAsOf({
         dataSource,
         symbol,
         date: aDate
@@ -307,7 +310,7 @@ export class ExchangeRateDataService {
             marketPriceBaseCurrencyFromCurrency = 1;
           } else {
             marketPriceBaseCurrencyFromCurrency = (
-              await this.marketDataService.get({
+              await this.marketDataService.getAsOf({
                 dataSource,
                 date: aDate,
                 symbol: `${DEFAULT_CURRENCY}${aFromCurrency}`
@@ -321,7 +324,7 @@ export class ExchangeRateDataService {
             marketPriceBaseCurrencyToCurrency = 1;
           } else {
             marketPriceBaseCurrencyToCurrency = (
-              await this.marketDataService.get({
+              await this.marketDataService.getAsOf({
                 dataSource,
                 date: aDate,
                 symbol: `${DEFAULT_CURRENCY}${aToCurrency}`

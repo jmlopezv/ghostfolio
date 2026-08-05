@@ -40,6 +40,38 @@ export class MarketDataService {
     });
   }
 
+  /**
+   * Market data for a symbol on a date, falling back to the most recent row
+   * at or before it.
+   *
+   * `get` above matches the date exactly, which is right when the caller
+   * needs to know whether a specific day was recorded. It is wrong for
+   * valuing something on a date that may not be a trading day: FX pairs have
+   * no row on New Year's Day or Good Friday, so an activity dated 2026-01-01
+   * made `toCurrencyAtDate` compute `1 / undefined` and return undefined.
+   * Carrying the last known price forward is the standard convention for a
+   * non-trading day, and is what `getExchangeRatesByCurrency` already does
+   * for the chart path.
+   */
+  public async getAsOf({
+    dataSource,
+    date = new Date(),
+    symbol
+  }: DataGatheringItem): Promise<MarketData> {
+    return this.prismaService.marketData.findFirst({
+      orderBy: {
+        date: 'desc'
+      },
+      where: {
+        dataSource,
+        symbol,
+        date: {
+          lte: resetHours(date)
+        }
+      }
+    });
+  }
+
   public async getMax({ dataSource, symbol }: AssetProfileIdentifier) {
     return this.prismaService.marketData.findFirst({
       select: {
