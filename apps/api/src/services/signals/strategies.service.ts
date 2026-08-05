@@ -2,8 +2,8 @@ import { holdingsOverlap } from '@ghostfolio/api/services/signals/asset-detail.s
 import {
   SIGNAL_BUY_FEE_USD,
   SIGNAL_BUYZONE_CONVICTION_BONUS,
+  SIGNAL_FORECAST_HORIZON_DAYS,
   SIGNAL_FUND_OVERLAP_PENALTY_FLOOR,
-  SIGNAL_HORIZON_DAYS,
   SIGNAL_MAX_ANNUAL_VOL,
   SIGNAL_STRATEGY_MAX_FEE_RATIO,
   SIGNAL_STRATEGY_REDUNDANCY_PENALTY,
@@ -249,7 +249,9 @@ export class StrategiesService {
   /** One-line "why": expected value, probability, payoff geometry, indicators. */
   public buildRationale(c: StrategyCandidate): string {
     const conviction = this.computeConviction(c);
-    const weeks = Math.round(SIGNAL_HORIZON_DAYS / 5);
+    // The probability quoted alongside is a forecast over the real expected
+    // holding period, so label it with that — not the band-sizing window.
+    const months = Math.round(SIGNAL_FORECAST_HORIZON_DAYS / 21);
     const prob = Math.max(0, Math.min(1, c.reachProbability));
     const ev = this.expectedValue(c) * 100;
     const parts: string[] = [];
@@ -268,7 +270,7 @@ export class StrategiesService {
 
     parts.push(`conviction ${conviction}/100`);
     parts.push(
-      `EV ${ev >= 0 ? '+' : ''}${ev.toFixed(1)}% (${Math.round(prob * 100)}% × +${(c.targetGainPct * 100).toFixed(0)}% target vs ${Math.round((1 - prob) * 100)}% × −${(c.stopLossPct * 100).toFixed(0)}% stop, ~${weeks}wk, drift 0)`
+      `EV ${ev >= 0 ? '+' : ''}${ev.toFixed(1)}% (${Math.round(prob * 100)}% × +${(c.targetGainPct * 100).toFixed(0)}% target vs ${Math.round((1 - prob) * 100)}% × −${(c.stopLossPct * 100).toFixed(0)}% stop, ~${months}mo, drift 0)`
     );
 
     if (c.dropPct > 0.5) {

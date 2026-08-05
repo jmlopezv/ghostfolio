@@ -4,8 +4,41 @@ import {
   parseNordnetFundDetails,
   parseOrderbookIdFromScraperUrl,
   reconstructNavSeries,
-  restoreSwedishFundName
+  restoreSwedishFundName,
+  toTradingDayCloses
 } from './fund-history.service';
+
+describe('toTradingDayCloses', () => {
+  it('drops weekend rows and keeps weekdays in order', () => {
+    // 2026-08-03 is a Monday, so 08-08/08-09 are Sat/Sun.
+    const closes = [
+      { close: 1, date: '2026-08-03' },
+      { close: 2, date: '2026-08-04' },
+      { close: 3, date: '2026-08-05' },
+      { close: 4, date: '2026-08-06' },
+      { close: 5, date: '2026-08-07' },
+      { close: 6, date: '2026-08-08' }, // Saturday (forward-filled)
+      { close: 7, date: '2026-08-09' }, // Sunday (forward-filled)
+      { close: 8, date: '2026-08-10' }
+    ];
+
+    expect(toTradingDayCloses(closes)).toEqual([1, 2, 3, 4, 5, 8]);
+  });
+
+  it('is a no-op for a business-day-only series (MANUAL fund NAVs)', () => {
+    const closes = [
+      { close: 10, date: '2026-08-03' },
+      { close: 11, date: '2026-08-04' },
+      { close: 12, date: '2026-08-05' }
+    ];
+
+    expect(toTradingDayCloses(closes)).toEqual([10, 11, 12]);
+  });
+
+  it('returns an empty array for an empty input', () => {
+    expect(toTradingDayCloses([])).toEqual([]);
+  });
+});
 
 describe('parseNordnetFundDetails', () => {
   // Trimmed-down but structurally faithful fragment of a Nordnet fund page
@@ -248,19 +281,96 @@ describe('reconstructNavSeries', () => {
 });
 
 describe('computeSeriesMetrics', () => {
-  it('computes window returns from an ordered close series', () => {
-    // 300 days rising 0.1% per day.
-    const closes = Array.from({ length: 300 }, (_, i) => 100 * 1.001 ** i);
+  // Builds a dated, ascending, one-row-per-calendar-day series (mirroring
+  // real MarketData storage) of `count` days ending today, with prices from
+  // `priceAt(i)`.
+  function datedSeries(
+    count: number,
+    priceAt: (i: number) => number
+  ): { close: number; date: string }[] {
+    const now = new Date();
+
+    return Array.from({ length: count }, (_, i) => {
+      const daysAgo = count - 1 - i;
+      const date = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+
+      return { close: priceAt(i), date };
+    });
+  }
+
+  it('computes calendar-anchored period returns from a daily close series', () => {
+    // 400 calendar days, one row per day, rising 0.1%/day. Periods are
+    // anchored to real calendar-date cutoffs, NOT a fixed count of array
+    // elements (that was the bug - see the regression test below).
+    const closes = datedSeries(400, (i) => 100 * 1.001 ** i);
     const metrics = computeSeriesMetrics(closes);
 
-    expect(metrics.return1mPct).toBeCloseTo((1.001 ** 21 - 1) * 100, 1);
-    expect(metrics.return1yPct).toBeCloseTo((1.001 ** 252 - 1) * 100, 1);
+    expect(metrics.return1mPct).toBeCloseTo((1.001 ** 30 - 1) * 100, 0);
+    expect(metrics.return1yPct).toBeCloseTo((1.001 ** 365 - 1) * 100, 0);
     expect(metrics.maxDrawdownPct).toBeCloseTo(0, 4);
+  });
+
+  it('annualises volatility over trading days, ignoring forward-filled weekends', () => {
+    // Faithful to real MarketData: the price steps 0.1% on each weekday and
+    // is carried flat across Sat/Sun. Filtered to trading days every step is
+    // identical, so realised volatility is zero. If the weekend rows were
+    // left in, their zero returns would dilute the sample and this would come
+    // out clearly non-zero - which is exactly the ~17% understatement the
+    // filter exists to remove.
+    let weekdaysSoFar = 0;
+    let lastPrice = 100;
+
+    const closes = datedSeries(400, () => lastPrice).map((row) => {
+      const day = new Date(`${row.date}T00:00:00.000Z`).getUTCDay();
+
+      if (day >= 1 && day <= 5) {
+        weekdaysSoFar++;
+        lastPrice = 100 * 1.001 ** weekdaysSoFar;
+      }
+
+      return { close: lastPrice, date: row.date };
+    });
+
+    const metrics = computeSeriesMetrics(closes);
+
     expect(metrics.annualVolPct).toBeCloseTo(0, 1);
   });
 
+  it('regression: 1Y return matches the real reported LLY bug scenario', () => {
+    // Real numbers from the reported bug: a stock at 765.95 a year ago,
+    // rallying to 1115.68 today. The OLD "252 array elements back" logic
+    // landed on the close ~252 calendar days ago (1109.94) instead of the
+    // true 365-days-ago close, reporting +0.52% instead of the real +45.66%.
+    const closes = datedSeries(400, (i) => {
+      const daysAgo = 399 - i;
+
+      if (daysAgo === 365) {
+        return 765.95; // true 1-year-ago close
+      }
+
+      if (daysAgo === 252) {
+        return 1109.94; // where the old buggy index offset landed
+      }
+
+      if (daysAgo === 0) {
+        return 1115.68; // today
+      }
+
+      return 900; // filler - irrelevant to this assertion
+    });
+
+    const metrics = computeSeriesMetrics(closes);
+
+    expect(metrics.return1yPct).toBeCloseTo((1115.68 / 765.95 - 1) * 100, 1);
+    expect(metrics.return1yPct).not.toBeCloseTo(0.52, 1);
+  });
+
   it('returns nulls when history is too short for a window', () => {
-    const closes = Array.from({ length: 30 }, (_, i) => 100 + i);
+    // 45 calendar days: always long enough to cover any calendar month
+    // (max 31 days) but well short of 6M/1Y, regardless of the current date.
+    const closes = datedSeries(45, (i) => 100 + i);
     const metrics = computeSeriesMetrics(closes);
 
     expect(metrics.return1mPct).not.toBeNull();
@@ -269,12 +379,13 @@ describe('computeSeriesMetrics', () => {
   });
 
   it('measures the max drawdown of a peak-trough series', () => {
-    const closes = [
+    const prices = [
       ...Array.from({ length: 30 }, () => 100),
       120, // peak
       90, // trough: 25% off the peak
       100
     ];
+    const closes = datedSeries(prices.length, (i) => prices[i]);
     const metrics = computeSeriesMetrics(closes);
 
     expect(metrics.maxDrawdownPct).toBeCloseTo(25, 2);

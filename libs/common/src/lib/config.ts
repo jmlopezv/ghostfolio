@@ -272,21 +272,60 @@ export const SIGNAL_SELL_FEE_USD = 5;
 export const SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD = 1000;
 
 // Exit style. 'trailing' = the swing state machine (stop → take-profit → tight
-// trail). 'hold-with-stop' = let winners RUN: no take-profit, only a wide
-// peak-trailing stop that cuts losses and locks big gains. The backtest showed
-// the tight trailing capped winners and lost to buy-and-hold, so the default is
-// hold-with-stop; flip back to 'trailing' to revert.
+// trail). 'hold-with-stop' = no take-profit, only a wide peak-trailing stop.
+//
+// This previously defaulted to 'hold-with-stop' on the basis that "the
+// backtest showed the tight trailing capped winners and lost to buy-and-hold".
+// That backtest was not trustworthy: it ran with WARMUP = 50 (below the 252
+// bars SMA200/momentum12M need, so the trend and momentum terms were dropped
+// from every score), over a sliding 1-year window, on a calendar-day price
+// series that deflated volatility ~17% and therefore made the trailing band
+// ~17% tighter than intended — handicapping exactly the mode it rejected.
+//
+// Re-measured over 5 years and 331 watchlist symbols with those defects fixed
+// (see run-exit-mode-backtest.cjs), trailing wins decisively:
+//   trailing:       77% win rate, profit factor 4.10, median +28.9% (+6.3%/yr)
+//   hold-with-stop: 36% win rate, profit factor 1.07, median  −6.6% (−1.7%/yr)
+// The mechanism is that hold-with-stop has no stop-loss at all — at entry the
+// running peak IS the buy price, so a losing trade slides the full trail width
+// before exiting (106 stop-loss exits vs 46 for trailing).
+//
+// Caveat kept deliberately visible: the backtest evaluates levels on daily
+// CLOSES, while a real stop triggers intraday. Trailing's tighter band is more
+// exposed to gapping through a level than the wide fixed trail, so the live
+// gap should be expected to be narrower than the figures above.
 export type SignalExitMode = 'hold-with-stop' | 'trailing';
-export const SIGNAL_EXIT_MODE: SignalExitMode = 'hold-with-stop';
+export const SIGNAL_EXIT_MODE: SignalExitMode = 'trailing';
 // Width of the hold-with-stop trailing stop: exit when price falls this far
 // below the running peak (≈ give a winner room; cut a loser here too).
 export const SIGNAL_HOLD_TRAIL_PCT = 0.22;
 
-// Exit framework, tuned for a ~2-month (42 trading day) swing horizon (EOD
-// close-to-close vol). Every level uses band = dailyVolatility ×
-// √SIGNAL_HORIZON_DAYS as its unit. Also the forecast/reach-probability
-// horizon shown to the user, so the displayed text always matches the band.
+// Exit framework: every level uses band = dailyVolatility ×
+// √SIGNAL_HORIZON_DAYS as its unit (EOD close-to-close vol).
+//
+// This is a RISK-GEOMETRY unit, not a prediction of how long a position is
+// held — the two used to be conflated in one constant. Measured over 5 years
+// and 331 symbols, these 42-day bands produce an average holding period of
+// ~266 trading days (~12 months): the trail width is the input, the holding
+// period is the outcome. Widening this to "match" the observed 12 months
+// would be circular and would scale every level by √(252/42) = 2.45x —
+// turning a 16% trailing giveback into 40% and a 33% stop into 80%, i.e.
+// removing risk control rather than aligning it. Change this only on backtest
+// evidence that a different band width performs better.
 export const SIGNAL_HORIZON_DAYS = 42; // ~2 trading months (42 trading days)
+
+// How long a position is actually expected to be held. Used ONLY for the
+// forecast layer — reach-probability, the expected-move band, and the horizon
+// shown in signal text — never for sizing a stop, target or trail.
+//
+// Derived from measured behaviour (~266 trading days average hold under the
+// trailing exit mode), rounded to a trading year. Previously the forecast
+// reused SIGNAL_HORIZON_DAYS, so signals claimed "42 trading days / 8 weeks"
+// for trades that genuinely ran ~12 months, and the quoted probability of
+// reaching a target was computed over a window ~6x too short — systematically
+// pessimistic (e.g. 9% where the real figure over the true holding period is
+// ~29%).
+export const SIGNAL_FORECAST_HORIZON_DAYS = 252; // ~12 trading months
 // Take-profit never targets less than +13.4% over the fee-adjusted cost basis,
 // otherwise scales up with the stock's own expected move over the horizon.
 // Scaled from the old 8% (set for the 15-day horizon) by √(42/15) ≈ 1.673 so
@@ -313,6 +352,27 @@ export const SIGNAL_TRACKED_TRADE_LOOKBACK_DAYS = 45;
 // computeFreshLevels), so tracking always anchors to when you actually
 // bought, not an old, unrelated signal fire.
 export const SIGNAL_TRACKED_TRADE_MAX_MATCH_GAP_DAYS = 5;
+
+// Default lookback window when a new ticker is added to the watchlist — long
+// enough for longer-horizon indicators/charts, not just the signals engine's
+// own ~2-month lifetime.
+export const SIGNAL_WATCHLIST_HISTORY_YEARS = 5;
+
+// Trailing window for the realised-volatility estimate, in TRADING days (one
+// year). Pinned so that σ — and therefore every stop, target and trailing
+// band derived from it — does not silently shift when the history-fetch
+// window below is retuned.
+export const SIGNAL_VOLATILITY_LOOKBACK_DAYS = 252;
+
+// How much raw MarketData history to load for indicator evaluation, in
+// CALENDAR days (the table stores one row per calendar day). It must survive
+// the weekday filter with enough TRADING days left for the longest window any
+// indicator uses — momentum12M and sma200 need 252 — so this is sized as
+// 252 trading days ≈ 353 calendar days, plus headroom for holidays and gaps.
+// At 400 the margin was only ~34 sessions, and any gap silently nulled
+// sma200/momentum12M, dropping their terms from the composite score.
+export const SIGNAL_HISTORY_FETCH_DAYS = 520;
+
 // Once a tracked position's frozen take-profit is reached, it stops watching
 // the (now-stale) daily band and starts riding the trend, watched every 5 min
 // via intraday bars — reusing the same volatility-scaled trailing-stop shape

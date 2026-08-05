@@ -1,4 +1,7 @@
-import { SIGNAL_BUY_SIGMA_MULT } from '@ghostfolio/common/config';
+import {
+  SIGNAL_BUY_SIGMA_MULT,
+  SIGNAL_VOLATILITY_LOOKBACK_DAYS
+} from '@ghostfolio/common/config';
 
 import { Injectable } from '@nestjs/common';
 
@@ -241,9 +244,23 @@ export class IndicatorsService {
     return Math.sqrt(Math.max(0, varOvernight + k * varOpen + (1 - k) * varRs));
   }
 
-  /** Standard deviation of daily returns (daily volatility). */
+  /**
+   * Standard deviation of daily returns (daily volatility), measured over the
+   * trailing `SIGNAL_VOLATILITY_LOOKBACK_DAYS` observations.
+   *
+   * The lookback is pinned rather than "however long the caller's array
+   * happens to be": σ sets every stop, target and trailing band, so letting
+   * it drift with an unrelated fetch-window constant makes those levels move
+   * for reasons that have nothing to do with the market. Callers must pass a
+   * TRADING-day series (see toTradingDayCloses) for the √252 annualisation
+   * downstream to hold.
+   */
   public volatility(values: number[]): number {
-    const returns = this.logReturns(values);
+    const window =
+      values.length > SIGNAL_VOLATILITY_LOOKBACK_DAYS + 1
+        ? values.slice(-(SIGNAL_VOLATILITY_LOOKBACK_DAYS + 1))
+        : values;
+    const returns = this.logReturns(window);
 
     if (returns.length < 2) {
       return 0;

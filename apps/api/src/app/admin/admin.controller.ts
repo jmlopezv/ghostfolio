@@ -125,6 +125,26 @@ export class AdminController {
   }
 
   @HasPermission(permissions.accessAdminControl)
+  @Post('gather/watchlist')
+  @UseGuards(AuthGuard('jwt'), HasPermissionGuard)
+  public async gatherWatchlist(
+    @Query('range') dateRange: DateRange = '5y'
+  ): Promise<void> {
+    const { startDate } = getIntervalFromDateRange({ dateRange });
+
+    const assetProfileIdentifiers =
+      await this.dataGatheringService.getWatchlistAssetProfileIdentifiers();
+
+    await this.dataGatheringService.gatherSymbols({
+      dataGatheringItems: assetProfileIdentifiers.map((identifier) => {
+        return { ...identifier, date: startDate };
+      }),
+      force: true,
+      priority: DATA_GATHERING_QUEUE_PRIORITY_HIGH
+    });
+  }
+
+  @HasPermission(permissions.accessAdminControl)
   @Post('gather/profile-data')
   @UseGuards(AuthGuard('jwt'), HasPermissionGuard)
   public async gatherProfileData(): Promise<void> {

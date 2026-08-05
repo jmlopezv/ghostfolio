@@ -106,6 +106,38 @@ export function computeExcludedTrackingKeys(
 }
 
 /**
+ * Builds the `dataSource:symbol` keys of every position a real, still-OPEN
+ * tracked trade is watching.
+ *
+ * Used by SignalsService to suppress its own `evaluateExit` for those
+ * symbols, so a holding is never watched by two exit systems at once (this
+ * frozen-level tracker and the isActiveTrade state machine) each raising its
+ * own SELL at a different price.
+ *
+ * Only TRACKING and TRAILING are open. STOP_HIT and TRAILING_EXIT are
+ * finished trades and release the position back to the exit state machine.
+ */
+export function computeLiveTrackedKeys(
+  buyLogs: {
+    dataSource: string;
+    metrics: Prisma.JsonValue | null;
+    symbol: string;
+  }[]
+): Set<string> {
+  const keys = new Set<string>();
+
+  for (const log of buyLogs) {
+    const status = readTrackedMetrics(log.metrics)?.trackedStatus;
+
+    if (status === 'TRACKING' || status === 'TRAILING') {
+      keys.add(`${log.dataSource}:${log.symbol}`);
+    }
+  }
+
+  return keys;
+}
+
+/**
  * Tracks real BUY Orders the user placed after acting on an engine signal,
  * independent of the isActiveTrade-gated dynamic exit machine (evaluateExit).
  * Frozen at signal-time: the stop/target watched here are exactly what the

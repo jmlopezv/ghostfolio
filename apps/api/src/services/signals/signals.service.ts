@@ -15,7 +15,9 @@ import { ForecastService } from '@ghostfolio/api/services/signals/forecast.servi
 import { FundDataService } from '@ghostfolio/api/services/signals/fund-data.service';
 import {
   computeSeriesMetrics,
-  FundHistoryService
+  DatedClose,
+  FundHistoryService,
+  toTradingDayCloses
 } from '@ghostfolio/api/services/signals/fund-history.service';
 import { FundamentalsService } from '@ghostfolio/api/services/signals/fundamentals.service';
 import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
@@ -29,6 +31,7 @@ import {
   ScreeningService
 } from '@ghostfolio/api/services/signals/screening.service';
 import {
+  computeLiveTrackedKeys,
   readTrackedMetrics,
   SignalTradeTrackingService
 } from '@ghostfolio/api/services/signals/signal-trade-tracking.service';
@@ -54,6 +57,8 @@ import {
   SIGNAL_DEFAULT_BUY_DROP_PCT,
   SIGNAL_DEFAULT_CASH_THRESHOLD,
   SIGNAL_DEFAULT_TAKE_PROFIT_PCT,
+  SIGNAL_FORECAST_HORIZON_DAYS,
+  SIGNAL_HISTORY_FETCH_DAYS,
   SIGNAL_HORIZON_DAYS,
   SIGNAL_INDEX_RATIO,
   SIGNAL_NEWS_BUY_FLOOR,
@@ -688,7 +693,7 @@ export class SignalsService implements OnApplicationBootstrap {
           0,
         maxDrawdownPct: series.maxDrawdownPct ?? undefined,
         name: fund.name,
-        nav: closes[closes.length - 1],
+        nav: closes[closes.length - 1]?.close,
         owners: fundFacts?.owners,
         rating: fundFacts?.rating,
         return1mPct:
@@ -1088,12 +1093,14 @@ export class SignalsService implements OnApplicationBootstrap {
   ): Promise<SignalsComputation> {
     const baseCurrency = await this.getUserCurrency(userId);
 
-    const [configs, universe, cashBalance, states] = await Promise.all([
-      this.getSignalConfigs(userId),
-      this.getUniverse(userId, baseCurrency),
-      this.getCashBalance(userId, baseCurrency),
-      this.prismaService.signalState.findMany({ where: { userId } })
-    ]);
+    const [configs, universe, cashBalance, states, liveTrackedKeys] =
+      await Promise.all([
+        this.getSignalConfigs(userId),
+        this.getUniverse(userId, baseCurrency),
+        this.getCashBalance(userId, baseCurrency),
+        this.prismaService.signalState.findMany({ where: { userId } }),
+        this.getLiveTrackedKeys(userId)
+      ]);
 
     const priorTrailingByKey = new Map(
       states.map((state) => [state.key, state.trailingPeak ?? null])
@@ -1199,7 +1206,11 @@ export class SignalsService implements OnApplicationBootstrap {
       }
 
       const key = `${entry.dataSource}:${entry.symbol}`;
-      const closes = historyBySymbol[entry.symbol] ?? [];
+      // Trading days only: every window below (sma50/200, rsi14, macd,
+      // bollinger20, momentum, the 30-day high) counts array elements, so
+      // forward-filled weekend rows would shrink each one to ~5/7 of the
+      // sessions it names and deflate σ by √(5/7).
+      const closes = toTradingDayCloses(historyBySymbol[entry.symbol] ?? []);
       const config = this.resolveConfig(configs, entry);
 
       // News sentiment only gates potential BUYs (not active-trade exits). Fetch
@@ -1251,6 +1262,7 @@ export class SignalsService implements OnApplicationBootstrap {
         config,
         entry,
         fundamentalsScore,
+        isTrackedLive: liveTrackedKeys.has(key),
         livePrice,
         newsScore,
         priorTrailingPeak: priorTrailingByKey.get(key) ?? null,
@@ -2177,7 +2189,9 @@ export class SignalsService implements OnApplicationBootstrap {
         continue;
       }
 
-      const closes = historyBySymbol[entry.symbol] ?? [];
+      // Trading days only, so computeChanges' "5 bars back" is a real
+      // trading week rather than ~3.5 sessions.
+      const closes = toTradingDayCloses(historyBySymbol[entry.symbol] ?? []);
       const { dayChangePct, weekChangePct } = this.computeChanges(
         closes,
         livePrice
@@ -2317,6 +2331,7 @@ export class SignalsService implements OnApplicationBootstrap {
     config,
     entry,
     fundamentalsScore = null,
+    isTrackedLive = false,
     livePrice,
     newsScore = null,
     priorTrailingPeak,
@@ -2330,6 +2345,8 @@ export class SignalsService implements OnApplicationBootstrap {
     config: SignalConfigResolved;
     entry: UniverseItem;
     fundamentalsScore?: number | null;
+    /** A real, still-open tracked trade already owns this position's exit. */
+    isTrackedLive?: boolean;
     livePrice: number;
     newsScore?: number | null;
     priorTrailingPeak: number | null;
@@ -2373,7 +2390,19 @@ export class SignalsService implements OnApplicationBootstrap {
     // Active trades are managed entirely by the exit state machine (stop-loss /
     // horizon take-profit / trailing). Core (non-active-trade) holdings skip
     // this and may still surface a dip-buy below.
-    if (entry.owned && config.isActiveTrade && entry.averageBuyPrice) {
+    //
+    // A position with a live tracked trade is deliberately excluded: that
+    // system already owns the exit, anchored to the real fill price (see
+    // getLiveTrackedKeys). Without this guard both would watch the same
+    // holding with different levels and each raise its own SELL. Skipping
+    // here makes the position behave like any other tracked holding — no
+    // engine-side exit, still eligible for a dip-buy below.
+    if (
+      entry.owned &&
+      config.isActiveTrade &&
+      entry.averageBuyPrice &&
+      !isTrackedLive
+    ) {
       return this.evaluateExit({
         base,
         closes,
@@ -2421,13 +2450,16 @@ export class SignalsService implements OnApplicationBootstrap {
     // Analytic TERMINAL probability of reaching the upside target over the
     // horizon — drift = 0 (the drift problem), so it is honest and comparable
     // across the whole universe. Cheap enough to compute for every stock.
+    // Evaluated over the real expected HOLDING period, not the band-sizing
+    // window: the target is a price level, and the honest question is whether
+    // it is reached in the time the position is actually held.
     const returns = this.indicatorsService.logReturns(closes);
     const reachProbability =
       returns.length >= 2
         ? this.forecastService.reachProbability({
             dailyDrift: 0,
             dailyVolatility: this.forecastService.ewmaVolatility(returns),
-            horizonDays: SIGNAL_HORIZON_DAYS,
+            horizonDays: SIGNAL_FORECAST_HORIZON_DAYS,
             price: livePrice,
             target: livePrice * (1 + targetGainPct)
           })
@@ -2857,17 +2889,19 @@ export class SignalsService implements OnApplicationBootstrap {
     // We also use the analytic TERMINAL probability everywhere (P[end >= target])
     // — never the Monte-Carlo touch probability — so signals and strategies are
     // directly comparable.
+    // Both are forecast outputs shown to the user, so both run over the real
+    // expected holding period rather than the band-sizing window.
     return {
       forecastBand: this.forecastService.expectedMoveBand({
         dailyDrift: 0,
         dailyVolatility,
-        horizonDays: SIGNAL_HORIZON_DAYS,
+        horizonDays: SIGNAL_FORECAST_HORIZON_DAYS,
         price: livePrice
       }),
       hitTargetProbability: this.forecastService.reachProbability({
         dailyDrift: 0,
         dailyVolatility,
-        horizonDays: SIGNAL_HORIZON_DAYS,
+        horizonDays: SIGNAL_FORECAST_HORIZON_DAYS,
         price: livePrice,
         target
       })
@@ -3108,7 +3142,11 @@ export class SignalsService implements OnApplicationBootstrap {
 
     for (const { symbol } of items) {
       const livePrice = quotes[symbol]?.marketPrice;
-      const closes = historyBySymbol[symbol] ?? [];
+      const datedCloses = historyBySymbol[symbol] ?? [];
+      // Trading days only for the indicator pipeline (SMA/RSI/MACD/σ); the
+      // dated series still feeds computeSeriesMetrics, which is date-anchored
+      // and handles its own filtering.
+      const closes = toTradingDayCloses(datedCloses);
 
       if (!livePrice || closes.length === 0) {
         continue;
@@ -3121,7 +3159,7 @@ export class SignalsService implements OnApplicationBootstrap {
       // Trailing returns: for MANUAL funds prefer Nordnet's official published
       // period returns (complete + authoritative; local NAV history only
       // accumulates forward), else compute from accumulated close history.
-      const series = computeSeriesMetrics(closes);
+      const series = computeSeriesMetrics(datedCloses);
       const dev = fundFacts[symbol]?.developments;
       const pick = (official: number | undefined, computed: number | null) =>
         official ?? computed ?? undefined;
@@ -3148,12 +3186,14 @@ export class SignalsService implements OnApplicationBootstrap {
       const stopLossPct = SIGNAL_STOP_VOL_MULT * band;
 
       const returns = this.indicatorsService.logReturns(closes);
+      // Band above sizes the levels; the probability of reaching them is a
+      // forecast, so it runs over the real expected holding period.
       const reachProbability =
         returns.length >= 2
           ? this.forecastService.reachProbability({
               dailyDrift: 0,
               dailyVolatility: this.forecastService.ewmaVolatility(returns),
-              horizonDays: SIGNAL_HORIZON_DAYS,
+              horizonDays: SIGNAL_FORECAST_HORIZON_DAYS,
               price: livePrice,
               target: livePrice * (1 + targetGainPct)
             })
@@ -3212,19 +3252,46 @@ export class SignalsService implements OnApplicationBootstrap {
     return result;
   }
 
+  /**
+   * `dataSource:symbol` keys for positions a real, still-open tracked trade is
+   * already watching (see SignalTradeTrackingService).
+   *
+   * Two independent exit systems can otherwise watch the same holding: this
+   * service's `evaluateExit` (for `isActiveTrade` positions) and the tracked
+   * path, which freezes a stop/target against the REAL fill price at purchase
+   * and then trails it on 5-minute bars. They use different levels and would
+   * each raise their own SELL alert for the same position. The tracked entry
+   * wins because it is anchored to the price actually paid and sizes its bands
+   * from Yang-Zhang OHLC volatility rather than close-to-close.
+   *
+   * Only TRACKING/TRAILING count as live; STOP_HIT and TRAILING_EXIT are
+   * finished trades and release the position back to the exit state machine.
+   */
+  private async getLiveTrackedKeys(userId: string): Promise<Set<string>> {
+    return computeLiveTrackedKeys(
+      await this.prismaService.signalLog.findMany({
+        select: { dataSource: true, metrics: true, symbol: true },
+        where: { category: 'BUY', userId }
+      })
+    );
+  }
+
   private async getHistory(
     items: { dataSource: DataSource; symbol: string }[]
-  ): Promise<{ [symbol: string]: number[] }> {
+  ): Promise<{ [symbol: string]: DatedClose[] }> {
     const marketData = await this.marketDataService.getRange({
       assetProfileIdentifiers: items,
-      dateQuery: { gte: subDays(new Date(), 400) }
+      dateQuery: { gte: subDays(new Date(), SIGNAL_HISTORY_FETCH_DAYS) }
     });
 
-    const bySymbol: { [symbol: string]: number[] } = {};
+    const bySymbol: { [symbol: string]: DatedClose[] } = {};
 
     // getRange returns rows ordered by date asc, so pushed closes stay ordered.
     for (const row of marketData) {
-      (bySymbol[row.symbol] ??= []).push(row.marketPrice);
+      (bySymbol[row.symbol] ??= []).push({
+        close: row.marketPrice,
+        date: row.date.toISOString().slice(0, 10)
+      });
     }
 
     return bySymbol;
@@ -3308,7 +3375,7 @@ export class SignalsService implements OnApplicationBootstrap {
 
       if (signal.hitTargetProbability !== undefined) {
         details.push(
-          `~${Math.round(signal.hitTargetProbability * 100)}% chance of hitting target in ${SIGNAL_HORIZON_DAYS} trading days`
+          `~${Math.round(signal.hitTargetProbability * 100)}% chance of hitting target in ${SIGNAL_FORECAST_HORIZON_DAYS} trading days`
         );
       }
 

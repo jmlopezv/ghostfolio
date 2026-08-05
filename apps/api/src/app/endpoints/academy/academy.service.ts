@@ -1,9 +1,11 @@
 import { MarketDataService } from '@ghostfolio/api/services/market-data/market-data.service';
 import { NewsSentimentService } from '@ghostfolio/api/services/news-sentiment/news-sentiment.service';
 import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
+import { toTradingDayCloses } from '@ghostfolio/api/services/signals/fund-history.service';
 import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
 import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
 import { findAcademyLesson } from '@ghostfolio/common/academy-curriculum';
+import { SIGNAL_HISTORY_FETCH_DAYS } from '@ghostfolio/common/config';
 import {
   AcademyExampleResponse,
   AcademyMarketPulseResponse,
@@ -126,7 +128,7 @@ export class AcademyService {
   ): Promise<AcademyExampleResponse> {
     const marketData = await this.marketDataService.getRange({
       assetProfileIdentifiers: [{ dataSource, symbol }],
-      dateQuery: { gte: subDays(new Date(), 400) }
+      dateQuery: { gte: subDays(new Date(), SIGNAL_HISTORY_FETCH_DAYS) }
     });
 
     if (marketData.length === 0) {
@@ -139,7 +141,14 @@ export class AcademyService {
       date: format(date, 'yyyy-MM-dd'),
       price: marketPrice
     }));
-    const prices = marketData.map(({ marketPrice }) => marketPrice);
+    // Trading days only, so a lesson's example shows the same indicator
+    // values the live engine would compute (see toTradingDayCloses).
+    const prices = toTradingDayCloses(
+      marketData.map(({ date, marketPrice }) => ({
+        close: marketPrice,
+        date: format(date, 'yyyy-MM-dd')
+      }))
+    );
 
     const snapshot = this.indicatorsService.computeSnapshot(prices);
     const score = this.indicatorsService.computeScore(snapshot);

@@ -363,6 +363,23 @@ export class DataGatheringService {
     });
   }
 
+  public async getWatchlistAssetProfileIdentifiers(): Promise<
+    AssetProfileIdentifier[]
+  > {
+    return this.prismaService.symbolProfile.findMany({
+      orderBy: [{ symbol: 'asc' }, { dataSource: 'asc' }],
+      select: {
+        dataSource: true,
+        symbol: true
+      },
+      where: {
+        watchedBy: {
+          some: {}
+        }
+      }
+    });
+  }
+
   /**
    * A symbol only counts as "complete" (safe to skip gathering) when BOTH:
    * - its most recent CLOSE is fresh (tolerant of weekends/a holiday Monday)

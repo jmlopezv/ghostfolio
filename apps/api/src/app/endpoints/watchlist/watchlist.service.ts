@@ -4,11 +4,12 @@ import { MarketDataService } from '@ghostfolio/api/services/market-data/market-d
 import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
 import { DataGatheringService } from '@ghostfolio/api/services/queues/data-gathering/data-gathering.service';
 import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
+import { SIGNAL_WATCHLIST_HISTORY_YEARS } from '@ghostfolio/common/config';
 import { WatchlistResponse } from '@ghostfolio/common/interfaces';
 
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource, Prisma } from '@prisma/client';
-import { subDays } from 'date-fns';
+import { subYears } from 'date-fns';
 
 @Injectable()
 export class WatchlistService {
@@ -52,14 +53,15 @@ export class WatchlistService {
       );
     }
 
-    // Explicit 1-year floor: gatherSymbol otherwise falls back to this
+    // Explicit 5-year floor: gatherSymbol otherwise falls back to this
     // symbol's own first activity date (or a global earliest-order date),
     // which for a freshly-watchlisted, not-yet-held symbol can resolve to
-    // just a few days ago - too short for SMA200/momentum12M to compute.
+    // just a few days ago - too short for SMA200/momentum12M to compute, and
+    // too short for longer-horizon charts/indicators generally.
     await this.dataGatheringService.gatherSymbol({
       dataSource,
       symbol,
-      date: subDays(new Date(), 365)
+      date: subYears(new Date(), SIGNAL_WATCHLIST_HISTORY_YEARS)
     });
 
     await this.prismaService.user.update({

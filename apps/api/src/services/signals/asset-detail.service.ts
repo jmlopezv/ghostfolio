@@ -7,6 +7,7 @@ import {
   FundHistoryService
 } from '@ghostfolio/api/services/signals/fund-history.service';
 import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
+import { SIGNAL_HISTORY_FETCH_DAYS } from '@ghostfolio/common/config';
 import {
   AssetDetailResponse,
   AssetHolding,
@@ -621,21 +622,27 @@ export class AssetDetailService {
     try {
       const marketData = await this.marketDataService.getRange({
         assetProfileIdentifiers: [{ dataSource, symbol }],
-        dateQuery: { gte: subDays(new Date(), 400) }
+        dateQuery: { gte: subDays(new Date(), SIGNAL_HISTORY_FETCH_DAYS) }
       });
 
-      const closes = marketData.map((row) => row.marketPrice);
+      const closes = marketData.map((row) => {
+        return {
+          close: row.marketPrice,
+          date: row.date.toISOString().slice(0, 10)
+        };
+      });
 
       if (closes.length < 2) {
         return [];
       }
 
       const metrics = computeSeriesMetrics(closes);
-      const previous = closes[closes.length - 2];
+      const previous = closes[closes.length - 2].close;
       const oneDayPct =
         previous > 0
-          ? Math.round((closes[closes.length - 1] / previous - 1) * 100 * 100) /
-            100
+          ? Math.round(
+              (closes[closes.length - 1].close / previous - 1) * 100 * 100
+            ) / 100
           : null;
 
       const results: AssetPeriodReturn[] = [];

@@ -154,5 +154,27 @@ describe('ForecastService', () => {
 
       expect(p).toBeCloseTo(0.5, 1);
     });
+
+    // Why SIGNAL_FORECAST_HORIZON_DAYS is separate from SIGNAL_HORIZON_DAYS:
+    // an up-target gets likelier the longer it has to be reached, so quoting
+    // the probability over the band-sizing window (42d) rather than the real
+    // holding period (~252d) understated it roughly threefold.
+    it('rises with the horizon for the same up-target', () => {
+      const forHorizon = (horizonDays: number) =>
+        service.reachProbability({
+          dailyDrift: 0,
+          dailyVolatility: 0.025,
+          horizonDays,
+          price: 100,
+          target: 125
+        });
+
+      const bandWindow = forHorizon(42);
+      const holdingPeriod = forHorizon(252);
+
+      expect(holdingPeriod).toBeGreaterThan(bandWindow);
+      expect(bandWindow).toBeLessThan(0.15);
+      expect(holdingPeriod).toBeGreaterThan(0.25);
+    });
   });
 });

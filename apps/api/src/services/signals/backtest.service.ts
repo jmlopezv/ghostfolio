@@ -32,8 +32,13 @@ import { format, subYears } from 'date-fns';
  */
 @Injectable()
 export class BacktestService {
-  // Minimum observations before the indicators (incl. SMA200) are meaningful.
-  private static readonly WARMUP = 50;
+  // Minimum observations before the indicators are meaningful. Must clear the
+  // longest window any indicator uses - SMA200 and momentum12M both need 252
+  // bars, so anything below that silently yields `null` for those terms and
+  // `computeScore` renormalises them away (and `isDowntrend` returns false),
+  // i.e. the scorer under test is not the scorer that runs live. The previous
+  // value of 50 did exactly that for the first ~200 bars of every run.
+  private static readonly WARMUP = 252;
 
   public constructor(
     private readonly indicatorsService: IndicatorsService,
@@ -96,7 +101,8 @@ export class BacktestService {
     series,
     slippageBps = SIGNAL_BACKTEST_SLIPPAGE_BPS,
     symbol,
-    takeProfitPct
+    takeProfitPct,
+    warmupBars = BacktestService.WARMUP
   }: {
     buyDropPct: number;
     buySigmaMult?: number;
@@ -107,20 +113,34 @@ export class BacktestService {
     slippageBps?: number;
     symbol: string;
     takeProfitPct: number;
+    /**
+     * Bars to skip before trading starts. Exposed so two runs over series of
+     * different bar density (e.g. calendar-day vs trading-day) can be made to
+     * begin on the same calendar date, which is what makes them comparable.
+     */
+    warmupBars?: number;
   }): BacktestResult {
-    const closes = series.map(({ marketPrice }) => marketPrice);
+    // Trading days only, so the replayed indicator windows match the live
+    // engine's and `years = bars / 252` below is a real year count.
+    const tradingDaySeries = series.filter(({ date }) => {
+      const day = date.getUTCDay();
+
+      return day >= 1 && day <= 5;
+    });
+    const closes = tradingDaySeries.map(({ marketPrice }) => marketPrice);
     const { entryIndices, equityCurve, openAtEnd, trades } = this.simulate({
       buyDropPct,
       buySigmaMult,
       closes,
       exitMode,
       positionSize,
-      series,
+      series: tradingDaySeries,
       slippageBps,
-      takeProfitPct
+      takeProfitPct,
+      warmupBars
     });
 
-    const start = BacktestService.WARMUP;
+    const start = warmupBars;
     const tradingDays = Math.max(0, closes.length - start);
     // Out-of-sample = the held-out last 30% of the tradeable window.
     const splitIndex = start + Math.floor(tradingDays * 0.7);
@@ -144,6 +164,9 @@ export class BacktestService {
     );
 
     const exposureBars = trades.reduce((s, t) => s + t.holdingDays, 0);
+    // Valid because the series was filtered to trading days above; on the raw
+    // calendar-day MarketData series (~365 bars/yr) this overstated elapsed
+    // years by ~1.45x and correspondingly deflated the CAGR.
     const years = tradingDays > 0 ? tradingDays / 252 : 0;
     const cagrPct =
       years > 0
@@ -217,7 +240,8 @@ export class BacktestService {
     positionSize,
     series,
     slippageBps,
-    takeProfitPct
+    takeProfitPct,
+    warmupBars
   }: {
     buyDropPct: number;
     buySigmaMult: number;
@@ -227,6 +251,7 @@ export class BacktestService {
     series: { date: Date; marketPrice: number }[];
     slippageBps: number;
     takeProfitPct: number;
+    warmupBars: number;
   }): {
     entryIndices: number[];
     equityCurve: number[];
@@ -272,7 +297,7 @@ export class BacktestService {
       trailingPeak = null;
     };
 
-    for (let i = BacktestService.WARMUP; i < series.length; i++) {
+    for (let i = warmupBars; i < series.length; i++) {
       const price = closes[i];
       const window = closes.slice(0, i + 1);
       const snapshot = this.indicatorsService.computeSnapshot(window);

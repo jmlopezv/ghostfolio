@@ -6,7 +6,13 @@ import { nordnetUrlForName } from '@ghostfolio/common/nordnet-fund-urls';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { AssetSubClass, DataSource } from '@prisma/client';
-import { differenceInCalendarDays, subDays } from 'date-fns';
+import {
+  differenceInCalendarDays,
+  subDays,
+  subMonths,
+  subWeeks,
+  subYears
+} from 'date-fns';
 
 const NORDNET_BASE_URL = 'https://www.nordnet.se';
 // Nordnet's public price-time-series CDN (the fund chart's own data source).
@@ -405,11 +411,71 @@ export function reconstructNavSeries(
   return rows;
 }
 
+export interface DatedClose {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  close: number;
+}
+
 /**
- * Return/vol/drawdown metrics from an ordered (oldest-first) daily close
- * series. Fields are null when there is not enough history for the window.
+ * Flattens a dated series to the bare close prices the indicator engine
+ * consumes, dropping weekend rows first.
+ *
+ * `MarketData` stores one row per CALENDAR day: DataGatheringProcessor walks
+ * `addDays(currentDate, 1)` with no weekday check and carries the last known
+ * price forward, so Saturday and Sunday hold Friday's close and are written
+ * `state: 'CLOSE'`, indistinguishable from a real session. Every window in
+ * IndicatorsService is a bare array-index count whose name means TRADING days
+ * (sma 50/200, rsi 14, macd 12/26/9, bollinger 20, momentum 63/252,
+ * highestClose 30), so on a raw calendar series each one silently spans ~5/7
+ * of the sessions it claims — sma200 becomes a ~138-session average — and
+ * daily volatility is deflated by √(5/7) ≈ 0.845 (measured, not assumed:
+ * AAPL/LLY/MSFT/NVDA/TSLA all land on 0.845 to four digits), which propagates
+ * into every stop, target and reach-probability.
+ *
+ * Filtering by weekday is deliberate over any price-equality heuristic: it is
+ * deterministic, symbol-independent, and cannot discard a genuine flat close.
+ * ~9 market holidays a year survive as zero-return weekday rows, leaving a
+ * residual ~1.7% volatility understatement instead of ~17%.
+ *
+ * MANUAL fund NAV series are already business-day-only (FundHistoryService
+ * writes one row per published point, no forward-fill), so this is a no-op
+ * for them — both sources end up at the same ~252/yr density.
  */
-export function computeSeriesMetrics(closes: number[]): {
+export function toTradingDayCloses(closes: DatedClose[]): number[] {
+  return closes
+    .filter(({ date }) => {
+      const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+
+      return day >= 1 && day <= 5;
+    })
+    .map(({ close }) => close);
+}
+
+/**
+ * Return/vol/drawdown metrics from an ordered (oldest-first), dated daily
+ * close series. Fields are null when there is not enough history for the
+ * window.
+ *
+ * Period returns (1W/1M/3M/6M/1Y) are anchored to real calendar-date cutoffs
+ * — NOT a fixed count of array elements. `MarketData` stores one row per
+ * CALENDAR day (weekends/holidays are forward-filled by
+ * DataGatheringProcessor), so a fixed "252 elements back" for "1Y" would only
+ * reach ~8.3 calendar months, not 12 (this was a real bug: LLY's 1Y return
+ * showed +0.52% instead of the true ~+45% because "252 back" landed on a date
+ * only 3.5 months prior). Each period walks the series and keeps the LAST
+ * point with `date <= cutoff` — the closest available price at or before the
+ * cutoff, same convention as computeTrailingPriceReturns in
+ * simulation-performance.ts.
+ *
+ * maxDrawdownPct is unaffected by calendar spacing — a peak-to-trough
+ * extreme does not care how the days in between are spaced. annualVolPct DOES
+ * care: it scales a daily σ by √252, which is only right if there are ~252
+ * observations per year, so it is computed off the weekday-filtered series
+ * (see toTradingDayCloses). Without that, the forward-filled weekend zeros
+ * dilute the sample and understate annualised volatility by ~17%.
+ */
+export function computeSeriesMetrics(closes: DatedClose[]): {
   annualVolPct: number | null;
   maxDrawdownPct: number | null;
   return1mPct: number | null;
@@ -418,25 +484,45 @@ export function computeSeriesMetrics(closes: number[]): {
   return3mPct: number | null;
   return6mPct: number | null;
 } {
-  const windowReturn = (tradingDays: number) => {
-    if (closes.length <= tradingDays) {
+  const prices = closes.map((point) => point.close);
+  // √252 annualisation is only valid on ~252 observations/year, so volatility
+  // uses the weekday-filtered series; maxDrawdown can use every row.
+  const tradingDayPrices = toTradingDayCloses(closes);
+
+  const periodReturn = (cutoff: Date) => {
+    if (closes.length === 0) {
       return null;
     }
 
-    const start = closes[closes.length - 1 - tradingDays];
-    const end = closes[closes.length - 1];
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
 
-    return start > 0 ? (end / start - 1) * 100 : null;
+    if (closes[0].date > cutoffStr) {
+      return null; // not enough history for this period
+    }
+
+    let past = closes[0];
+
+    for (const point of closes) {
+      if (point.date > cutoffStr) {
+        break;
+      }
+
+      past = point;
+    }
+
+    const last = closes[closes.length - 1].close;
+
+    return past.close > 0 ? (last / past.close - 1) * 100 : null;
   };
 
   let annualVolPct: number | null = null;
 
-  if (closes.length >= 20) {
+  if (tradingDayPrices.length >= 20) {
     const returns: number[] = [];
 
-    for (let i = 1; i < closes.length; i++) {
-      if (closes[i - 1] > 0) {
-        returns.push(Math.log(closes[i] / closes[i - 1]));
+    for (let i = 1; i < tradingDayPrices.length; i++) {
+      if (tradingDayPrices[i - 1] > 0) {
+        returns.push(Math.log(tradingDayPrices[i] / tradingDayPrices[i - 1]));
       }
     }
 
@@ -450,11 +536,11 @@ export function computeSeriesMetrics(closes: number[]): {
 
   let maxDrawdownPct: number | null = null;
 
-  if (closes.length >= 20) {
-    let peak = closes[0];
+  if (prices.length >= 20) {
+    let peak = prices[0];
     let maxDrawdown = 0;
 
-    for (const close of closes) {
+    for (const close of prices) {
       peak = Math.max(peak, close);
 
       if (peak > 0) {
@@ -468,14 +554,16 @@ export function computeSeriesMetrics(closes: number[]): {
   const round2 = (value: number | null) =>
     value === null ? null : Math.round(value * 100) / 100;
 
+  const now = new Date();
+
   return {
     annualVolPct,
     maxDrawdownPct,
-    return1mPct: round2(windowReturn(21)),
-    return1wPct: round2(windowReturn(5)),
-    return1yPct: round2(windowReturn(252)),
-    return3mPct: round2(windowReturn(63)),
-    return6mPct: round2(windowReturn(126))
+    return1mPct: round2(periodReturn(subMonths(now, 1))),
+    return1wPct: round2(periodReturn(subWeeks(now, 1))),
+    return1yPct: round2(periodReturn(subYears(now, 1))),
+    return3mPct: round2(periodReturn(subMonths(now, 3))),
+    return6mPct: round2(periodReturn(subMonths(now, 6)))
   };
 }
 

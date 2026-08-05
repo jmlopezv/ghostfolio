@@ -71,6 +71,100 @@ describe('IndicatorsService', () => {
       expect(score).toBeGreaterThanOrEqual(0);
       expect(score).toBeLessThanOrEqual(100);
     });
+
+    // Pins the actual weighting (bollinger .30, rsi .25, macd .15,
+    // trend .15, momentum .15) rather than just a 0-100 bound, so a change
+    // to any weight or threshold fails loudly instead of silently reshaping
+    // which names clear SIGNAL_BUY_SCORE_MIN.
+    it('applies the documented weights to a known snapshot', () => {
+      const snapshot = {
+        bollinger: { lower: 90, middle: 100, pctB: 0.2, upper: 110 },
+        macd: { histogram: 1, macd: 0, signal: 0 },
+        momentum3M: 0.1,
+        momentum12M: 0.2,
+        price: 120,
+        rsi: 40,
+        sma50: 110,
+        sma200: 100,
+        volatility: 0.02
+      };
+
+      // 0.25*(100-40) + 0.30*(1-0.2)*100 + 0.15*100 (histogram >= 0)
+      //   + 0.15*100 (price >= sma200) + 0.15*100 (momentum12M >= 0) = 84
+      expect(service.computeScore(snapshot)).toBe(84);
+    });
+
+    it('renormalises when indicators are missing rather than scoring 0', () => {
+      const snapshot = {
+        bollinger: { lower: null, middle: null, pctB: null, upper: null },
+        macd: { histogram: null, macd: null, signal: null },
+        momentum3M: null,
+        momentum12M: null,
+        price: 120,
+        rsi: 40,
+        sma50: null,
+        sma200: null,
+        volatility: 0.02
+      } as unknown as Parameters<typeof service.computeScore>[0];
+
+      // Only RSI contributes: (0.25 * 60) / 0.25 = 60, not 15.
+      expect(service.computeScore(snapshot)).toBe(60);
+    });
+  });
+
+  describe('volatility', () => {
+    it('is deflated by forward-filled weekend rows (the calendar-day bug)', () => {
+      // Alternating +2%/-2% on trading days.
+      const tradingDays: number[] = [100];
+
+      for (let i = 1; i < 200; i++) {
+        tradingDays.push(tradingDays[i - 1] * (i % 2 === 0 ? 1.02 : 0.98));
+      }
+
+      // The same path with two flat (forward-filled) days after every five,
+      // exactly how MarketData stores weekends.
+      const withWeekends: number[] = [];
+
+      for (let i = 0; i < tradingDays.length; i++) {
+        withWeekends.push(tradingDays[i]);
+
+        if (i % 5 === 4) {
+          withWeekends.push(tradingDays[i], tradingDays[i]);
+        }
+      }
+
+      const clean = service.volatility(tradingDays);
+      const polluted = service.volatility(withWeekends);
+
+      // Zero-return days dilute the sample by sqrt(5/7) ~ 0.845.
+      expect(polluted / clean).toBeCloseTo(Math.sqrt(5 / 7), 2);
+      expect(polluted).toBeLessThan(clean);
+    });
+
+    it('is pinned to its lookback, not the length of the array it is given', () => {
+      const rng = (seed: number) => {
+        let x = seed;
+
+        return () => {
+          x = (x * 1103515245 + 12345) % 2147483648;
+
+          return x / 2147483648;
+        };
+      };
+      const next = rng(42);
+      const long: number[] = [100];
+
+      for (let i = 1; i < 900; i++) {
+        long.push(long[i - 1] * (1 + (next() - 0.5) * 0.04));
+      }
+
+      // Same trailing 252 observations -> same sigma, regardless of how much
+      // older history is prepended (see SIGNAL_VOLATILITY_LOOKBACK_DAYS).
+      expect(service.volatility(long)).toBeCloseTo(
+        service.volatility(long.slice(-253)),
+        10
+      );
+    });
   });
 
   describe('adaptiveTakeProfitLevel', () => {
