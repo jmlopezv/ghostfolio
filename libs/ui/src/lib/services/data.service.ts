@@ -58,6 +58,7 @@ import {
   PortfolioReportResponse,
   PublicPortfolioResponse,
   SignalLogResponse,
+  ShortlistResponse,
   SimulationResponse,
   SymbolItem,
   TradingSignalsResponse,
@@ -837,6 +838,39 @@ export class DataService {
   public fetchWatchlistMetrics() {
     return this.http.get<Record<string, WatchlistMetric>>(
       '/api/v1/signals/watchlist-metrics'
+    );
+  }
+
+  public fetchShortlist() {
+    return this.http.get<ShortlistResponse>('/api/v1/signals/shortlist');
+  }
+
+  /**
+   * Sends the Trend Template shortlist now, returning how many names went out.
+   *
+   * The count matters as much as the send: an empty shortlist and a broken one
+   * are otherwise indistinguishable from the outside.
+   */
+  public sendShortlist() {
+    return this.http.post<{ sent: number; status: string }>(
+      '/api/v1/signals/shortlist/send',
+      {}
+    );
+  }
+
+  /**
+   * Runs the Minervini leader screen now and sends any fresh breakout to
+   * Telegram, returning how many were sent.
+   *
+   * The scheduled run fires at 22:40 on weekday evenings and a machine that is
+   * asleep then loses it outright, so this is the manual escape hatch. The
+   * count matters as much as the send: without it, "no breakout qualified
+   * today" and "the alert is broken" look identical from the outside.
+   */
+  public sendLeaderScreen() {
+    return this.http.post<{ sent: number; status: string }>(
+      '/api/v1/signals/leaders/send',
+      {}
     );
   }
 

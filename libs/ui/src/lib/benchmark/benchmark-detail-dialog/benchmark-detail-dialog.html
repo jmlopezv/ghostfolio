@@ -18,7 +18,7 @@
   </div>
 
   <!--
-    All four tabs are ALWAYS present structurally (never conditionally
+    All five tabs are ALWAYS present structurally (never conditionally
     added/removed) — mat-tab-group queries its <mat-tab> children once at
     init, and asynchronously adding tabs after the fund/ETF data loads caused
     the tab bodies to render blank/empty. Only the CONTENT inside each tab is
@@ -90,24 +90,42 @@
         -->
         @if (detailLoaded && !detailLoadError && data.dataSource === 'YAHOO') {
           <div class="d-flex flex-column mb-2">
-            <a
-              class="small"
-              i18n
-              rel="noopener noreferrer"
-              target="_blank"
-              [href]="
-                'https://finance.yahoo.com/quote/' + data.symbol + '/profile/'
-              "
-              >View on Yahoo Finance ↗</a
-            >
-            <a
-              class="small"
-              i18n
-              rel="noopener noreferrer"
-              target="_blank"
-              [href]="'https://www.perplexity.ai/finance/' + data.symbol"
-              >View on Perplexity Finance ↗</a
-            >
+            @if (yahooFinanceUrl) {
+              <a
+                class="small"
+                i18n
+                rel="noopener noreferrer"
+                target="_blank"
+                [href]="yahooFinanceUrl"
+                >View on Yahoo Finance ↗</a
+              >
+            }
+            @if (perplexityFinanceUrl) {
+              <a
+                class="small"
+                i18n
+                rel="noopener noreferrer"
+                target="_blank"
+                [href]="perplexityFinanceUrl"
+                >View on Perplexity Finance ↗</a
+              >
+            }
+            <!--
+              TradingView addresses instruments as EXCHANGE-TICKER and 404s on
+              the wrong exchange, so the URL is built rather than concatenated
+              (see `toTradingViewUrl`). Null means there is genuinely no page —
+              an unmapped listing venue — so the link is omitted entirely.
+            -->
+            @if (tradingViewUrl) {
+              <a
+                class="small"
+                i18n
+                rel="noopener noreferrer"
+                target="_blank"
+                [href]="tradingViewUrl"
+                >View on TradingView ↗</a
+              >
+            }
           </div>
         }
 
@@ -290,6 +308,132 @@
             differ between exchanges for the same underlying fund) — try the
             same fund's other listing if it's also in your watchlist.
           </p>
+        }
+      </div>
+    </mat-tab>
+
+    <!--
+      Minervini Trend Template + current base.
+
+      Data comes from AssetDetailResponse (the dialog's own fetch) rather than
+      from the watchlist row, because this dialog opens from four places and
+      only the watchlist has a row to pass down.
+    -->
+    <mat-tab>
+      <ng-template mat-tab-label>
+        <ion-icon name="analytics-outline" />
+        <span class="d-none d-sm-block ms-2" i18n>Trend</span>
+      </ng-template>
+
+      <div class="container mt-3 p-0">
+        @if (!detailLoaded) {
+          <p class="text-muted" i18n>Loading…</p>
+        } @else if (!trend) {
+          <p class="text-muted" i18n>
+            No trend data for this asset. The Trend Template needs about a year
+            of daily open/high/low/close bars, which are only stored for listed
+            symbols — funds bought directly from a bank have no market listing.
+          </p>
+        } @else {
+          <div class="d-flex align-items-baseline justify-content-between mb-2">
+            <h3 class="h6 m-0" i18n>Trend Template</h3>
+            <span
+              class="small"
+              [class.text-muted]="trend.passCount < 8"
+              [class.text-success]="trend.passCount === 8"
+              >{{ trend.passCount }} / 8</span
+            >
+          </div>
+
+          <table class="w-100 small mb-4">
+            <tbody>
+              @for (row of trendCriteriaRows; track row.label) {
+                <tr>
+                  <td class="pe-2" style="width: 1.5rem">
+                    <span
+                      [class.text-danger]="!row.ok"
+                      [class.text-success]="row.ok"
+                      >{{ row.ok ? '✓' : '✗' }}</span
+                    >
+                  </td>
+                  <td class="pe-2">{{ row.label }}</td>
+                  <td class="text-end text-muted">{{ row.detail }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+
+          <div class="d-flex align-items-baseline justify-content-between mb-2">
+            <h3 class="h6 m-0" i18n>Base (VCP)</h3>
+            @if (trend.vcp) {
+              <span
+                class="small"
+                [class.text-muted]="trend.vcp.status === 'FORMING'"
+                [class.text-success]="trend.vcp.status === 'BREAKOUT'"
+                [class.text-warning]="trend.vcp.status === 'AT_PIVOT'"
+                >{{ trend.vcp.status }}</span
+              >
+            }
+          </div>
+
+          @if (!trend.vcp) {
+            <p class="text-muted small" i18n>
+              No valid base right now{{
+                trend.vcpRejectedReason ? ': ' + trend.vcpRejectedReason : '.'
+              }}
+            </p>
+          } @else {
+            <table class="w-100 small">
+              <tbody>
+                <tr>
+                  <td class="pe-2" i18n>Contractions</td>
+                  <td class="text-end">
+                    {{ trend.vcp.depthsPct.join('% → ') }}%
+                    <span class="text-muted"
+                      >({{ trend.vcp.baseDays }}
+                      <ng-container i18n>days</ng-container>)</span
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <td class="pe-2" i18n>Pivot</td>
+                  <td class="text-end">
+                    {{ trend.vcp.pivot | number: '1.2-2' }}
+                    <span class="text-muted"
+                      >({{ trend.vcp.pivotDistancePct >= 0 ? '+' : ''
+                      }}{{
+                        trend.vcp.pivotDistancePct * 100 | number: '1.1-1'
+                      }}%)</span
+                    >
+                  </td>
+                </tr>
+                @for (row of trendVolumeRows; track row.label) {
+                  <tr>
+                    <td class="pe-2">{{ row.label }}</td>
+                    <td class="text-end">
+                      <span
+                        [class.text-danger]="!row.ok"
+                        [class.text-success]="row.ok"
+                        >{{ row.value }}</span
+                      >
+                      <span class="text-muted"> — {{ row.detail }}</span>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+
+            <!--
+              Both volume tests are shown even when one fails, because the pair
+              is the diagnosis: dry-up passing while breakout volume is light
+              is the classic unconfirmed move, and hiding that would make an
+              AT_PIVOT look like a near-miss BREAKOUT.
+            -->
+            <p class="text-muted small mt-3" i18n>
+              A shortlist for judgement, not a buy trigger — the measured buy
+              signal remains the dip path.
+            </p>
+          }
         }
       </div>
     </mat-tab>

@@ -1,6 +1,7 @@
 import {
   computeExcludedTrackingKeys,
   computeLiveTrackedKeys,
+  provenanceTagOf,
   readTrackedMetrics
 } from './signal-trade-tracking.service';
 
@@ -102,5 +103,71 @@ describe('readTrackedMetrics', () => {
 
     expect(tracked?.trackedStatus).toBe('TRACKING');
     expect(tracked?.realBuyPrice).toBe(227.23);
+  });
+});
+
+describe('readTrackedMetrics — exit price', () => {
+  const base = {
+    realBuyDate: '2026-06-25T00:00:00.000Z',
+    realBuyPrice: 100,
+    trackedOrderId: 'order-1',
+    trackedStatus: 'TRAILING_EXIT',
+    trackedStopLoss: 80,
+    trackedTakeProfit: 130
+  };
+
+  it('reads the recorded exit price', () => {
+    expect(
+      readTrackedMetrics({
+        ...base,
+        trackedAlertedAt: '2026-08-03T18:25:00.000Z',
+        trackedExitPrice: 128.5
+      }).trackedExitPrice
+    ).toBe(128.5);
+  });
+
+  it('leaves it undefined on exits recorded before the field existed', () => {
+    // These have to be reconstructed from the daily close. Returning undefined
+    // rather than 0 is what lets the caller tell "not recorded" from "recorded
+    // as zero" and flag the number as inferred.
+    expect(
+      readTrackedMetrics({
+        ...base,
+        trackedAlertedAt: '2026-08-03T18:25:00.000Z'
+      }).trackedExitPrice
+    ).toBeUndefined();
+  });
+
+  it('ignores a non-numeric exit price rather than trusting it', () => {
+    expect(
+      readTrackedMetrics({
+        ...base,
+        trackedExitPrice: '128.5'
+      }).trackedExitPrice
+    ).toBeUndefined();
+  });
+});
+
+describe('provenanceTagOf', () => {
+  it('reads the provenance tag off an order', () => {
+    expect(provenanceTagOf([{ name: 'BET' }])).toBe('BET');
+    expect(provenanceTagOf([{ name: 'LEADER' }])).toBe('LEADER');
+    expect(provenanceTagOf([{ name: 'DIP' }])).toBe('DIP');
+  });
+
+  it('ignores tags that are not provenance', () => {
+    // ACTIVE_TRADE is a different axis entirely and must never become a type.
+    expect(provenanceTagOf([{ name: 'ACTIVE_TRADE' }])).toBe('UNTAGGED');
+    expect(provenanceTagOf([{ name: 'ACTIVE_TRADE' }, { name: 'BET' }])).toBe(
+      'BET'
+    );
+  });
+
+  it('reports UNTAGGED rather than guessing a strategy', () => {
+    // The old behaviour was to assume DIP, which put the user's own market
+    // calls inside the curve measuring the dip strategy.
+    expect(provenanceTagOf([])).toBe('UNTAGGED');
+    expect(provenanceTagOf(undefined)).toBe('UNTAGGED');
+    expect(provenanceTagOf([])).not.toBe('DIP');
   });
 });

@@ -1,7 +1,7 @@
 import { holdingsOverlap } from '@ghostfolio/api/services/signals/asset-detail.service';
 import {
-  SIGNAL_BUY_FEE_USD,
-  SIGNAL_BUYZONE_CONVICTION_BONUS,
+  SIGNAL_NORDNET_COMMISSION_CLASS,
+  SIGNAL_SEK_PER_USD_FALLBACK,
   SIGNAL_FORECAST_HORIZON_DAYS,
   SIGNAL_FUND_OVERLAP_PENALTY_FLOOR,
   SIGNAL_MAX_ANNUAL_VOL,
@@ -18,11 +18,15 @@ import {
   InvestmentStrategy,
   StrategyLeg
 } from '@ghostfolio/common/interfaces';
+import {
+  isNordicSymbol,
+  nordnetCommissionUsd
+} from '@ghostfolio/common/nordnet-fees';
 
 import { Injectable } from '@nestjs/common';
 
 /**
- * A buyable stock with the metrics needed to rank it by conviction and explain
+ * A buyable stock with the metrics needed to rank it by expected value and explain
  * the pick. priceInBase is the live price in the base currency.
  */
 export interface StrategyCandidate {
@@ -88,14 +92,14 @@ export interface FundCandidate {
 export interface NetCapitalPlan {
   droppedCount: number; // picks.length delta vs the input basket (for rationale text)
   feeRatio: number; // (picks.length * fee) / cash, for rationale text
-  netCapital: number; // cash - picks.length * SIGNAL_BUY_FEE_USD
+  netCapital: number; // cash minus the summed per-order commission
   picks: StrategyCandidate[]; // the (possibly trimmed) basket, in original order
 }
 
 /**
  * Deterministic builder for budget-allocation strategies. ALL arithmetic lives
  * here (whole-share counts, fees, leftovers) — Gemma never computes any of it.
- * Stock legs buy whole shares only and pay a flat per-order fee; the index leg
+ * Stock legs buy whole shares only and pay one commission each; the index leg
  * of the Safe strategy is a fund, so it takes a cash amount (funds allow
  * fractional). Inputs are pre-ranked candidates (best score first), already
  * priced in the base currency.
@@ -134,27 +138,27 @@ export class StrategiesService {
     const flagged = this.flagRedundancy(top, fundValueByCategory);
     const byCategory = this.distinctByCategory(flagged);
 
-    // 1) Aggressive — everything into the single highest-conviction name.
+    // 1) Aggressive — everything into the single highest-EV name.
     // Exempt from fee-aware sizing: a single ticker can't be trimmed further.
     if (flagged.length >= 1) {
       strategies.push(
         this.finalize({
           cash,
-          description: 'All-in on the highest-conviction candidate.',
+          description: 'All-in on the highest expected-value candidate.',
           legs: [this.stockLeg(flagged[0], cash)],
           name: 'Aggressive'
         })
       );
     }
 
-    // 2) Balanced — top 2 distinct sectors by conviction, ~50/50.
+    // 2) Balanced — top 2 distinct sectors by expected value, ~50/50.
     if (byCategory.length >= 2) {
       const sized = this.sizeForFees(byCategory.slice(0, 2), cash);
       strategies.push(
         this.finalize({
           cash,
           description: this.describeSizing(
-            'Split evenly across the top two sectors by conviction.',
+            'Split evenly across the top two sectors by expected value.',
             sized
           ),
           legs: this.sizeBasket(sized.picks, sized.netCapital),
@@ -163,7 +167,7 @@ export class StrategiesService {
       );
     }
 
-    // 3) Spread — top 3–5 distinct sectors by conviction, even split.
+    // 3) Spread — top 3–5 distinct sectors by expected value, even split.
     if (byCategory.length >= 3) {
       const sized = this.sizeForFees(
         byCategory.slice(0, Math.min(5, byCategory.length)),
@@ -173,7 +177,7 @@ export class StrategiesService {
         this.finalize({
           cash,
           description: this.describeSizing(
-            'Diversified evenly across several high-conviction sectors.',
+            'Diversified evenly across several high expected-value sectors.',
             sized
           ),
           legs: this.sizeBasket(sized.picks, sized.netCapital),
@@ -182,7 +186,7 @@ export class StrategiesService {
       );
     }
 
-    // 4) Safe 80/20 — 80% into the index fund, 20% into the top conviction
+    // 4) Safe 80/20 — 80% into the index fund, 20% into the top expected-value
     // name. Exempt from fee-aware sizing: fixed shape, and an unaffordable
     // single stock leg already degrades gracefully to 0 shares.
     const indexLeg: StrategyLeg = {
@@ -206,7 +210,7 @@ export class StrategiesService {
       this.finalize({
         cash,
         description:
-          '80% into the global index fund, 20% into the top conviction stock.',
+          '80% into the global index fund, 20% into the top expected-value stock.',
         legs: safeLegs,
         name: 'Safe 80/20'
       })
@@ -228,27 +232,8 @@ export class StrategiesService {
     return p * c.targetGainPct - (1 - p) * c.stopLossPct;
   }
 
-  /**
-   * Conviction (0-100) is a readable rendering of the expected value, nudged for
-   * an actual dip-buy setup and a re-confirmed recent BUY. 0% EV ≈ 50; +5% EV ≈
-   * 100; −5% EV ≈ 0.
-   */
-  public computeConviction(c: StrategyCandidate): number {
-    let conviction = 50 + this.expectedValue(c) * 1000;
-
-    if (c.isBuyZone) {
-      conviction += SIGNAL_BUYZONE_CONVICTION_BONUS;
-    }
-    if (c.recentBuyDays !== undefined) {
-      conviction += 5; // a still-valid recent BUY adds confidence
-    }
-
-    return Math.max(0, Math.min(100, Math.round(conviction)));
-  }
-
   /** One-line "why": expected value, probability, payoff geometry, indicators. */
   public buildRationale(c: StrategyCandidate): string {
-    const conviction = this.computeConviction(c);
     // The probability quoted alongside is a forecast over the real expected
     // holding period, so label it with that — not the band-sizing window.
     const months = Math.round(SIGNAL_FORECAST_HORIZON_DAYS / 21);
@@ -268,7 +253,6 @@ export class StrategiesService {
       parts.push(`↺ re-confirmed (BUY ${c.recentBuyDays}d ago, still valid)`);
     }
 
-    parts.push(`conviction ${conviction}/100`);
     parts.push(
       `EV ${ev >= 0 ? '+' : ''}${ev.toFixed(1)}% (${Math.round(prob * 100)}% × +${(c.targetGainPct * 100).toFixed(0)}% target vs ${Math.round((1 - prob) * 100)}% × −${(c.stopLossPct * 100).toFixed(0)}% stop, ~${months}mo, drift 0)`
     );
@@ -486,16 +470,31 @@ export class StrategiesService {
     return funds.map((fund) => ({ ...fund, amount: each }));
   }
 
-  /** Whole-share stock leg sized to a budget slice; flat fee when any shares buy. */
+  /**
+   * Nordnet commission for one order: `fixed + pct x value`, where both terms
+   * depend on the account's commission class and whether the venue is Nordic.
+   * See libs/common/src/lib/nordnet-fees.ts.
+   */
+  private commissionFor(symbol: string, tradeValueUsd: number): number {
+    return nordnetCommissionUsd({
+      commissionClass: SIGNAL_NORDNET_COMMISSION_CLASS,
+      isNordic: isNordicSymbol(symbol),
+      sekPerUsd: SIGNAL_SEK_PER_USD_FALLBACK,
+      tradeValueUsd
+    });
+  }
+
+  /** Whole-share stock leg sized to a budget slice, with a value-based commission. */
   private stockLeg(candidate: StrategyCandidate, budget: number): StrategyLeg {
     const price = candidate.priceInBase;
     const shares = price > 0 ? Math.floor(budget / price) : 0;
-    const fee = shares > 0 ? SIGNAL_BUY_FEE_USD : 0;
+    const fee =
+      shares > 0 ? this.commissionFor(candidate.symbol, shares * price) : 0;
 
     return {
       category: candidate.category,
-      conviction: this.computeConviction(candidate),
       cost: Math.round((shares * price + fee) * 100) / 100,
+      expectedValue: this.expectedValue(candidate),
       fee,
       hitProbability:
         Math.round(Math.max(0, Math.min(1, candidate.reachProbability)) * 100) /
@@ -511,7 +510,7 @@ export class StrategiesService {
   /**
    * Trims a candidate basket so fees never eat more than
    * SIGNAL_STRATEGY_MAX_FEE_RATIO of the cash budget: drops the lowest-
-   * conviction (last-ranked) pick and rechecks until the ratio clears the
+   * lowest-ranked (by expected value) pick and rechecks until the ratio clears the
    * threshold or only one ticker remains. Basket must already be ranked
    * best-first. Pure, no side effects.
    */
@@ -525,18 +524,32 @@ export class StrategiesService {
 
     let basket = [...picks];
 
-    while (basket.length > 1) {
-      const feeRatio = (basket.length * SIGNAL_BUY_FEE_USD) / cash;
+    // Total commission when `cash` is split evenly across the basket. The
+    // percentage half is indifferent to the split — N orders of cash/N each pay
+    // pct x cash/N, summing to pct x cash whatever N is — but the FIXED half is
+    // charged once per order, so every extra ticker adds another 9 SEK outright.
+    // That is what this loop controls, and it bites at every basket size rather
+    // than only when a slice is small.
+    const basketFee = (count: number) =>
+      basket
+        .slice(0, count)
+        .reduce(
+          (total, pick) =>
+            total + this.commissionFor(pick.symbol, cash / count),
+          0
+        );
 
-      if (feeRatio <= SIGNAL_STRATEGY_MAX_FEE_RATIO) {
+    while (basket.length > 1) {
+      if (basketFee(basket.length) / cash <= SIGNAL_STRATEGY_MAX_FEE_RATIO) {
         break;
       }
 
-      basket = basket.slice(0, -1); // drop lowest-conviction (last-ranked) pick
+      basket = basket.slice(0, -1); // drop the lowest-ranked pick
     }
 
-    const feeRatio = (basket.length * SIGNAL_BUY_FEE_USD) / cash;
-    const netCapital = cash - basket.length * SIGNAL_BUY_FEE_USD;
+    const totalFee = basketFee(basket.length);
+    const feeRatio = totalFee / cash;
+    const netCapital = cash - totalFee;
 
     return {
       droppedCount: picks.length - basket.length,
@@ -550,7 +563,7 @@ export class StrategiesService {
    * Sizes a whole basket of stock legs against a shared net-capital pot,
    * minimizing aggregate leftover cash (not each leg's own even split).
    * Pass 1: even split, floor to whole shares per leg (prior behavior).
-   * Pass 2: repeatedly hand the pooled leftover to the highest-conviction
+   * Pass 2: repeatedly hand the pooled leftover to the highest-EV
    * (first-ranked) leg that can afford one more whole share, until none can.
    */
   private sizeBasket(
@@ -579,15 +592,21 @@ export class StrategiesService {
         const price = picks[i].priceInBase;
 
         if (price > 0 && price <= leftover) {
-          // Feed stockLeg the leg's PRINCIPAL (cost minus the already-charged
-          // fee) plus price, NOT cost+price — stockLeg applies exactly one
-          // flat fee whenever shares > 0, so re-deriving from principal
-          // avoids double-charging the fee on this second call.
-          const principal = legs[i].cost - legs[i].fee;
+          // Feed stockLeg the leg's PRINCIPAL plus one more share's price,
+          // NOT cost+price — stockLeg charges commission itself whenever
+          // shares > 0, so re-deriving from principal avoids double-charging.
+          //
+          // Principal is recomputed as shares x price rather than cost - fee.
+          // `cost` is rounded to cents while `fee` is not, so the subtraction
+          // lands a fraction of a cent low (120.95 - 0.95092 = 119.99908) and
+          // the next floor() silently loses a whole share — which stopped this
+          // loop progressing at all. It only surfaced when commission became
+          // fractional; under the retired flat-fee model both terms were exact.
+          const principal = legs[i].shares * price;
           legs[i] = this.stockLeg(picks[i], principal + price);
           leftover = Math.round((leftover - price) * 100) / 100;
           progressed = true;
-          break; // restart from the highest-conviction leg each time
+          break; // restart from the highest-EV leg each time
         }
       }
     }
@@ -627,15 +646,32 @@ export class StrategiesService {
         };
       })
       .sort((a, b) => {
-        const evA =
-          this.expectedValue(a) *
-          (a.isRedundant ? SIGNAL_STRATEGY_REDUNDANCY_PENALTY : 1);
-        const evB =
-          this.expectedValue(b) *
-          (b.isRedundant ? SIGNAL_STRATEGY_REDUNDANCY_PENALTY : 1);
-
-        return evB - evA;
+        return this.penalisedExpectedValue(b) - this.penalisedExpectedValue(a);
       });
+  }
+
+  /**
+   * Expected value with the redundancy penalty applied so that it always
+   * DEMOTES, whichever sign the EV has.
+   *
+   * Scaling by the penalty factor only demotes a positive EV. Expected values
+   * here are routinely negative (a candidate typically risks 2σ to make 1.5σ),
+   * and multiplying a negative number by 0.5 makes it LARGER — so the old
+   * `ev * penalty` promoted redundant candidates to the top of the ranking,
+   * the exact opposite of its intent. Dividing instead of multiplying when the
+   * value is negative keeps the penalty monotone in the direction intended on
+   * both sides of zero.
+   */
+  private penalisedExpectedValue(c: StrategyCandidate): number {
+    const ev = this.expectedValue(c);
+
+    if (!c.isRedundant) {
+      return ev;
+    }
+
+    return ev >= 0
+      ? ev * SIGNAL_STRATEGY_REDUNDANCY_PENALTY
+      : ev / SIGNAL_STRATEGY_REDUNDANCY_PENALTY;
   }
 
   /** Appends a one-line note when sizeForFees trimmed the basket for fees. */

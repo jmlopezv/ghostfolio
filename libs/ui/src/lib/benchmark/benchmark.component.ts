@@ -115,7 +115,9 @@ export class GfBenchmarkComponent {
             'macdHistogram',
             'bollingerPctB',
             'reachProbability',
-            'conviction',
+            'expectedValue',
+            'trendTemplate',
+            'vcp',
             'recentBuySignal'
           ]
         : []),
@@ -123,6 +125,54 @@ export class GfBenchmarkComponent {
       'actions'
     ];
   });
+  /**
+   * Human explanation of a VCP cell. The contraction sequence alone is opaque
+   * ("18→12→6%" means nothing without context), and the pivot is the number the
+   * user actually acts on, so both are spelled out on hover.
+   */
+  protected vcpTooltip(element: {
+    vcpContractions?: number;
+    vcpDepthsPct?: number[];
+    vcpDryUpRatio?: number;
+    vcpPivot?: number;
+    vcpPivotDistancePct?: number;
+    vcpStatus?: string;
+    vcpVolumeRatio?: number;
+  }): string {
+    if (!element?.vcpStatus) {
+      return '';
+    }
+
+    const parts = [
+      `${element.vcpContractions} tightening contractions (${element.vcpDepthsPct?.join('% → ')}%)`,
+      `pivot ${element.vcpPivot?.toFixed(2)}`
+    ];
+
+    if (isNumber(element.vcpPivotDistancePct)) {
+      const distance = element.vcpPivotDistancePct * 100;
+      parts.push(
+        distance >= 0
+          ? `${distance.toFixed(1)}% above pivot`
+          : `${Math.abs(distance).toFixed(1)}% below pivot`
+      );
+    }
+
+    // Both volume phases, because they are a matched pair: supply drying up
+    // through the base, then demand showing up on the breakout. Dry-up passing
+    // while breakout volume is light is the classic unconfirmed move.
+    if (isNumber(element.vcpDryUpRatio)) {
+      parts.push(`dry-up ${element.vcpDryUpRatio.toFixed(2)}× average`);
+    }
+
+    if (isNumber(element.vcpVolumeRatio)) {
+      parts.push(
+        `breakout volume ${element.vcpVolumeRatio.toFixed(2)}× average`
+      );
+    }
+
+    return parts.join(' · ');
+  }
+
   protected isLoading = true;
   protected readonly isNumber = isNumber;
   protected readonly resolveMarketCondition = resolveMarketCondition;

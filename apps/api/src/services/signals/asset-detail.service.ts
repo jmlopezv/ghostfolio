@@ -6,15 +6,21 @@ import {
   computeSeriesMetrics,
   FundHistoryService
 } from '@ghostfolio/api/services/signals/fund-history.service';
+import { LeaderScreenService } from '@ghostfolio/api/services/signals/leader-screen.service';
+import { OhlcBarService } from '@ghostfolio/api/services/signals/ohlc-bar.service';
 import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
-import { SIGNAL_HISTORY_FETCH_DAYS } from '@ghostfolio/common/config';
+import {
+  SIGNAL_HISTORY_FETCH_DAYS,
+  SIGNAL_RS_RANK_CACHE_KEY
+} from '@ghostfolio/common/config';
 import {
   AssetDetailResponse,
   AssetHolding,
   AssetOverlap,
   AssetPeriodReturn,
   AssetStyleBox,
-  CorrelationMatrixResponse
+  CorrelationMatrixResponse,
+  TrendTemplateSnapshot
 } from '@ghostfolio/common/interfaces';
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -331,7 +337,9 @@ export class AssetDetailService {
   public constructor(
     private readonly activitiesService: ActivitiesService,
     private readonly fundHistoryService: FundHistoryService,
+    private readonly leaderScreenService: LeaderScreenService,
     private readonly marketDataService: MarketDataService,
+    private readonly ohlcBarService: OhlcBarService,
     private readonly prismaService: PrismaService,
     private readonly redisCacheService: RedisCacheService,
     private readonly symbolProfileService: SymbolProfileService
@@ -411,8 +419,101 @@ export class AssetDetailService {
       returns: await this.getReturns(dataSource, symbol, facts),
       sectors: await this.getSectors(dataSource, symbol),
       styleBox,
-      symbol
+      symbol,
+      trendTemplate: await this.getTrendTemplate(dataSource, symbol)
     };
+  }
+
+  /**
+   * Minervini scorecard for the ticker dialog's Trend tab.
+   *
+   * Lives here rather than on the watchlist row because the dialog is opened
+   * from four places (watchlist, Analytics, Correlation, Simulation) and only
+   * the watchlist has a metrics row to pass down; hanging it off the detail
+   * fetch the dialog already makes gives one code path for all four.
+   *
+   * `rsRank` is cross-sectional and cannot be derived from one symbol, so it is
+   * read from the map the watchlist-metrics pass publishes. A cold cache means
+   * UNRANKED, not a failed criterion — ranking one name against itself would be
+   * meaningless, and calling that a failure would understate a real leader.
+   */
+  private async getTrendTemplate(
+    dataSource: DataSource,
+    symbol: string
+  ): Promise<TrendTemplateSnapshot | undefined> {
+    if (dataSource !== DataSource.YAHOO) {
+      return undefined;
+    }
+
+    try {
+      const bars = await this.ohlcBarService.getBars({ dataSource, symbol });
+      const rsRank = await this.getCachedRsRank(symbol);
+      const trend = this.leaderScreenService.trendTemplate({ bars, rsRank });
+
+      if (!trend) {
+        return undefined;
+      }
+
+      const vcp = this.leaderScreenService.vcpStructure(bars);
+      const price = trend.values.price;
+
+      const snapshot: TrendTemplateSnapshot = {
+        aboveLowPct: trend.aboveLowPct,
+        belowHighPct: trend.belowHighPct,
+        criteria: trend.criteria as unknown as Record<string, boolean>,
+        passCount: trend.passCount,
+        rsRank: trend.rsRank,
+        sma200RisingDays: trend.sma200RisingDays,
+        values: trend.values
+      };
+
+      if (!vcp) {
+        return snapshot;
+      }
+
+      if (!vcp.isValid) {
+        return {
+          ...snapshot,
+          vcpRejectedReason: vcp.rejectedReason ?? undefined
+        };
+      }
+
+      return {
+        ...snapshot,
+        vcp: {
+          baseDays: vcp.baseDays,
+          breakoutVolumeRatio: vcp.breakoutVolumeRatio,
+          depthsPct: vcp.contractions.map(({ depthPct }) =>
+            Number((depthPct * 100).toFixed(1))
+          ),
+          dryUpRatio: vcp.dryUpRatio,
+          pivot: vcp.pivot,
+          pivotDistancePct: vcp.pivot > 0 ? (price - vcp.pivot) / vcp.pivot : 0,
+          status: vcp.status
+        }
+      };
+    } catch (error) {
+      this.logger.warn(`Trend template failed for ${symbol}: ${error}`);
+
+      return undefined;
+    }
+  }
+
+  /** The symbol's RS percentile from the published map, or null if unavailable. */
+  private async getCachedRsRank(symbol: string): Promise<number | null> {
+    try {
+      const cached = await this.redisCacheService.get(SIGNAL_RS_RANK_CACHE_KEY);
+
+      if (!cached) {
+        return null;
+      }
+
+      const map = JSON.parse(cached) as { [symbol: string]: number };
+
+      return map[symbol] ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -886,6 +987,53 @@ export class AssetDetailService {
   }
 
   /**
+   * v3: v2 cached a transient failure for the full 24h TTL — bumped so those
+   * stale negative-cache entries are never served, and split into a short
+   * negative TTL going forward (see `getYahooEtfProfile`).
+   */
+  private getYahooEtfProfileCacheKey(symbol: string) {
+    return `yahoo-etf-profile:v3:${symbol}`;
+  }
+
+  /**
+   * The cached half of `getYahooEtfProfile`, with NO network fetch: returns
+   * the cached profile, `{}` for a cached "nothing here", or `undefined` on a
+   * cache miss.
+   *
+   * This exists so a caller working over a whole watchlist can render
+   * immediately from whatever is already cached and refill the misses in the
+   * background, instead of blocking its response on Yahoo. `getYahooEtfProfile`
+   * fetches with a 15s timeout plus a retry, so a single cold symbol can hold
+   * a request open for ~31s — unacceptable on a page load for a number as
+   * slow-moving as an annual expense ratio.
+   */
+  public async peekYahooEtfProfile(symbol: string): Promise<
+    | {
+        cell?: { size: AssetStyleBox['size']; style: AssetStyleBox['style'] };
+        expenseRatioPct?: number;
+      }
+    | undefined
+  > {
+    try {
+      const cached = await this.redisCacheService.get(
+        this.getYahooEtfProfileCacheKey(symbol)
+      );
+
+      if (cached === STYLE_BOX_NONE) {
+        return {};
+      }
+
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch {
+      // ignore cache read errors — treated as a miss
+    }
+
+    return undefined;
+  }
+
+  /**
    * Fetches the REAL Morningstar Style Box classification AND the real
    * annual expense ratio ("Annual Report Expense Ratio (net)") straight from
    * Yahoo Finance's own public Profile page — ONE fetch serves both, since
@@ -904,41 +1052,43 @@ export class AssetDetailService {
    * Retries once on a failed/empty fetch — live-verified that Yahoo
    * occasionally rejects a request transiently (a burst of requests in quick
    * succession can trip rate-limiting) even with the correct headers, and a
-   * single retry recovers most of those. A genuine miss (both attempts fail,
-   * or the page has neither data point) is cached for a SHORT TTL (1h, not
-   * 24h) so a transient failure self-heals quickly instead of freezing a
-   * fund into the fallback estimate for a full day — this is exactly what
-   * happened live (VVSM.DE cached a transient failure during a testing
-   * burst, then kept showing the multi-cell estimated fallback for 24h even
-   * though a fresh fetch succeeded immediately).
+   * single retry recovers most of those.
+   *
+   * An empty result has two very different causes, and they are cached
+   * differently:
+   *
+   *  - **The fetch failed** (both attempts returned nothing, or threw) — a
+   *    transient rate-limit/bot-detection blip. Cached for a SHORT TTL (1h)
+   *    so it self-heals quickly instead of freezing a fund into the fallback
+   *    estimate for a full day — this is exactly what happened live (VVSM.DE
+   *    cached a transient failure during a testing burst, then kept showing
+   *    the multi-cell estimated fallback for 24h even though a fresh fetch
+   *    succeeded immediately).
+   *  - **The page loaded and simply has neither data point** — a permanent
+   *    fact about the symbol (an ordinary stock has no expense ratio and no
+   *    Morningstar style box). Cached for the FULL 24h TTL. Treating this as
+   *    a transient failure meant every such symbol was re-scraped hourly,
+   *    forever, which is what turned the watchlist fee lookup into a
+   *    self-renewing fetch storm.
    */
   public async getYahooEtfProfile(symbol: string): Promise<{
     cell?: { size: AssetStyleBox['size']; style: AssetStyleBox['style'] };
     expenseRatioPct?: number;
   }> {
-    // v3: v2 cached a transient failure for the full 24h TTL — bumped so
-    // those stale negative-cache entries are never served, and split into a
-    // short negative TTL going forward (see doc comment above).
-    const cacheKey = `yahoo-etf-profile:v3:${symbol}`;
+    const cacheKey = this.getYahooEtfProfileCacheKey(symbol);
+    const cached = await this.peekYahooEtfProfile(symbol);
 
-    try {
-      const cached = await this.redisCacheService.get(cacheKey);
-
-      if (cached === STYLE_BOX_NONE) {
-        return {};
-      }
-
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch {
-      // ignore cache read errors
+    if (cached) {
+      return cached;
     }
 
     let result: {
       cell?: { size: AssetStyleBox['size']; style: AssetStyleBox['style'] };
       expenseRatioPct?: number;
     } = {};
+    // Distinguishes "the page loaded and has no data" (permanent, 24h) from
+    // "we never got the page" (transient, 1h) — see the doc comment above.
+    let fetchFailed = true;
 
     try {
       let html = await this.fetchYahooProfileHtml(symbol);
@@ -951,6 +1101,8 @@ export class AssetDetailService {
       }
 
       if (html) {
+        fetchFailed = false;
+
         const index = parseYahooStyleBoxIndex(html);
         const cell = index != null ? styleBoxIndexToCell(index) : undefined;
         const expenseRatioPct = parseYahooExpenseRatioPct(html);
@@ -969,7 +1121,11 @@ export class AssetDetailService {
       await this.redisCacheService.set(
         cacheKey,
         isEmpty ? STYLE_BOX_NONE : JSON.stringify(result),
-        isEmpty ? STYLE_BOX_NEGATIVE_CACHE_TTL : STYLE_BOX_CACHE_TTL
+        // Only a failed fetch is worth retrying in an hour. A page that
+        // loaded and genuinely carries no fee/style box keeps the full TTL.
+        isEmpty && fetchFailed
+          ? STYLE_BOX_NEGATIVE_CACHE_TTL
+          : STYLE_BOX_CACHE_TTL
       );
     } catch {
       // best-effort cache

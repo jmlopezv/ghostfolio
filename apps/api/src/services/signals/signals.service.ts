@@ -1,6 +1,7 @@
 import { AccountService } from '@ghostfolio/api/app/account/account.service';
 import { ActivitiesService } from '@ghostfolio/api/app/activities/activities.service';
 import { WatchlistService } from '@ghostfolio/api/app/endpoints/watchlist/watchlist.service';
+import { RedisCacheService } from '@ghostfolio/api/app/redis-cache/redis-cache.service';
 import { DataProviderService } from '@ghostfolio/api/services/data-provider/data-provider.service';
 import { ExchangeRateDataService } from '@ghostfolio/api/services/exchange-rate-data/exchange-rate-data.service';
 import { MarketDataService } from '@ghostfolio/api/services/market-data/market-data.service';
@@ -11,6 +12,7 @@ import { PropertyService } from '@ghostfolio/api/services/property/property.serv
 import { AssetDetailService } from '@ghostfolio/api/services/signals/asset-detail.service';
 import { BacktestService } from '@ghostfolio/api/services/signals/backtest.service';
 import { resolveBuyCalibration } from '@ghostfolio/api/services/signals/buy-calibration';
+import { CrossSectionalService } from '@ghostfolio/api/services/signals/cross-sectional.service';
 import { ForecastService } from '@ghostfolio/api/services/signals/forecast.service';
 import { FundDataService } from '@ghostfolio/api/services/signals/fund-data.service';
 import {
@@ -22,9 +24,23 @@ import {
 import { FundamentalsService } from '@ghostfolio/api/services/signals/fundamentals.service';
 import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
 import {
+  LeaderScreenService,
+  canHaveExpenseRatio,
+  leaderAlertKey,
+  selectFreshBreakouts,
+  selectStoppedLots
+} from '@ghostfolio/api/services/signals/leader-screen.service';
+import { MarketBreadthService } from '@ghostfolio/api/services/signals/market-breadth.service';
+import {
+  isLeaderScreenDue,
   isMonthlyPlanDue,
   MarketRegimeService
 } from '@ghostfolio/api/services/signals/market-regime.service';
+import {
+  Bar,
+  OhlcBarService,
+  refreshRangeFor
+} from '@ghostfolio/api/services/signals/ohlc-bar.service';
 import { OhlcService } from '@ghostfolio/api/services/signals/ohlc.service';
 import {
   classifySectorTailwind,
@@ -38,7 +54,9 @@ import {
 import {
   buildPerformanceSeries,
   computeTrailingPriceReturns,
-  normalizeBenchmarkSeries
+  normalizeBenchmarkSeries,
+  ordersToTrades,
+  type PerformanceSeriesTrade
 } from '@ghostfolio/api/services/signals/simulation-performance';
 import {
   FundCandidate,
@@ -52,7 +70,9 @@ import {
 } from '@ghostfolio/common/company-catalog';
 import {
   DEFAULT_CURRENCY,
-  SIGNAL_BUY_FEE_USD,
+  PORTFOLIO_PRICE_TARGETS,
+  SIGNAL_BACKTEST_POSITION_SIZE,
+  SIGNAL_NORDNET_COMMISSION_CLASS,
   SIGNAL_BUY_SCORE_MIN,
   SIGNAL_DEFAULT_BUY_DROP_PCT,
   SIGNAL_DEFAULT_CASH_THRESHOLD,
@@ -60,6 +80,13 @@ import {
   SIGNAL_FORECAST_HORIZON_DAYS,
   SIGNAL_HISTORY_FETCH_DAYS,
   SIGNAL_HORIZON_DAYS,
+  SIGNAL_LEADER_ALERT_COOLDOWN_DAYS,
+  SIGNAL_LEADER_STOP_PCT,
+  SIGNAL_WATCHLIST_METRICS_CACHE_TTL,
+  SIGNAL_OHLC_REFRESH_CONCURRENCY,
+  SIGNAL_YAHOO_FEE_REFILL_CONCURRENCY,
+  SIGNAL_RS_RANK_CACHE_KEY,
+  SIGNAL_RS_RANK_CACHE_TTL,
   SIGNAL_INDEX_RATIO,
   SIGNAL_NEWS_BUY_FLOOR,
   SIGNAL_NOTIFICATION_COOLDOWN,
@@ -71,14 +98,23 @@ import {
   SIGNAL_PORTFOLIO_FUNDS_RATIO,
   SIGNAL_REVERSAL_RSI_MAX,
   SIGNAL_REVERSAL_VOLUME_RATIO,
-  SIGNAL_SELL_FEE_USD,
+  SIGNAL_SEK_PER_USD_FALLBACK,
   SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD,
+  SIGNAL_SCREEN_MIN_DOLLAR_VOLUME,
   SIGNAL_STOP_VOL_MULT,
+  SIGNAL_SHORTLIST_MAX,
   SIGNAL_STRATEGY_CASH_DELTA,
   SIGNAL_STRATEGY_MIN_CASH,
+  SIGNAL_TAG_PROVENANCE_BET,
+  SIGNAL_TAG_PROVENANCE_DIP,
+  SIGNAL_TAG_PROVENANCE_LEADER,
   SIGNAL_TAKE_PROFIT_FLOOR_PCT,
   SIGNAL_TAKE_PROFIT_VOL_MULT,
+  SIGNAL_TYPE_UNTAGGED,
   SIGNAL_TRAIL_VOL_MULT,
+  SIGNAL_TREND_TEMPLATE_PREFERRED_RS,
+  SIGNAL_TT8_ALERT_MIN_RS,
+  SIGNAL_TT8_COOLDOWN_DAYS,
   SignalExitMode
 } from '@ghostfolio/common/config';
 import { terPctForSymbol } from '@ghostfolio/common/etf-ter-catalog';
@@ -89,6 +125,7 @@ import {
   isFundSymbol
 } from '@ghostfolio/common/fund-catalog';
 import { DATE_FORMAT } from '@ghostfolio/common/helper';
+import { allIndexConstituents } from '@ghostfolio/common/index-constituents';
 import {
   BacktestAllResponse,
   FundMetric,
@@ -96,17 +133,30 @@ import {
   FundRecommendationResponse,
   InvestmentStrategiesResponse,
   LineChartItem,
+  LeaderCandidate,
+  LeaderCandidatesResponse,
+  ShortlistEntry,
+  ShortlistResponse,
   PortfolioReport,
   SignalLogResponse,
   SimulatedTrade,
   SimulationReadoutPeriod,
   SimulationResponse,
+  SignalExitMarker,
   SimulationSummary,
+  TrackedPosition,
   TradingSignal,
   TradingSignalsResponse,
   UserSettings,
   WatchlistMetric
 } from '@ghostfolio/common/interfaces';
+import {
+  isNordicSymbol,
+  nordnetCommissionUsd,
+  nordnetRoundTripUsd
+} from '@ghostfolio/common/nordnet-fees';
+import { peerGroupFor, primarySector } from '@ghostfolio/common/sectors';
+import { researchLinks } from '@ghostfolio/common/symbol-links';
 
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
@@ -157,7 +207,7 @@ interface SignalsComputation {
   // Owned fund value per symbol — the dollar-weighted input to the graduated
   // fund-overlap penalty in recommendFunds (real per-fund, not just category).
   fundValueBySymbol: Record<string, number>;
-  // Every buyable stock with conviction metrics (full-universe, for strategies).
+  // Every buyable stock with ranking metrics (full-universe, for strategies).
   stockCandidates: StrategyCandidate[];
   response: TradingSignalsResponse;
   // Next take-profit-trailing peak per "DATASOURCE:SYMBOL" key. A non-null value
@@ -173,7 +223,7 @@ interface SignalsComputation {
 
 // Per-position exit evaluation: the signal to surface plus the next trailing peak.
 interface SymbolEvaluation {
-  // Buyable-stock metrics for conviction ranking (every YAHOO stock, regardless
+  // Buyable-stock metrics for expected-value ranking (every YAHOO stock, regardless
   // of whether a BUY/HOLD signal surfaces).
   candidate?: StrategyCandidate;
   enteredTrailing: boolean;
@@ -189,10 +239,119 @@ const average = (values: number[]): number =>
 
 // Property-store key: 'YYYY-MM' of the last sent monthly (25th) plan.
 const PROPERTY_MONTHLY_PLAN_LAST_SENT = 'SIGNAL_MONTHLY_PLAN_LAST_SENT';
+const PROPERTY_OHLC_REFRESH_LAST_RUN = 'SIGNAL_OHLC_REFRESH_LAST_RUN';
+const PROPERTY_TT8_BASELINE_SEEDED = 'SIGNAL_TT8_BASELINE_SEEDED';
+// 22:05 CET: both the European (~17:30) and US (22:00) closes have settled, and
+// the leader screen at 22:30 gets bars gathered the same evening.
+const OHLC_REFRESH_SLOT_HOUR = 22;
+const OHLC_REFRESH_SLOT_MINUTE = 5;
+/**
+ * The one symbol whose bars are a known defect rather than data: a mutual fund
+ * carrying OhlcBar rows with 100% zero volume, which makes both VCP volume
+ * tests meaningless. `run-universe-cleanup.cjs` removes them; the gather must
+ * not put them back.
+ */
+const OHLC_REFRESH_SKIP_SYMBOLS = new Set(['0P000134K9.F']);
+const PROPERTY_LEADER_SCREEN_LAST_RUN = 'SIGNAL_LEADER_SCREEN_LAST_RUN';
+const PROPERTY_SHORTLIST_LAST_RUN = 'SIGNAL_SHORTLIST_LAST_RUN';
+const PROPERTY_TT8_ENTRANTS_LAST_RUN = 'SIGNAL_TT8_ENTRANTS_LAST_RUN';
+
+/**
+ * signalTypes that FIFO-match in their own queue and stay out of the headline
+ * DIP/REVERSAL aggregates.
+ *
+ * All of these trade the same watchlist, so a shared queue would let one
+ * strategy's exit close another's entry and report the pair under the buy
+ * leg's label. Keeping DIP/REVERSAL on the original key leaves their historical
+ * matching byte-for-byte unchanged.
+ */
+const ISOLATED_SIGNAL_TYPES = new Set(['LEADER', 'LEADER_GATED', 'TT8']);
+
+/**
+ * Every signalType a SignalLog BUY row may legitimately carry.
+ *
+ * Two vocabularies share this column and both are valid. The engine emits DIP /
+ * REVERSAL / LEADER / LEADER_GATED / TT8 — those describe a SIGNAL. The tracker
+ * writes BET / DIP / LEADER from an order's provenance tag — those describe a
+ * POSITION. UNTAGGED means a real position exists and nobody has said where it
+ * came from.
+ */
+const KNOWN_SIGNAL_TYPES = new Set([
+  'BET',
+  'DIP',
+  'LEADER',
+  'LEADER_GATED',
+  'REVERSAL',
+  'TT8',
+  'UNTAGGED'
+]);
+
+/** Tracked statuses that mean the engine has told the user to get out. */
+const EXITED_TRACKED_STATUSES = new Set(['STOP_HIT', 'TRAILING_EXIT']);
+
+/**
+ * Where a signal has got to, as four distinct facts.
+ *
+ * The engine recommending a sale and the user making one are different events,
+ * and the previous two-state model (`sellRow ? 'CLOSED' : 'OPEN'`) could not
+ * tell them apart. AMZN is the case that proves it: an exit was signalled on
+ * 2026-08-03 and the position is still held, which is neither "open" nor "sold".
+ *
+ * The ladder runs downward — a sale outranks an exit signal, which outranks a
+ * purchase — because each state implies the ones before it.
+ */
+export function resolveTradeStatus({
+  exitSignalled,
+  purchased,
+  sold
+}: {
+  /** The engine sent a stop or trailing exit alert. */
+  exitSignalled: boolean;
+  /** A real BUY order is linked to this signal. */
+  purchased: boolean;
+  /** A real SELL order exists — whether or not any signal asked for it. */
+  sold: boolean;
+}): SimulatedTrade['status'] {
+  if (sold) {
+    return 'SOLD';
+  }
+
+  if (exitSignalled) {
+    return 'CLOSED';
+  }
+
+  return purchased ? 'BOUGHT' : 'OPEN';
+}
+
+/**
+ * signalTypes that get their own category chip in the Analytics log rather
+ * than being lumped under the raw category ('BUY').
+ */
+const BUCKETED_SIGNAL_TYPES = new Set([
+  'LEADER',
+  'LEADER_GATED',
+  'REVERSAL',
+  'TT8'
+]);
+// Must mirror CronService.EVERY_WEEKDAY_AFTER_US_CLOSE ('30 22 * * 1-5') plus
+// the 10-minute queue delay TradingSignalsService.addLeaderScreenToQueue adds,
+// so the boot catch-up and the cron agree on what "today's run" means.
+const LEADER_SCREEN_SLOT_HOUR = 22;
+const LEADER_SCREEN_SLOT_MINUTE = 40;
 
 @Injectable()
 export class SignalsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(SignalsService.name);
+  // Symbols whose Yahoo expense-ratio fetch is already running in the
+  // background, so overlapping watchlist refreshes do not stack duplicate
+  // scrapes of the same symbol (see `refillYahooFeeCache`).
+  private readonly yahooFeeRefillInFlight = new Set<string>();
+  // Short-lived per-user memo of the watchlist metrics snapshot, keyed by user
+  // id. See SIGNAL_WATCHLIST_METRICS_CACHE_TTL.
+  private readonly watchlistMetricsCache = new Map<
+    string,
+    { expiresAt: number; value: Record<string, WatchlistMetric> }
+  >();
 
   public constructor(
     private readonly accountService: AccountService,
@@ -207,12 +366,17 @@ export class SignalsService implements OnApplicationBootstrap {
     private readonly fundHistoryService: FundHistoryService,
     private readonly indicatorsService: IndicatorsService,
     private readonly marketDataService: MarketDataService,
+    private readonly crossSectionalService: CrossSectionalService,
+    private readonly leaderScreenService: LeaderScreenService,
+    private readonly marketBreadthService: MarketBreadthService,
     private readonly marketRegimeService: MarketRegimeService,
+    private readonly ohlcBarService: OhlcBarService,
     private readonly newsSentimentService: NewsSentimentService,
     private readonly ohlcService: OhlcService,
     private readonly ollamaService: OllamaService,
     private readonly prismaService: PrismaService,
     private readonly propertyService: PropertyService,
+    private readonly redisCacheService: RedisCacheService,
     private readonly screeningService: ScreeningService,
     private readonly signalTradeTrackingService: SignalTradeTrackingService,
     private readonly strategiesService: StrategiesService,
@@ -234,10 +398,25 @@ export class SignalsService implements OnApplicationBootstrap {
     const added: string[] = [];
     const failed: { reason: string; symbol: string }[] = [];
 
+    // The curated catalog carries an explicit dataSource per company; index
+    // constituents are all YAHOO listings. De-duplicated so a name that is both
+    // curated and an index member is imported once.
+    const symbols = new Map<string, DataSource>();
+
     for (const { dataSource, symbol } of allCatalogCompanies()) {
+      symbols.set(symbol, DataSource[dataSource]);
+    }
+
+    for (const symbol of allIndexConstituents()) {
+      if (!symbols.has(symbol)) {
+        symbols.set(symbol, DataSource.YAHOO);
+      }
+    }
+
+    for (const [symbol, dataSource] of symbols) {
       try {
         await this.watchlistService.createWatchlistItem({
-          dataSource: DataSource[dataSource],
+          dataSource,
           symbol,
           userId
         });
@@ -496,6 +675,212 @@ export class SignalsService implements OnApplicationBootstrap {
         this.logger.error(`Monthly-plan boot catch-up failed: ${error}`);
       });
     }, 90_000);
+
+    // The screens all read OhlcBar, so the gather has to finish before any of
+    // them run. Sequenced rather than staggered on timers: the gather takes
+    // minutes over the full universe, so a timer race would hand the screens
+    // stale bars on exactly the boots where the catch-up matters most.
+    setTimeout(() => {
+      void this.runBootCatchUps();
+    }, 120_000);
+  }
+
+  /**
+   * Boot catch-up chain, in dependency order.
+   *
+   * `@nestjs/schedule` crons do not catch up, so a laptop asleep at 22:05 loses
+   * the gather outright — and with it every screen that reads the bars. Each
+   * step is isolated: one failure must not cancel the ones after it.
+   */
+  private async runBootCatchUps(): Promise<void> {
+    const steps: [string, () => Promise<unknown>][] = [
+      ['OHLC refresh', () => this.refreshOhlcBarsIfDue()],
+      ['Leader screen', () => this.sendLeaderScreenIfDue()],
+      ['Shortlist', () => this.sendShortlistIfDue()],
+      ['Trend Template entrants', () => this.sendTrendTemplateEntrantsIfDue()]
+    ];
+
+    for (const [label, run] of steps) {
+      try {
+        await run();
+      } catch (error) {
+        this.logger.error(`${label} boot catch-up failed: ${error}`);
+      }
+    }
+  }
+
+  /**
+   * Runs the leader screen if the most recent weekday slot has passed without
+   * one. Returns how many breakouts were alerted across all users.
+   */
+  public async sendLeaderScreenIfDue(): Promise<number> {
+    const now = new Date();
+    const lastRunAt = await this.propertyService.getByKey<string>(
+      PROPERTY_LEADER_SCREEN_LAST_RUN
+    );
+
+    if (
+      !isLeaderScreenDue({
+        hour: LEADER_SCREEN_SLOT_HOUR,
+        lastRunAt,
+        minute: LEADER_SCREEN_SLOT_MINUTE,
+        now
+      })
+    ) {
+      return 0;
+    }
+
+    const users = await this.prismaService.user.findMany({
+      select: { id: true },
+      where: { role: { not: 'DEMO' } }
+    });
+
+    let sent = 0;
+
+    for (const { id } of users) {
+      try {
+        sent += await this.sendLeaderCandidates(id);
+      } catch (error) {
+        this.logger.error(`Leader screen failed for user ${id}`, error);
+      }
+    }
+
+    // Recorded even when nothing was sent: the run happened, and a screen that
+    // found no breakout must not re-run on every restart.
+    await this.propertyService.put({
+      key: PROPERTY_LEADER_SCREEN_LAST_RUN,
+      value: JSON.stringify(now.toISOString())
+    });
+
+    this.logger.log(
+      `Leader screen catch-up complete - ${sent} breakout(s) alerted`
+    );
+
+    return sent;
+  }
+
+  /**
+   * Appends the newest daily bars for the whole YAHOO universe.
+   *
+   * Why this exists: `OhlcBar` had no writer inside the application at all. It
+   * was filled once by `run-ohlc-backfill.cjs`, which skips any symbol that
+   * already holds enough rows — so the table stopped advancing the day the
+   * backfill finished, and the Trend Template, the VCP detector, ATR and the
+   * cross-sectional RS percentile all silently kept reading that day's market.
+   * `MarketData` stayed current the whole time, which is what made the staleness
+   * so easy to miss: prices and scores moved, the leader-screen columns did not.
+   *
+   * Incremental by design — `getLatestDates` is one query and gives the gap per
+   * symbol, so an ordinary night asks Yahoo for a 1-month range to collect one
+   * missing session rather than refetching five years. Returns the number of
+   * bars actually written.
+   */
+  public async refreshOhlcBars(): Promise<number> {
+    const profiles = await this.prismaService.symbolProfile.findMany({
+      orderBy: { symbol: 'asc' },
+      select: { symbol: true },
+      where: { dataSource: DataSource.YAHOO }
+    });
+
+    const latestDates = await this.ohlcBarService.getLatestDates(
+      DataSource.YAHOO
+    );
+    const now = new Date();
+
+    const queue = profiles
+      .map(({ symbol }) => symbol)
+      .filter((symbol) => !OHLC_REFRESH_SKIP_SYMBOLS.has(symbol));
+
+    let written = 0;
+    let failed = 0;
+
+    // A worker pool rather than a Promise.all, for the reason given on
+    // SIGNAL_OHLC_REFRESH_CONCURRENCY: a ~900-wide burst is the surest way to
+    // get the whole run rate-limited.
+    const worker = async () => {
+      while (queue.length > 0) {
+        const symbol = queue.shift();
+
+        if (!symbol) {
+          return;
+        }
+
+        try {
+          const bars = await this.ohlcService.getDatedBars(
+            symbol,
+            refreshRangeFor({ latestDate: latestDates[symbol], now })
+          );
+
+          if (!bars?.length) {
+            failed++;
+            continue;
+          }
+
+          // skipDuplicates against the (dataSource, date, symbol) unique index,
+          // so the overlap an over-wide range produces costs nothing.
+          written += await this.ohlcBarService.upsertMany({
+            bars,
+            dataSource: DataSource.YAHOO,
+            symbol
+          });
+        } catch (error) {
+          // One unreachable symbol must never abort the gather for the rest.
+          failed++;
+          this.logger.warn(`OHLC refresh failed for ${symbol}: ${error}`);
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from(
+        { length: Math.min(SIGNAL_OHLC_REFRESH_CONCURRENCY, queue.length) },
+        () => worker()
+      )
+    );
+
+    this.logger.log(
+      `OHLC refresh complete - ${written} bar(s) written across ` +
+        `${profiles.length} symbol(s), ${failed} without data`
+    );
+
+    return written;
+  }
+
+  /**
+   * Runs the gather if the most recent weekday slot has passed without one.
+   *
+   * The catch-up matters more here than anywhere else: this runs at 22:05 on a
+   * machine that is not always on at 22:05, and a missed night is not a missed
+   * notification but a permanent hole in the bar history that nothing else
+   * fills.
+   */
+  public async refreshOhlcBarsIfDue(): Promise<number> {
+    const now = new Date();
+    const lastRunAt = await this.propertyService.getByKey<string>(
+      PROPERTY_OHLC_REFRESH_LAST_RUN
+    );
+
+    // Same generic "has the most recent weekday slot passed" test the leader
+    // screen uses, parameterised to this slot.
+    if (
+      !isLeaderScreenDue({
+        hour: OHLC_REFRESH_SLOT_HOUR,
+        lastRunAt,
+        minute: OHLC_REFRESH_SLOT_MINUTE,
+        now
+      })
+    ) {
+      return 0;
+    }
+
+    const written = await this.refreshOhlcBars();
+
+    await this.propertyService.put({
+      key: PROPERTY_OHLC_REFRESH_LAST_RUN,
+      value: JSON.stringify(now.toISOString())
+    });
+
+    return written;
   }
 
   // The ~750 USD monthly contribution lands around the 25th — deliver the
@@ -827,7 +1212,7 @@ export class SignalsService implements OnApplicationBootstrap {
     );
 
     // Stocks sleeve → the WHOLE buyable universe, re-checked against recent
-    // signals, ranked by conviction inside buildStrategies.
+    // signals, ranked by expected value inside buildStrategies.
     const candidates = await this.enrichWithRecentSignals(
       stockCandidates.filter((c) => c.priceInBase > 0),
       userId
@@ -1042,7 +1427,7 @@ export class SignalsService implements OnApplicationBootstrap {
               2
             )} = ${leg.cost.toFixed(2)}${leg.fee > 0 ? ` (incl. ${leg.fee} fee)` : ''}`
           );
-          // The "why": conviction, probability, indicators.
+          // The "why": expected value, probability, indicators.
           if (leg.rationale) {
             lines.push(`      ↳ ${leg.rationale}`);
           }
@@ -1503,7 +1888,7 @@ export class SignalsService implements OnApplicationBootstrap {
     }
   }
 
-  /** Maps a TradingSignal to a SignalLog row, deriving EV / conviction / levels. */
+  /** Maps a TradingSignal to a SignalLog row, deriving EV / levels. */
   private toSignalLogInput(
     userId: string,
     signal: TradingSignal
@@ -1521,7 +1906,9 @@ export class SignalsService implements OnApplicationBootstrap {
       bearMarket: signal.bearMarket ?? false,
       bollingerPctB: signal.bollingerPctB ?? null,
       category: signal.category,
-      conviction: expectedValue != null ? 50 + expectedValue * 1000 : null,
+      // SignalLog.conviction is intentionally left unwritten: the metric drove
+      // no decision anywhere and its 50 + EV*1000 rendering was unbounded and
+      // misleading. The column is kept so historical rows stay readable.
       currency: signal.currency ?? null,
       dataSource: signal.dataSource,
       expectedValue,
@@ -1571,14 +1958,22 @@ export class SignalsService implements OnApplicationBootstrap {
     userId: string,
     filters: { category?: string; days?: number; symbol?: string } = {}
   ): Promise<SignalLogResponse> {
-    const days = filters.days && filters.days > 0 ? filters.days : 30;
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    // No default window. This used to fall back to 30 days, which silently hid
+    // every older signal from the Analytics dashboard — including the AMZN dip
+    // call a real purchase was made on. The rows were always in the table; the
+    // dashboard simply could not see them, which from the outside is
+    // indistinguishable from the engine never having fired. A caller that wants
+    // a window now has to ask for one.
+    const since =
+      filters.days && filters.days > 0
+        ? new Date(Date.now() - filters.days * 24 * 60 * 60 * 1000)
+        : undefined;
 
     const rows = await this.prismaService.signalLog.findMany({
       orderBy: { createdAt: 'desc' },
       where: {
         userId,
-        createdAt: { gte: since },
+        ...(since ? { createdAt: { gte: since } } : {}),
         ...(filters.category ? { category: filters.category } : {}),
         ...(filters.symbol ? { symbol: filters.symbol } : {})
       }
@@ -1589,9 +1984,13 @@ export class SignalsService implements OnApplicationBootstrap {
     const last30d: Record<string, number> = {};
 
     for (const row of rows) {
-      // REVERSAL signals are stored as category='BUY' / signalType='REVERSAL'.
-      // Bucket them under 'REVERSAL' so the summary card shows the real count.
-      const bucket = row.signalType === 'REVERSAL' ? 'REVERSAL' : row.category;
+      // REVERSAL and LEADER signals are both stored as category='BUY' with a
+      // distinguishing signalType. Bucket them under their own name so the
+      // summary card shows the real count per strategy rather than lumping
+      // three different playbooks into one 'BUY' total.
+      const bucket = BUCKETED_SIGNAL_TYPES.has(row.signalType ?? '')
+        ? row.signalType
+        : row.category;
 
       last30d[bucket] = (last30d[bucket] ?? 0) + 1;
 
@@ -1628,10 +2027,9 @@ export class SignalsService implements OnApplicationBootstrap {
           bearMarket: row.bearMarket,
           bollingerPctB: row.bollingerPctB ?? undefined,
           category: row.category,
-          conviction: row.conviction ?? undefined,
           createdAt: row.createdAt.toISOString(),
-          currentConviction: current?.conviction,
           currency: row.currency ?? undefined,
+          currentExpectedValue: current?.expectedValue,
           currentPrice: current?.livePrice,
           currentReachProbability: current?.reachProbability,
           currentRsi: current?.rsi,
@@ -1683,7 +2081,14 @@ export class SignalsService implements OnApplicationBootstrap {
     const closedPairs: { buyRow: SignalLogRow; sellRow: SignalLogRow }[] = [];
 
     for (const row of rows) {
-      const key = `${row.dataSource}:${row.symbol}`;
+      // LEADER lots are matched in their own bucket. Both strategies trade the
+      // same watchlist, so a shared queue would let a DIP exit close a LEADER
+      // entry (or vice versa) and report the pair under the buy leg's label.
+      // Non-LEADER rows keep their original key, so historical DIP/REVERSAL
+      // matching is byte-for-byte unchanged by this addition.
+      const key = ISOLATED_SIGNAL_TYPES.has(row.signalType ?? '')
+        ? `${row.signalType}:${row.dataSource}:${row.symbol}`
+        : `${row.dataSource}:${row.symbol}`;
 
       if (row.category === 'BUY') {
         const queue = openLotsByKey.get(key) ?? [];
@@ -1700,32 +2105,119 @@ export class SignalsService implements OnApplicationBootstrap {
       }
     }
 
-    const openRows = [...openLotsByKey.values()].flat();
+    const stillOpenRows = [...openLotsByKey.values()].flat();
+
+    // A second way for a lot to close, and the one the engine actually uses.
+    //
+    // The FIFO walk above pairs BUY rows with SELL rows, and the engine has
+    // never written a SELL row — the exit alerts that DID fire were recorded by
+    // SignalTradeTrackingService as a terminal `trackedStatus` on the buy row
+    // itself. So every exit the user was told to take was invisible here, and
+    // the strategy curves ran on as if nothing had been sold. Reading the
+    // tracked status closes them. The BUY/SELL walk is untouched.
+    const exitRows = await this.resolveTrackedExits(stillOpenRows);
+    const exitByRowId = new Map(exitRows.map((exit) => [exit.rowId, exit]));
+
+    const openRows = stillOpenRows.filter((row) => !exitByRowId.has(row.id));
     const currentQuotes = await this.computeMetricsSnapshot(
       openRows.map(({ dataSource, symbol }) => ({ dataSource, symbol }))
     );
+
+    // Real sales. A position that has been sold reads SOLD whether or not the
+    // engine ever asked for it — XDJP.DE was sold on the user's own decision
+    // and the log holds no exit signal for it at all. The price and date are
+    // kept, not just the fact, so the exits table can show what the engine
+    // advised beside what actually happened.
+    const sellOrders = await this.prismaService.order.findMany({
+      orderBy: { date: 'asc' },
+      select: {
+        date: true,
+        fee: true,
+        SymbolProfile: { select: { symbol: true } },
+        unitPrice: true
+      },
+      where: { isDraft: false, type: 'SELL', userId }
+    });
+
+    const saleBySymbol = new Map(
+      sellOrders.map((order) => [order.SymbolProfile.symbol, order])
+    );
+    const soldSymbols = new Set(saleBySymbol.keys());
 
     const now = new Date();
 
     const closedTrades = closedPairs
       .map(({ buyRow, sellRow }) =>
-        this.buildSimulatedTrade({ buyRow, now, sellRow })
+        this.buildSimulatedTrade({ buyRow, now, sellRow, soldSymbols })
       )
       .filter((trade): trade is SimulatedTrade => trade !== null);
+
+    // Tracked exits reuse the same builder by handing it a sell leg made from
+    // the alert — the date it fired and the price it fired at. The exit is kept
+    // paired with the trade it produced so the chart marker needs no lookup.
+    const trackedExits = stillOpenRows
+      .filter((row) => exitByRowId.has(row.id))
+      .map((buyRow) => {
+        const exit = exitByRowId.get(buyRow.id);
+
+        return {
+          exit,
+          trade: this.buildSimulatedTrade({
+            buyRow,
+            now,
+            sellRow: { createdAt: exit.exitedAt, livePrice: exit.exitPrice },
+            soldSymbols
+          })
+        };
+      })
+      .filter(({ trade }) => trade !== null);
+
+    const trackedExitTrades = trackedExits.map(({ trade }) => trade);
 
     const openTrades = openRows
       .map((buyRow) =>
         this.buildSimulatedTrade({
           buyRow,
           currentPrice: currentQuotes.get(buyRow.symbol)?.livePrice,
-          now
+          now,
+          soldSymbols
         })
       )
       .filter((trade): trade is SimulatedTrade => trade !== null);
 
-    const trades = [...closedTrades, ...openTrades].sort(
+    const trades = [...closedTrades, ...trackedExitTrades, ...openTrades].sort(
       (a, b) => new Date(b.buyDate).getTime() - new Date(a.buyDate).getTime()
     );
+
+    const exitMarkers: SignalExitMarker[] = trackedExits
+      .filter(({ trade }) => trade.netReturnPct != null)
+      .map(({ exit, trade }) => {
+        const sale = saleBySymbol.get(trade.symbol);
+        // Measured from the REAL fill, not the signal price — this column
+        // answers "what did I actually make", where the one beside it answers
+        // "what would following the advice have made".
+        const realEntry = trade.realBuyPrice ?? trade.buyPrice;
+
+        return {
+          date: exit.exitedAt.toISOString().slice(0, 10),
+          entryPrice: trade.buyPrice,
+          exitPrice: exit.exitPrice,
+          holdingDays: trade.holdingDays,
+          name: trade.name,
+          netReturnPct: trade.netReturnPct,
+          reconstructed: exit.reconstructed,
+          signalType: trade.signalType ?? SIGNAL_TYPE_UNTAGGED,
+          soldDate: sale ? sale.date.toISOString().slice(0, 10) : undefined,
+          soldNetReturnPct:
+            sale && realEntry > 0
+              ? round2((sale.unitPrice / realEntry - 1) * 100)
+              : undefined,
+          soldPrice: sale?.unitPrice,
+          status: exit.status,
+          symbol: trade.symbol
+        };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
 
     const marketDataBySymbol = await this.fetchMarketDataBySymbol(trades);
     const todayStr = now.toISOString().slice(0, 10);
@@ -1740,13 +2232,183 @@ export class SignalsService implements OnApplicationBootstrap {
       marketDataBySymbol,
       todayStr
     );
-    const trackedSeries = buildPerformanceSeries(
-      trades.filter((trade) => trade.tracked),
+    const leaderSeries = buildPerformanceSeries(
+      trades.filter((trade) => trade.signalType === 'LEADER'),
+      marketDataBySymbol,
+      todayStr
+    );
+    const leaderGatedSeries = buildPerformanceSeries(
+      trades.filter((trade) => trade.signalType === 'LEADER_GATED'),
+      marketDataBySymbol,
+      todayStr
+    );
+    const tt8Series = buildPerformanceSeries(
+      trades.filter((trade) => trade.signalType === 'TT8'),
       marketDataBySymbol,
       todayStr
     );
 
-    const overallStart = [dipSeries, reversalSeries, trackedSeries]
+    // Every Trend Template entrant the engine has ever alerted — the running
+    // record of what was RECOMMENDED, as opposed to tt8Series, which is the
+    // much shorter list of entrants actually purchased. These are logged under
+    // category 'WATCH', which the BUY/SELL query above deliberately excludes,
+    // so they are fetched separately.
+    const watchRows = await this.prismaService.signalLog.findMany({
+      orderBy: { createdAt: 'asc' },
+      where: { category: 'WATCH', signalType: 'TT8', userId }
+    });
+
+    const watchTrades: PerformanceSeriesTrade[] = watchRows
+      .filter((row) => row.livePrice > 0)
+      .map((row) => ({
+        buyDate: row.createdAt.toISOString().slice(0, 10),
+        buyPrice: row.livePrice,
+        dataSource: row.dataSource,
+        symbol: row.symbol
+      }));
+
+    // Real activities, FIFO-reconstructed. Funds are excluded: they are the
+    // buy-and-hold core, bought on a schedule rather than a call, and folding
+    // them in would blunt every comparison this chart exists to make.
+    const orders = await this.prismaService.order.findMany({
+      include: {
+        SymbolProfile: {
+          select: {
+            assetSubClass: true,
+            currency: true,
+            dataSource: true,
+            name: true,
+            symbol: true
+          }
+        },
+        tags: { select: { name: true } }
+      },
+      where: { type: { in: ['BUY', 'SELL'] }, userId }
+    });
+
+    // The engine's own most recent take-profit per symbol, as the fallback
+    // target for a stock with no hand-set number. Read from the log rather than
+    // recomputed: the point is to show the level the engine actually published.
+    const takeProfitBySymbol = new Map<string, number>();
+
+    for (const row of rows) {
+      if (row.takeProfit != null) {
+        takeProfitBySymbol.set(row.symbol, row.takeProfit);
+      }
+    }
+
+    const trackedTrades = ordersToTrades(
+      orders
+        .filter(
+          ({ SymbolProfile }) =>
+            SymbolProfile.assetSubClass === 'STOCK' ||
+            SymbolProfile.assetSubClass === 'ETF'
+        )
+        .map((order) => ({
+          dataSource: order.SymbolProfile.dataSource,
+          date: order.date.toISOString().slice(0, 10),
+          fee: order.fee ?? 0,
+          quantity: order.quantity,
+          symbol: order.SymbolProfile.symbol,
+          tags: order.tags.map(({ name }) => name),
+          type: order.type,
+          unitPrice: order.unitPrice
+        }))
+    );
+
+    const extraMarketData = await this.fetchMarketDataBySymbol([
+      ...watchTrades,
+      ...trackedTrades
+    ]);
+
+    for (const [key, closes] of extraMarketData) {
+      if (!marketDataBySymbol.has(key)) {
+        marketDataBySymbol.set(key, closes);
+      }
+    }
+
+    const watchLeaderSeries = buildPerformanceSeries(
+      watchTrades,
+      marketDataBySymbol,
+      todayStr
+    );
+    const trackedSeries = buildPerformanceSeries(
+      trackedTrades,
+      marketDataBySymbol,
+      todayStr
+    );
+
+    const byTag = (tag: string) =>
+      buildPerformanceSeries(
+        trackedTrades.filter((trade) => trade.tags.includes(tag)),
+        marketDataBySymbol,
+        todayStr
+      );
+
+    const trackedBetSeries = byTag(SIGNAL_TAG_PROVENANCE_BET);
+    const trackedDipSeries = byTag(SIGNAL_TAG_PROVENANCE_DIP);
+    const trackedLeaderSeries = byTag(SIGNAL_TAG_PROVENANCE_LEADER);
+
+    const openTrackedTrades = trackedTrades.filter(({ sellDate }) => !sellDate);
+    const trackedQuotes = await this.computeMetricsSnapshot(
+      openTrackedTrades.map(({ dataSource, symbol }) => ({
+        dataSource: dataSource as DataSource,
+        symbol
+      }))
+    );
+    const profileBySymbol = new Map(
+      orders.map(({ SymbolProfile }) => [SymbolProfile.symbol, SymbolProfile])
+    );
+
+    const trackedPositions: TrackedPosition[] = openTrackedTrades.map(
+      (trade) => {
+        const profile = profileBySymbol.get(trade.symbol);
+        const currentPrice = trackedQuotes.get(trade.symbol)?.livePrice;
+        // A hand-set target wins; otherwise the engine's own take-profit for
+        // this name, if it has ever produced one. An ETF gets neither.
+        const targetPrice =
+          profile?.assetSubClass === 'STOCK'
+            ? (PORTFOLIO_PRICE_TARGETS[trade.symbol] ??
+              takeProfitBySymbol.get(trade.symbol))
+            : undefined;
+
+        return {
+          currency: profile?.currency ?? undefined,
+          currentPrice,
+          entryDate: trade.buyDate,
+          entryPrice: trade.buyPrice,
+          name: profile?.name ?? undefined,
+          netReturnPct:
+            currentPrice != null
+              ? round2(
+                  (currentPrice / trade.buyPrice - 1) * 100 -
+                    (trade.feeDragPct ?? 0)
+                )
+              : undefined,
+          provenance: trade.tags[0],
+          quantity: round2(trade.quantity),
+          symbol: trade.symbol,
+          targetPrice,
+          toTargetPct:
+            targetPrice != null && currentPrice != null
+              ? round2((targetPrice / currentPrice - 1) * 100)
+              : undefined
+        };
+      }
+    );
+
+    const overallStart = [
+      dipSeries,
+      leaderGatedSeries,
+      leaderSeries,
+      reversalSeries,
+      trackedBetSeries,
+      trackedDipSeries,
+      trackedLeaderSeries,
+      trackedSeries,
+      tt8Series,
+      watchLeaderSeries
+    ]
       .flat()
       .map((point) => point.date)
       .sort()[0];
@@ -1764,13 +2426,24 @@ export class SignalsService implements OnApplicationBootstrap {
     const numeric = (value: number | undefined): value is number =>
       value != null;
 
-    const winningTrades = closedTrades.filter(
+    // The headline numbers describe the DIP/REVERSAL engine and always have.
+    // LEADER runs a different playbook entirely (buys strength, flat 7.5%
+    // stop, no take-profit), so folding it in would redefine what those
+    // figures mean rather than add to them. It gets its own breakdown below.
+    const headlineTrades = closedTrades.filter(
+      (trade) => !ISOLATED_SIGNAL_TYPES.has(trade.signalType)
+    );
+    const headlineOpenTrades = openTrades.filter(
+      (trade) => !ISOLATED_SIGNAL_TYPES.has(trade.signalType)
+    );
+
+    const winningTrades = headlineTrades.filter(
       (trade) => numeric(trade.netReturnPct) && trade.netReturnPct > 0
     );
 
     // Per-signal-type breakdown, so the DIP-vs-REVERSAL evidence the user
     // found in the CSV export stays visible on the page itself.
-    const typeBreakdown = (signalType: 'DIP' | 'REVERSAL') => {
+    const typeBreakdown = (signalType: SimulatedTrade['signalType']) => {
       const ofType = closedTrades.filter(
         (trade) => trade.signalType === signalType
       );
@@ -1788,33 +2461,51 @@ export class SignalsService implements OnApplicationBootstrap {
     };
 
     const dipBreakdown = typeBreakdown('DIP');
+    const leaderBreakdown = typeBreakdown('LEADER');
+    const leaderGatedBreakdown = typeBreakdown('LEADER_GATED');
     const reversalBreakdown = typeBreakdown('REVERSAL');
+    const tt8Breakdown = typeBreakdown('TT8');
 
     const summary: SimulationSummary = {
       dipAvgNetReturnPct: dipBreakdown.avgNetReturnPct,
       dipClosedTrades: dipBreakdown.closedTrades,
       dipWinRate: dipBreakdown.winRate,
+      leaderAvgNetReturnPct: leaderBreakdown.avgNetReturnPct,
+      leaderClosedTrades: leaderBreakdown.closedTrades,
+      leaderWinRate: leaderBreakdown.winRate,
+      leaderGatedAvgNetReturnPct: leaderGatedBreakdown.avgNetReturnPct,
+      leaderGatedClosedTrades: leaderGatedBreakdown.closedTrades,
+      leaderGatedWinRate: leaderGatedBreakdown.winRate,
+      tt8AvgNetReturnPct: tt8Breakdown.avgNetReturnPct,
+      tt8ClosedTrades: tt8Breakdown.closedTrades,
+      tt8WinRate: tt8Breakdown.winRate,
       reversalAvgNetReturnPct: reversalBreakdown.avgNetReturnPct,
       reversalClosedTrades: reversalBreakdown.closedTrades,
       reversalWinRate: reversalBreakdown.winRate,
       avgEffectiveAnnualRatePct: round2(
         average(
-          closedTrades
+          headlineTrades
             .map((trade) => trade.effectiveAnnualRatePct)
             .filter(numeric)
         )
       ),
       avgNetReturnPct: round2(
-        average(closedTrades.map((trade) => trade.netReturnPct).filter(numeric))
+        average(
+          headlineTrades.map((trade) => trade.netReturnPct).filter(numeric)
+        )
       ),
-      closedTrades: closedTrades.length,
-      openTrades: openTrades.length,
+      closedTrades: headlineTrades.length,
+      openTrades: headlineOpenTrades.length,
+      // Commission is a percentage of trade value, so it is computed from the
+      // assumed notional rather than counted as a flat charge per trade.
       totalFeesUsd:
-        closedTrades.length * (SIGNAL_BUY_FEE_USD + SIGNAL_SELL_FEE_USD) +
-        openTrades.length * SIGNAL_BUY_FEE_USD,
+        headlineTrades.length *
+          this.roundTripCommission(SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD) +
+        headlineOpenTrades.length *
+          this.commission(SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD),
       winRate:
-        closedTrades.length > 0
-          ? round2(winningTrades.length / closedTrades.length)
+        headlineTrades.length > 0
+          ? round2(winningTrades.length / headlineTrades.length)
           : 0
     };
 
@@ -1823,20 +2514,152 @@ export class SignalsService implements OnApplicationBootstrap {
       benchmarkSeries,
       dipSeries,
       generatedAt: now.toISOString(),
+      leaderGatedSeries,
+      leaderSeries,
       reversalSeries,
       summary,
+      trackedBetSeries,
+      trackedDipSeries,
+      trackedLeaderSeries,
+      exitMarkers,
+      trackedPositions,
       trackedSeries,
-      trades
+      trades,
+      tt8Series,
+      watchLeaderSeries
     };
+  }
+
+  /**
+   * The exits that actually fired, for buy rows the BUY/SELL walk left open.
+   *
+   * `SignalTradeTrackingService` records a terminal `trackedStatus` on the buy
+   * row rather than writing a SELL row, so these are the engine's real sell
+   * alerts — the ones the user was told to act on.
+   *
+   * The price is taken from `trackedExitPrice` where the tracker recorded it.
+   * Exits alerted before that field existed are RECONSTRUCTED from the stored
+   * close on the alert date, which is close but not identical — a trailing exit
+   * fires intraday. The flag is carried through so nothing presents an inferred
+   * number as a recorded one.
+   */
+  private async resolveTrackedExits(
+    rows: {
+      id: string;
+      dataSource: DataSource;
+      metrics: Prisma.JsonValue | null;
+      symbol: string;
+    }[]
+  ): Promise<
+    {
+      exitPrice: number;
+      exitedAt: Date;
+      reconstructed: boolean;
+      rowId: string;
+      status: string;
+    }[]
+  > {
+    const TERMINAL = new Set(['STOP_HIT', 'TRAILING_EXIT']);
+    const pending: {
+      dataSource: DataSource;
+      exitedAt: Date;
+      price?: number;
+      rowId: string;
+      status: string;
+      symbol: string;
+    }[] = [];
+
+    for (const row of rows) {
+      const tracked = readTrackedMetrics(row.metrics);
+
+      if (
+        !tracked ||
+        !TERMINAL.has(tracked.trackedStatus) ||
+        !tracked.trackedAlertedAt
+      ) {
+        continue;
+      }
+
+      pending.push({
+        dataSource: row.dataSource,
+        exitedAt: new Date(tracked.trackedAlertedAt),
+        price: tracked.trackedExitPrice,
+        rowId: row.id,
+        status: tracked.trackedStatus,
+        symbol: row.symbol
+      });
+    }
+
+    const needsPrice = pending.filter(({ price }) => price == null);
+    const closesBySymbol = new Map<string, { date: Date; close: number }[]>();
+
+    if (needsPrice.length > 0) {
+      const closes = await this.prismaService.marketData.findMany({
+        orderBy: { date: 'asc' },
+        select: { date: true, marketPrice: true, symbol: true },
+        where: {
+          OR: needsPrice.map(({ dataSource, symbol }) => ({
+            dataSource,
+            symbol
+          }))
+        }
+      });
+
+      for (const close of closes) {
+        const list = closesBySymbol.get(close.symbol) ?? [];
+        list.push({ close: close.marketPrice, date: close.date });
+        closesBySymbol.set(close.symbol, list);
+      }
+    }
+
+    // Resolved per ENTRY, not per symbol: the same ticker can be exited more
+    // than once, and keying the lookup by symbol alone would give both exits
+    // whichever close happened to be written last.
+    const reconstruct = (symbol: string, exitedAt: Date) => {
+      const closes = closesBySymbol.get(symbol) ?? [];
+      let found: number | undefined;
+
+      for (const point of closes) {
+        if (point.date > exitedAt) {
+          break;
+        }
+
+        found = point.close;
+      }
+
+      return found;
+    };
+
+    return pending
+      .map(({ exitedAt, price, rowId, status, symbol }) => {
+        const exitPrice = price ?? reconstruct(symbol, exitedAt);
+
+        // No recorded price and no stored close means the exit cannot be
+        // priced at all. Leaving the lot open is the honest outcome — a
+        // fabricated exit price would silently invent a return.
+        return exitPrice == null
+          ? null
+          : {
+              exitPrice,
+              exitedAt,
+              reconstructed: price == null,
+              rowId,
+              status
+            };
+      })
+      .filter((exit): exit is NonNullable<typeof exit> => exit !== null);
   }
 
   /**
    * Fetches every symbol's stored daily closes touched by `trades`, from the
    * earliest buy date onward — the source data buildPerformanceSeries marks
    * open trades to market against, day by day.
+   *
+   * Takes only the three fields it reads rather than a whole SimulatedTrade, so
+   * the order-derived and watch-derived trades can be passed without a cast.
    */
   private async fetchMarketDataBySymbol(
-    trades: SimulatedTrade[]
+    trades: Pick<PerformanceSeriesTrade, 'buyDate' | 'dataSource' | 'symbol'>[]
   ): Promise<Map<string, { date: string; close: number }[]>> {
     const bySymbol = new Map<string, { date: string; close: number }[]>();
 
@@ -1930,13 +2753,14 @@ export class SignalsService implements OnApplicationBootstrap {
     buyRow,
     currentPrice,
     now,
-    sellRow
+    sellRow,
+    soldSymbols = new Set<string>()
   }: {
     buyRow: {
-      conviction: number | null;
       createdAt: Date;
       currency: string | null;
       dataSource: DataSource;
+      expectedValue: number | null;
       livePrice: number | null;
       metrics: Prisma.JsonValue | null;
       name: string | null;
@@ -1951,6 +2775,8 @@ export class SignalsService implements OnApplicationBootstrap {
     currentPrice?: number;
     now: Date;
     sellRow?: { createdAt: Date; livePrice: number | null };
+    /** Symbols with a real SELL order — the position is gone, whatever the log says. */
+    soldSymbols?: Set<string>;
   }): SimulatedTrade | null {
     const buyPrice = buyRow.livePrice;
 
@@ -1976,8 +2802,14 @@ export class SignalsService implements OnApplicationBootstrap {
       // OPEN: only the buy leg's fee has actually been paid; the sell fee is
       // only charged once a matching SELL is logged and the trade closes.
       const roundTripFeeUsd = sellRow
-        ? SIGNAL_BUY_FEE_USD + SIGNAL_SELL_FEE_USD
-        : SIGNAL_BUY_FEE_USD;
+        ? this.roundTripCommission(
+            SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD,
+            buyRow.symbol
+          )
+        : this.commission(
+            SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD,
+            buyRow.symbol
+          );
       const feeDragPct =
         (roundTripFeeUsd / SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD) * 100;
       netReturnPct = grossReturnPct - feeDragPct;
@@ -2004,8 +2836,8 @@ export class SignalsService implements OnApplicationBootstrap {
       assumedNotionalUsd: SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD,
       buyDate: buyRow.createdAt.toISOString(),
       buyPrice,
-      convictionAtBuy: buyRow.conviction ?? undefined,
       currency: buyRow.currency ?? undefined,
+      expectedValueAtBuy: buyRow.expectedValue ?? undefined,
       // Only meaningful while still OPEN — once closed, sellPrice IS the exit.
       currentPrice: sellRow ? undefined : currentPrice,
       dataSource: buyRow.dataSource,
@@ -2025,8 +2857,25 @@ export class SignalsService implements OnApplicationBootstrap {
       scoreAtBuy: buyRow.score ?? undefined,
       sellDate: sellRow ? sellRow.createdAt.toISOString() : undefined,
       sellPrice: sellRow ? sellPrice : undefined,
-      signalType: buyRow.signalType === 'REVERSAL' ? 'REVERSAL' : 'DIP',
-      status: sellRow ? 'CLOSED' : 'OPEN',
+      // An unrecognised type becomes UNTAGGED, never DIP.
+      //
+      // This fallback used to be 'DIP', on the reasoning that every row written
+      // before signalType existed was a dip. That was true once and became the
+      // single most misleading line in the file: it silently relabelled every
+      // position the tracker typed as anything else — a BET, a LEADER, a
+      // MANUAL — into the curve measuring the dip strategy, no matter what the
+      // database said. Defaulting an unknown to a REAL category is how a
+      // display bug becomes a wrong measurement.
+      signalType: KNOWN_SIGNAL_TYPES.has(buyRow.signalType ?? '')
+        ? (buyRow.signalType as SimulatedTrade['signalType'])
+        : 'UNTAGGED',
+      status: resolveTradeStatus({
+        exitSignalled: EXITED_TRACKED_STATUSES.has(
+          tracked?.trackedStatus ?? ''
+        ),
+        purchased: tracked != null,
+        sold: sellRow != null || soldSymbols.has(buyRow.symbol)
+      }),
       stopLoss: buyRow.stopLoss ?? undefined,
       symbol: buyRow.symbol,
       takeProfit: buyRow.takeProfit ?? undefined,
@@ -2293,7 +3142,7 @@ export class SignalsService implements OnApplicationBootstrap {
    * dipping symbols, so the daily Yahoo `quoteSummary` volume stays bounded to
    * a handful of names per run (the 24h Redis cache carries the rest). It is
    * a second, independent signal shown alongside the technical score — not a
-   * BUY gate, not yet folded into conviction ranking.
+   * BUY gate, not yet folded into expected-value ranking.
    */
   private async resolveFundamentalsScore({
     closes,
@@ -2480,7 +3329,7 @@ export class SignalsService implements OnApplicationBootstrap {
       (volumeRatio === undefined ||
         volumeRatio >= SIGNAL_REVERSAL_VOLUME_RATIO);
 
-    // Every buyable stock becomes a candidate for the strategy conviction ranking.
+    // Every buyable stock becomes a candidate for the strategy EV ranking.
     const candidate: StrategyCandidate = {
       aboveSma200: snapshot.sma200 !== null && livePrice >= snapshot.sma200,
       annualVol,
@@ -2650,12 +3499,12 @@ export class SignalsService implements OnApplicationBootstrap {
     volatility: number;
   }): SymbolEvaluation {
     const averageBuyPrice = entry.averageBuyPrice;
-    // Distribute the flat round-trip fee across all held shares so the target
-    // clears both the profit goal and commissions.
-    const feePerShare =
-      entry.quantity > 0
-        ? (SIGNAL_BUY_FEE_USD + SIGNAL_SELL_FEE_USD) / entry.quantity
-        : 0;
+    // Distribute the round-trip commission across all held shares so the target
+    // clears both the profit goal and commissions. The commission is a
+    // percentage of position value, so it is derived from the real position.
+    const positionValue = averageBuyPrice * entry.quantity;
+    const roundTripFee = this.roundTripCommission(positionValue, entry.symbol);
+    const feePerShare = entry.quantity > 0 ? roundTripFee / entry.quantity : 0;
 
     const target = this.indicatorsService.adaptiveTakeProfitLevel({
       averageBuyPrice,
@@ -2673,7 +3522,7 @@ export class SignalsService implements OnApplicationBootstrap {
       volMult: SIGNAL_STOP_VOL_MULT
     });
 
-    const totalFees = SIGNAL_BUY_FEE_USD + SIGNAL_SELL_FEE_USD;
+    const totalFees = roundTripFee;
     const netGainPct = (price: number) =>
       (((price - averageBuyPrice) * entry.quantity - totalFees) /
         (averageBuyPrice * entry.quantity)) *
@@ -3055,6 +3904,7 @@ export class SignalsService implements OnApplicationBootstrap {
       currency: string;
       dataSource: DataSource;
       name: string;
+      sector: string | null;
       symbol: string;
     }[]
   > {
@@ -3066,6 +3916,7 @@ export class SignalsService implements OnApplicationBootstrap {
             currency: true,
             dataSource: true,
             name: true,
+            sectors: true,
             symbol: true
           }
         }
@@ -3079,6 +3930,7 @@ export class SignalsService implements OnApplicationBootstrap {
         currency: profile.currency,
         dataSource: profile.dataSource,
         name: profile.name ?? profile.symbol,
+        sector: primarySector(profile.sectors),
         symbol: profile.symbol
       })) ?? []
     );
@@ -3090,8 +3942,157 @@ export class SignalsService implements OnApplicationBootstrap {
    * owned/buy-zone ones). Cheap by design: no news/volume/OHLC fetches, only
    * the close-price history already cached for the signal engine.
    */
+  /**
+   * Minervini leader-screen fields for one symbol.
+   *
+   * Presented as a research surface in the watchlist, NOT as a buy trigger. The
+   * event study run on 2026-08-21 found that breakout entries did not beat the
+   * universe base rate at 21/63/126 days (t = -1.28 / -0.19 / +0.90), while the
+   * existing DIP entry did (t = +3.07 / +4.66 / +4.24). The Trend Template does
+   * show a real 126-day edge on its own (+1.45pp, t = 4.11), so it earns its
+   * place as context — but the numbers do not yet justify firing on it.
+   */
+  private computeLeaderScreen({
+    bars,
+    rsRank
+  }: {
+    bars: Bar[];
+    rsRank: number | null;
+  }): Partial<WatchlistMetric> {
+    if (bars.length === 0) {
+      return {};
+    }
+
+    const trend = this.leaderScreenService.trendTemplate({ bars, rsRank });
+    const vcp = this.leaderScreenService.vcpStructure(bars);
+
+    const screen: Partial<WatchlistMetric> = {
+      rsRank: rsRank ?? undefined,
+      trendTemplatePasses: trend?.passCount
+    };
+
+    if (!vcp) {
+      return screen;
+    }
+
+    if (!vcp.isValid) {
+      return { ...screen, vcpRejectedReason: vcp.rejectedReason ?? undefined };
+    }
+
+    const price = bars[bars.length - 1].close;
+
+    return {
+      ...screen,
+      vcpContractions: vcp.contractions.length,
+      vcpDepthsPct: vcp.contractions.map(({ depthPct }) =>
+        Number((depthPct * 100).toFixed(1))
+      ),
+      vcpPivot: vcp.pivot,
+      vcpPivotDistancePct:
+        vcp.pivot > 0 ? (price - vcp.pivot) / vcp.pivot : undefined,
+      vcpStatus: vcp.status,
+      vcpVolumeRatio: vcp.breakoutVolumeRatio,
+      // Only meaningful on a valid base: vcpStructure's rejection path reports
+      // dryUpRatio 0, which reads as "extremely dry" rather than "not measured".
+      vcpDryUpRatio: vcp.dryUpRatio
+    };
+  }
+
+  /**
+   * Publishes the cross-sectional RS map so per-symbol callers can read a rank
+   * they cannot compute alone. Best-effort by design — see the call site.
+   */
+  private async publishRsRankMap(rankMap: {
+    [symbol: string]: number;
+  }): Promise<void> {
+    if (Object.keys(rankMap).length === 0) {
+      return;
+    }
+
+    try {
+      await this.redisCacheService.set(
+        SIGNAL_RS_RANK_CACHE_KEY,
+        JSON.stringify(rankMap),
+        SIGNAL_RS_RANK_CACHE_TTL
+      );
+    } catch {
+      // best-effort cache
+    }
+  }
+
+  /**
+   * Warms the Yahoo expense-ratio cache for symbols that missed it, OFF the
+   * request path.
+   *
+   * Deliberately runs a small worker pool rather than a Promise.all: Yahoo
+   * rate-limits bursts, and `getYahooEtfProfile`'s single retry is useless
+   * when the burst that triggered the block is still in flight. A handful at
+   * a time lets the retry actually succeed, which is what makes the cache
+   * fill instead of churning.
+   *
+   * Never throws and is never awaited by a caller — a failure just means the
+   * fee stays on its fallback until the next refresh.
+   */
+  private async refillYahooFeeCache(symbols: string[]) {
+    const pending = symbols.filter((symbol) => {
+      return !this.yahooFeeRefillInFlight.has(symbol);
+    });
+
+    if (pending.length === 0) {
+      return;
+    }
+
+    for (const symbol of pending) {
+      this.yahooFeeRefillInFlight.add(symbol);
+    }
+
+    const queue = [...pending];
+
+    const worker = async () => {
+      while (queue.length > 0) {
+        const symbol = queue.shift();
+
+        if (!symbol) {
+          return;
+        }
+
+        try {
+          // Result is discarded: this call's only job is to populate the
+          // shared Redis cache that computeMetricsSnapshot reads from.
+          await this.assetDetailService.getYahooEtfProfile(symbol);
+        } catch {
+          // getYahooEtfProfile has its own try/catch, but never let a
+          // background warm-up surface an unhandled rejection.
+        } finally {
+          this.yahooFeeRefillInFlight.delete(symbol);
+        }
+      }
+    };
+
+    try {
+      await Promise.all(
+        Array.from(
+          {
+            length: Math.min(SIGNAL_YAHOO_FEE_REFILL_CONCURRENCY, queue.length)
+          },
+          () => worker()
+        )
+      );
+    } finally {
+      // Belt and braces: a worker that died before its finally ran must not
+      // leave a symbol permanently marked in-flight.
+      for (const symbol of pending) {
+        this.yahooFeeRefillInFlight.delete(symbol);
+      }
+    }
+  }
+
   private async computeMetricsSnapshot(
-    items: { dataSource: DataSource; symbol: string }[]
+    items: {
+      assetSubClass?: AssetSubClass | null;
+      dataSource: DataSource;
+      symbol: string;
+    }[]
   ): Promise<Map<string, WatchlistMetric & { livePrice?: number }>> {
     const metrics = new Map<string, WatchlistMetric & { livePrice?: number }>();
 
@@ -3099,11 +4100,32 @@ export class SignalsService implements OnApplicationBootstrap {
       return metrics;
     }
 
-    const [quotes, historyBySymbol, fundFacts] = await Promise.all([
-      this.dataProviderService.getQuotes({ items, useCache: true }),
-      this.getHistory(items),
-      this.fundHistoryService.getFacts()
-    ]);
+    const [quotes, historyBySymbol, fundFacts, barsBySymbol] =
+      await Promise.all([
+        this.dataProviderService.getQuotes({ items, useCache: true }),
+        this.getHistory(items),
+        this.fundHistoryService.getFacts(),
+        // Full OHLCV, for the leader-screen columns. Only YAHOO names have
+        // bars; MANUAL funds are skipped and simply carry no screen fields.
+        this.ohlcBarService.getBarsForSymbols({
+          assetProfileIdentifiers: items.filter(
+            ({ dataSource }) => dataSource === DataSource.YAHOO
+          ),
+          from: subDays(new Date(), SIGNAL_HISTORY_FETCH_DAYS)
+        })
+      ]);
+
+    // Relative strength is cross-sectional, so it is computed once over the
+    // whole universe rather than per symbol inside the loop.
+    const rsRankBySymbol = this.crossSectionalService.rankMap({
+      seriesBySymbol: barsBySymbol
+    });
+
+    // Publish it for per-symbol readers that have no universe of their own —
+    // AssetDetailService's Trend tab would otherwise have to re-rank every
+    // watchlist name on each dialog open. Best-effort: a cache failure must not
+    // fail the metrics refresh, and a missing rank degrades to "unranked".
+    void this.publishRsRankMap(rsRankBySymbol);
 
     // Ongoing annual fee, resolved once per symbol before the loop: the
     // static ETF_TER_CATALOG only covers ~12 of the ~54 watchlist ETFs — for
@@ -3116,6 +4138,11 @@ export class SignalsService implements OnApplicationBootstrap {
     const needsYahooFee = items.filter(
       (item) =>
         item.dataSource === DataSource.YAHOO &&
+        // Without this check every ordinary stock qualified too — ~700 of the
+        // ~825 watched symbols — and each was scraped for a number that cannot
+        // exist. Survivable at 280 symbols; the dominant cost of this method
+        // once the universe grew past 800.
+        canHaveExpenseRatio(item.assetSubClass) &&
         terPctForSymbol(item.symbol) == null &&
         fundFeeForSymbol(item.symbol) == null &&
         fundFacts[item.symbol]?.feePct == null &&
@@ -3123,20 +4150,30 @@ export class SignalsService implements OnApplicationBootstrap {
     );
 
     if (needsYahooFee.length > 0) {
-      // getYahooEtfProfile never throws (internal try/catch), so no .catch
-      // needed here — a failure just resolves to {} (no fee found).
-      const results = await Promise.all(
-        needsYahooFee.map((item) =>
-          this.assetDetailService
-            .getYahooEtfProfile(item.symbol)
-            .then((profile) => ({ profile, symbol: item.symbol }))
-        )
+      // CACHE-ONLY on the request path. getYahooEtfProfile fetches a full
+      // Yahoo Profile page with a 15s timeout plus a 1.5s-delayed retry, so a
+      // single cold symbol can hold this method open for ~31s — and since
+      // this used to run as one unbounded Promise.all, the caller waited for
+      // the slowest of the whole set. An expense ratio changes about once a
+      // year; it has no business blocking a page load. Misses are refilled in
+      // the background and picked up by the next refresh.
+      const misses: string[] = [];
+
+      await Promise.all(
+        needsYahooFee.map(async ({ symbol }) => {
+          const profile =
+            await this.assetDetailService.peekYahooEtfProfile(symbol);
+
+          if (profile === undefined) {
+            misses.push(symbol);
+          } else if (profile.expenseRatioPct != null) {
+            yahooFeeBySymbol.set(symbol, profile.expenseRatioPct);
+          }
+        })
       );
 
-      for (const { symbol, profile } of results) {
-        if (profile.expenseRatioPct != null) {
-          yahooFeeBySymbol.set(symbol, profile.expenseRatioPct);
-        }
+      if (misses.length > 0) {
+        void this.refillYahooFeeCache(misses);
       }
     }
 
@@ -3202,10 +4239,16 @@ export class SignalsService implements OnApplicationBootstrap {
       const expectedValue =
         reachProbability * targetGainPct - (1 - reachProbability) * stopLossPct;
 
+      const screen = this.computeLeaderScreen({
+        bars: barsBySymbol[symbol] ?? [],
+        rsRank: rsRankBySymbol[symbol] ?? null
+      });
+
       metrics.set(symbol, {
+        ...screen,
         annualVol,
         bollingerPctB: snapshot.bollinger?.pctB,
-        conviction: 50 + expectedValue * 1000,
+        expectedValue,
         feePct: feePct ?? undefined,
         livePrice,
         macdHistogram: snapshot.macd?.histogram,
@@ -3226,12 +4269,1140 @@ export class SignalsService implements OnApplicationBootstrap {
   }
 
   /**
-   * Current score/RSI/MACD/Bollinger/reach/conviction for every watched
+   * Nordnet commission for a single order, in USD.
+   *
+   * `fixed + pct x value` under the account's commission class, with a lower
+   * fixed fee on Nordic venues. Both terms always apply. See
+   * libs/common/src/lib/nordnet-fees.ts, which is the only place a fee figure
+   * should ever live.
+   */
+  private commission(tradeValueUsd: number, symbol?: string): number {
+    return nordnetCommissionUsd({
+      commissionClass: SIGNAL_NORDNET_COMMISSION_CLASS,
+      isNordic: symbol ? isNordicSymbol(symbol) : false,
+      sekPerUsd: SIGNAL_SEK_PER_USD_FALLBACK,
+      tradeValueUsd
+    });
+  }
+
+  /** Buy + sell commission for a position of this size. */
+  private roundTripCommission(tradeValueUsd: number, symbol?: string): number {
+    return nordnetRoundTripUsd({
+      commissionClass: SIGNAL_NORDNET_COMMISSION_CLASS,
+      isNordic: symbol ? isNordicSymbol(symbol) : false,
+      sekPerUsd: SIGNAL_SEK_PER_USD_FALLBACK,
+      tradeValueUsd
+    });
+  }
+
+  /**
+   * The Trend Template shortlist: every name passing all 8 criteria, ranked by
+   * quality.
+   *
+   * Deliberately does NOT require a VCP base, which is what separates it from
+   * `computeLeaderCandidates`. Trend Template 8/8 is the one part of this
+   * apparatus with a large-sample measured edge — +2.49pp at 126 days,
+   * t=24.14, n=116,555 — and it is a statement about which names are worth
+   * following over months, not about when to buy. Requiring a base would cut
+   * 106 names to 3 and reintroduce the pivot timing the evidence rejects.
+   *
+   * Ranking is quality-first — RS, then the name's standing inside its peer
+   * group, then how far it sits below its 52-week high. Distance to a pivot
+   * appears nowhere, by design.
+   */
+  public async computeShortlist(userId: string): Promise<ShortlistResponse> {
+    const universe = await this.getUniverse(userId, 'USD');
+    const items = universe
+      .filter(({ dataSource }) => dataSource === DataSource.YAHOO)
+      .map(({ currency, dataSource, name, symbol }) => ({
+        currency,
+        dataSource,
+        name,
+        symbol
+      }));
+
+    const [barsBySymbol, quotes, profiles] = await Promise.all([
+      this.ohlcBarService.getBarsForSymbols({
+        assetProfileIdentifiers: items.map(({ dataSource, symbol }) => ({
+          dataSource,
+          symbol
+        })),
+        from: subDays(new Date(), SIGNAL_HISTORY_FETCH_DAYS)
+      }),
+      this.dataProviderService.getQuotes({
+        items: items.map(({ dataSource, symbol }) => ({ dataSource, symbol })),
+        useCache: true
+      }),
+      this.prismaService.symbolProfile.findMany({
+        select: { sectors: true, symbol: true },
+        where: { symbol: { in: items.map(({ symbol }) => symbol) } }
+      })
+    ]);
+
+    const rsRankBySymbol = this.crossSectionalService.rankMap({
+      seriesBySymbol: barsBySymbol
+    });
+
+    // Peer group per symbol, reusing the same helper the pre-buy screen uses so
+    // "Energy" means the same thing in both places.
+    const groupBySymbol: { [symbol: string]: string | null } = {};
+
+    for (const { sectors, symbol } of profiles) {
+      groupBySymbol[symbol] = peerGroupFor({
+        category: categoryForSymbol(symbol),
+        sector: primarySector(sectors)
+      });
+    }
+
+    const peerRanks = this.crossSectionalService.peerRankMap({
+      groupBySymbol,
+      rankBySymbol: rsRankBySymbol
+    });
+
+    // Group direction, from the same 3-month returns the pre-buy screen uses.
+    const returnsByGroup = new Map<string, number[]>();
+
+    for (const [symbol, group] of Object.entries(groupBySymbol)) {
+      const bars = barsBySymbol[symbol];
+
+      if (!group || !bars?.length) {
+        continue;
+      }
+
+      const metrics = computeSeriesMetrics(
+        bars.map(({ close, date }) => ({ close, date }))
+      );
+
+      if (metrics.return3mPct != null) {
+        returnsByGroup.set(group, [
+          ...(returnsByGroup.get(group) ?? []),
+          metrics.return3mPct
+        ]);
+      }
+    }
+
+    const tailwindByGroup = new Map<
+      string,
+      ReturnType<typeof classifySectorTailwind>
+    >();
+
+    for (const [group, returns] of returnsByGroup) {
+      tailwindByGroup.set(group, classifySectorTailwind(returns));
+    }
+
+    const entries: ShortlistEntry[] = [];
+    let evaluated = 0;
+
+    for (const item of items) {
+      const bars = barsBySymbol[item.symbol] ?? [];
+
+      if (bars.length === 0) {
+        continue;
+      }
+
+      evaluated++;
+
+      const trend = this.leaderScreenService.trendTemplate({
+        bars,
+        rsRank: rsRankBySymbol[item.symbol] ?? null
+      });
+
+      if (!trend?.passed) {
+        continue;
+      }
+
+      const peer = peerRanks[item.symbol];
+      const vcp = this.leaderScreenService.vcpStructure(bars);
+
+      entries.push({
+        belowHighPct: trend.belowHighPct,
+        currency: item.currency,
+        dataSource: item.dataSource,
+        name: item.name,
+        peerGroup: peer?.group,
+        peerGroupPercentile: peer?.groupPercentile ?? undefined,
+        peerRank: peer?.rankInGroup,
+        peerSize: peer?.groupSize,
+        price: quotes[item.symbol]?.marketPrice ?? bars[bars.length - 1].close,
+        rsRank: trend.rsRank ?? undefined,
+        sectorTailwind: peer?.group
+          ? (tailwindByGroup.get(peer.group) ?? undefined)
+          : undefined,
+        symbol: item.symbol,
+        vcpStatus: vcp?.isValid ? vcp.status : undefined
+      });
+    }
+
+    // Quality first. Pivot distance is deliberately not a term here.
+    entries.sort(
+      (a, b) =>
+        (b.rsRank ?? 0) - (a.rsRank ?? 0) ||
+        (b.peerGroupPercentile ?? 0) - (a.peerGroupPercentile ?? 0) ||
+        (a.peerRank ?? 99) - (b.peerRank ?? 99) ||
+        a.belowHighPct - b.belowHighPct
+    );
+
+    const breadth = await this.marketBreadthService.get(barsBySymbol);
+
+    return {
+      breadth: breadth
+        ? {
+            breadth: breadth.breadth,
+            healthy: breadth.healthy,
+            total: breadth.total
+          }
+        : undefined,
+      entries,
+      evaluated,
+      generatedAt: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Runs the entrant alert if today's slot has passed unserved.
+   *
+   * The same reason the leader screen needed one: a @nestjs/schedule cron does
+   * not catch up, and this machine is a laptop that is regularly asleep at
+   * 07:00. Shipping a daily alert without this would reproduce, exactly, the
+   * bug that meant no leader signal ever arrived.
+   *
+   * Entrant detection is state-based rather than time-based — a name is fresh
+   * if its cooldown has elapsed — so running late costs nothing but the delay.
+   */
+  public async sendTrendTemplateEntrantsIfDue(): Promise<number> {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const lastRunAt = await this.propertyService.getByKey<string>(
+      PROPERTY_TT8_ENTRANTS_LAST_RUN
+    );
+
+    if (lastRunAt === today) {
+      return 0;
+    }
+
+    const sent = await this.sendTrendTemplateEntrantsToAllUsers();
+
+    await this.propertyService.put({
+      key: PROPERTY_TT8_ENTRANTS_LAST_RUN,
+      value: JSON.stringify(today)
+    });
+
+    return sent;
+  }
+
+  /**
+   * Runs the entrant alert for every real user.
+   *
+   * One user's failure must not silence the others, so each is wrapped — the
+   * same shape `sendLeaderCandidatesToAllUsers` uses.
+   */
+  public async sendTrendTemplateEntrantsToAllUsers(): Promise<number> {
+    const users = await this.prismaService.user.findMany({
+      select: { id: true },
+      where: { role: { not: 'DEMO' } }
+    });
+
+    // First run after the bars started advancing again sees every crossing
+    // missed while `OhlcBar` was frozen, all at once. Those are real 8/8 names
+    // but days-old entries whose pivot has already moved, so they are recorded
+    // as the baseline and not sent. Live alerting resumes on the next run.
+    const seeded = await this.propertyService.getByKey<string>(
+      PROPERTY_TT8_BASELINE_SEEDED
+    );
+    const seedOnly = !seeded;
+
+    let sent = 0;
+
+    for (const { id } of users) {
+      try {
+        sent += await this.sendTrendTemplateEntrants(id, { seedOnly });
+      } catch (error) {
+        this.logger.error(
+          `Trend Template entrants failed for user ${id}`,
+          error
+        );
+      }
+    }
+
+    if (seedOnly) {
+      await this.propertyService.put({
+        key: PROPERTY_TT8_BASELINE_SEEDED,
+        value: JSON.stringify(new Date().toISOString())
+      });
+
+      this.logger.log(
+        `Trend Template entrants - baseline seeded with ${sent} name(s), nothing sent`
+      );
+
+      return 0;
+    }
+
+    this.logger.log(`Trend Template entrants - ${sent} name(s) alerted`);
+
+    return sent;
+  }
+
+  /** SignalState key for a Trend Template entrant's cooldown. */
+  private getTrendTemplateKey({
+    dataSource,
+    symbol
+  }: {
+    dataSource: DataSource;
+    symbol: string;
+  }) {
+    return `TT8:${dataSource}:${symbol}`;
+  }
+
+  /**
+   * Alerts names that have just entered Trend Template 8/8 at RS >= 90.
+   *
+   * An ENTRANT alert, not a daily list. Measured over 94 trading days across
+   * 752 names, new 8/8 entrants arrive at a mean of 13.4/day and spike to 142
+   * when the cross-section re-ranks — unreadable within a week. Restricted to
+   * RS >= 90 the same series is a mean of 3.9, a median of 2, and silent on 28
+   * of 94 days.
+   *
+   * Entrants are recorded under category 'WATCH', NOT 'BUY': `computeSimulation`
+   * only reads BUY/SELL, so these appear in the Analytics log without creating
+   * ~1,000 phantom positions a year in the Simulation. A TT8 line is drawn only
+   * from lots the user actually opened.
+   */
+  public async sendTrendTemplateEntrants(
+    userId: string,
+    { seedOnly = false }: { seedOnly?: boolean } = {}
+  ): Promise<number> {
+    const response = await this.computeShortlist(userId);
+
+    const qualifying = response.entries.filter(({ rsRank }) => {
+      return (rsRank ?? 0) >= SIGNAL_TT8_ALERT_MIN_RS;
+    });
+
+    if (qualifying.length === 0) {
+      return 0;
+    }
+
+    const states = await this.prismaService.signalState.findMany({
+      where: {
+        key: {
+          in: qualifying.map((entry) => this.getTrendTemplateKey(entry))
+        },
+        userId
+      }
+    });
+    const lastNotifiedByKey = new Map(
+      states.map(({ key, lastNotifiedAt }) => [key, lastNotifiedAt])
+    );
+
+    const now = new Date();
+    const cooldownMs = SIGNAL_TT8_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+
+    const fresh = qualifying.filter((entry) => {
+      const lastNotifiedAt = lastNotifiedByKey.get(
+        this.getTrendTemplateKey(entry)
+      );
+
+      return (
+        !lastNotifiedAt ||
+        now.getTime() - lastNotifiedAt.getTime() >= cooldownMs
+      );
+    });
+
+    if (fresh.length === 0) {
+      return 0;
+    }
+
+    // Seeding still writes the cooldowns — that is the whole point, so these
+    // names are the baseline rather than tomorrow's "new" entrants.
+    if (!seedOnly) {
+      await this.telegramBotService.sendMessage(
+        this.formatShortlist({
+          breadth: response.breadth,
+          entries: fresh,
+          title: `${fresh.length} new Trend Template leader${fresh.length === 1 ? '' : 's'}`
+        }),
+        'HTML'
+      );
+    }
+
+    await this.recordTrendTemplateEntrants({ entries: fresh, now, userId });
+
+    return fresh.length;
+  }
+
+  /**
+   * Marks the cooldown and writes the Analytics record for each alerted
+   * entrant. Category 'WATCH' keeps these out of the Simulation ledger — see
+   * `sendTrendTemplateEntrants`.
+   */
+  private async recordTrendTemplateEntrants({
+    entries,
+    now,
+    userId
+  }: {
+    entries: ShortlistEntry[];
+    now: Date;
+    userId: string;
+  }): Promise<void> {
+    for (const entry of entries) {
+      try {
+        const key = this.getTrendTemplateKey(entry);
+
+        await this.prismaService.signalState.upsert({
+          create: {
+            key,
+            lastNotifiedAt: now,
+            lastPrice: entry.price,
+            lastSignal: 'WATCH',
+            userId
+          },
+          update: { lastNotifiedAt: now, lastPrice: entry.price },
+          where: { userId_key: { key, userId } }
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Failed to persist TT8 cooldown for ${entry.symbol}: ${
+            error?.message ?? error
+          }`
+        );
+      }
+    }
+
+    try {
+      await this.prismaService.signalLog.createMany({
+        data: entries.map((entry) => {
+          return {
+            category: 'WATCH',
+            currency: entry.currency ?? null,
+            dataSource: entry.dataSource,
+            livePrice: entry.price,
+            metrics: JSON.parse(
+              JSON.stringify({
+                belowHighPct: entry.belowHighPct,
+                peerGroup: entry.peerGroup,
+                peerGroupPercentile: entry.peerGroupPercentile,
+                peerRank: entry.peerRank,
+                peerSize: entry.peerSize,
+                rsRank: entry.rsRank,
+                sectorTailwind: entry.sectorTailwind
+              })
+            ),
+            name: entry.name ?? null,
+            reason: `Entered Trend Template 8/8 at RS ${entry.rsRank ?? '?'}`,
+            signalType: 'TT8',
+            symbol: entry.symbol,
+            userId
+          };
+        })
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to persist ${entries.length} TT8 log row(s): ${
+          error?.message ?? error
+        }`
+      );
+    }
+  }
+
+  /**
+   * Runs the twice-monthly shortlist if its slot has passed unserved.
+   *
+   * Same reasoning as the leader screen's catch-up: a @nestjs/schedule cron does
+   * not catch up, and this machine is a laptop that is frequently asleep at
+   * 07:00. A 126-day signal loses nothing by being sent a few hours late.
+   */
+  public async sendShortlistIfDue(): Promise<number> {
+    const now = new Date();
+    const lastRunAt = await this.propertyService.getByKey<string>(
+      PROPERTY_SHORTLIST_LAST_RUN
+    );
+
+    // Due once per calendar half-month: on/after the 1st, and on/after the 15th.
+    const period = `${format(now, 'yyyy-MM')}-${now.getDate() >= 15 ? 'H2' : 'H1'}`;
+
+    if (lastRunAt === period) {
+      return 0;
+    }
+
+    const users = await this.prismaService.user.findMany({
+      select: { id: true },
+      where: { role: { not: 'DEMO' } }
+    });
+
+    let sent = 0;
+
+    for (const { id } of users) {
+      try {
+        sent += await this.sendShortlist(id);
+      } catch (error) {
+        this.logger.error(`Shortlist failed for user ${id}`, error);
+      }
+    }
+
+    await this.propertyService.put({
+      key: PROPERTY_SHORTLIST_LAST_RUN,
+      value: JSON.stringify(period)
+    });
+
+    this.logger.log(`Shortlist ${period} sent - ${sent} name(s)`);
+
+    return sent;
+  }
+
+  /** The full standing shortlist, sent on the 1st and 15th. */
+  public async sendShortlist(userId: string): Promise<number> {
+    const response = await this.computeShortlist(userId);
+
+    const qualifying = response.entries.filter(({ rsRank }) => {
+      return (rsRank ?? 0) >= SIGNAL_TT8_ALERT_MIN_RS;
+    });
+
+    if (qualifying.length === 0) {
+      this.logger.log('Shortlist: no name at RS >= 90 - nothing sent');
+
+      return 0;
+    }
+
+    await this.telegramBotService.sendMessage(
+      this.formatShortlist({
+        breadth: response.breadth,
+        entries: qualifying,
+        title: `Trend Template shortlist - ${qualifying.length} leader${qualifying.length === 1 ? '' : 's'}`
+      }),
+      'HTML'
+    );
+
+    return qualifying.length;
+  }
+
+  /**
+   * Two lines per name, HTML, capped at SIGNAL_SHORTLIST_MAX with the overflow
+   * summarised rather than truncated silently.
+   */
+  private formatShortlist({
+    breadth,
+    entries,
+    title
+  }: {
+    breadth?: { breadth: number; healthy: boolean; total: number };
+    entries: ShortlistEntry[];
+    title: string;
+  }): string {
+    const escape = (value: string) =>
+      value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    const lines: string[] = [];
+
+    if (breadth) {
+      lines.push(
+        `${breadth.healthy ? '🟢' : '⚠️'} Market breadth ${(breadth.breadth * 100).toFixed(0)}% of ${breadth.total} above their 200-day`,
+        ''
+      );
+    }
+
+    lines.push(`<b>📈 ${escape(title)}</b>`, '');
+
+    for (const entry of entries.slice(0, SIGNAL_SHORTLIST_MAX)) {
+      const peer =
+        entry.peerGroup && entry.peerRank && entry.peerSize
+          ? `${escape(entry.peerGroup)} ${entry.peerRank}/${entry.peerSize}${
+              entry.sectorTailwind
+                ? ` ${entry.sectorTailwind.toLowerCase()}`
+                : ''
+            }`
+          : 'no peer group';
+
+      lines.push(
+        `<b>${escape(entry.symbol)}</b> ${entry.price.toFixed(2)} · 8/8 · RS ${entry.rsRank ?? '?'}`,
+        `   ${(entry.belowHighPct * 100).toFixed(1)}% off 52w high · ${peer}${
+          entry.vcpStatus
+            ? ` · base ${entry.vcpStatus.toLowerCase().replace('_', ' ')}`
+            : ''
+        }`,
+        `   ${researchLinks({
+          dataSource: entry.dataSource,
+          symbol: entry.symbol
+        })
+          .map(({ label, url }) => `<a href="${url}">${label}</a>`)
+          .join(' · ')}`
+      );
+    }
+
+    if (entries.length > SIGNAL_SHORTLIST_MAX) {
+      lines.push(
+        '',
+        `+${entries.length - SIGNAL_SHORTLIST_MAX} more on the Shortlist page`
+      );
+    }
+
+    lines.push(
+      '',
+      '<i>Quality filter, not a buy trigger: 8/8 beat the base rate by +2.5pp over 126 days (t=24). Timing is yours.</i>'
+    );
+
+    return lines.join('\n');
+  }
+
+  /**
+   * The Minervini leader shortlist: names passing all 8 Trend Template criteria
+   * with a valid, tightening VCP base.
+   *
+   * NOT a buy signal, and deliberately so. The event study run on 2026-08-21
+   * (`run-signal-edge-study.cjs`) measured forward returns after every signal
+   * against the universe base rate and found breakout entries did NOT beat it
+   * at 21/63/126 days (t = -1.28 / -0.19 / +0.90), while the existing DIP entry
+   * did (t = +3.07 / +4.66 / +4.24). The Trend Template alone does show a real
+   * 126-day edge (+1.45pp, t = 4.11), which is why the shortlist is worth
+   * surfacing — but the evidence does not yet support firing on it. See
+   * docs/TRADING_SIGNALS.md §0.3b.
+   */
+  public async computeLeaderCandidates(
+    userId: string
+  ): Promise<LeaderCandidatesResponse> {
+    const universe = await this.getUniverse(userId, 'USD');
+    const items = universe
+      .filter(({ dataSource }) => dataSource === DataSource.YAHOO)
+      .map(({ dataSource, symbol }) => ({ dataSource, symbol }));
+
+    const [barsBySymbol, quotes] = await Promise.all([
+      this.ohlcBarService.getBarsForSymbols({
+        assetProfileIdentifiers: items,
+        from: subDays(new Date(), SIGNAL_HISTORY_FETCH_DAYS)
+      }),
+      this.dataProviderService.getQuotes({ items, useCache: true })
+    ]);
+
+    const rsRankBySymbol = this.crossSectionalService.rankMap({
+      seriesBySymbol: barsBySymbol
+    });
+
+    // Also published here, not only from the watchlist pass: this runs on the
+    // nightly cron, so the Trend tab has a rank to show even when the watchlist
+    // page has not been opened since the cache last expired.
+    void this.publishRsRankMap(rsRankBySymbol);
+
+    const candidates: LeaderCandidate[] = [];
+    let evaluated = 0;
+    let trendPassCount = 0;
+
+    for (const item of items) {
+      const bars = barsBySymbol[item.symbol] ?? [];
+
+      if (bars.length === 0) {
+        continue;
+      }
+
+      evaluated++;
+
+      const trend = this.leaderScreenService.trendTemplate({
+        bars,
+        rsRank: rsRankBySymbol[item.symbol] ?? null
+      });
+
+      if (!trend?.passed) {
+        continue;
+      }
+
+      trendPassCount++;
+
+      const vcp = this.leaderScreenService.vcpStructure(bars);
+
+      if (!vcp?.isValid) {
+        continue;
+      }
+
+      const price =
+        quotes[item.symbol]?.marketPrice ?? bars[bars.length - 1].close;
+      const atr = this.indicatorsService.atr(bars);
+      const averageVolume = this.indicatorsService.averageVolume(
+        bars.map(({ volume }) => volume)
+      );
+
+      // Liquidity: a breakout on an illiquid name is unfillable at the quoted
+      // price, which is exactly the failure mode a backtest cannot see.
+      const dollarVolume = averageVolume ? averageVolume * price : undefined;
+
+      if (
+        dollarVolume !== undefined &&
+        dollarVolume < SIGNAL_SCREEN_MIN_DOLLAR_VOLUME
+      ) {
+        continue;
+      }
+
+      // Minervini's hard rule: never risk more than 7-8% on a position.
+      const stopPrice = price * (1 - SIGNAL_LEADER_STOP_PCT);
+
+      const screen = await this.screeningService.getScreen(item.symbol);
+
+      candidates.push({
+        analystTrend: screen?.analystTrend ?? undefined,
+        atrPct: atr ? atr / price : undefined,
+        dataSource: item.dataSource,
+        daysToEarnings: screen?.daysToEarnings ?? undefined,
+        dollarVolume,
+        positionSize: SIGNAL_BACKTEST_POSITION_SIZE,
+        price,
+        rsRank: trend.rsRank ?? undefined,
+        stopPrice,
+        symbol: item.symbol,
+        trendCriteria: trend.criteria as unknown as Record<string, boolean>,
+        trendPasses: trend.passCount,
+        vcpContractionsPct: vcp.contractions.map(({ depthPct }) =>
+          Number((depthPct * 100).toFixed(1))
+        ),
+        vcpPivot: vcp.pivot,
+        vcpPivotDistancePct:
+          vcp.pivot > 0 ? (price - vcp.pivot) / vcp.pivot : undefined,
+        vcpStatus: vcp.status,
+        vcpVolumeRatio: vcp.breakoutVolumeRatio,
+        vcpDryUpRatio: vcp.dryUpRatio
+      });
+    }
+
+    // Actionable first (breakout, then at-pivot), then by relative strength.
+    // A failed breakout ranks last of all: it is information, not a candidate.
+    const statusRank = {
+      AT_PIVOT: 1,
+      BREAKOUT: 0,
+      FAILED_BREAKOUT: 3,
+      FORMING: 2
+    };
+
+    candidates.sort(
+      (a, b) =>
+        statusRank[a.vcpStatus ?? 'FORMING'] -
+          statusRank[b.vcpStatus ?? 'FORMING'] ||
+        (b.rsRank ?? 0) - (a.rsRank ?? 0)
+    );
+
+    const breadth = await this.marketBreadthService.get(barsBySymbol);
+
+    return {
+      breadth: breadth
+        ? {
+            breadth: breadth.breadth,
+            healthy: breadth.healthy,
+            total: breadth.total
+          }
+        : undefined,
+      candidates,
+      evaluated,
+      generatedAt: new Date().toISOString(),
+      trendPassCount
+    };
+  }
+
+  /**
+   * Telegram report for the leader shortlist — HTML, three lines per name.
+   *
+   * Deliberately short. The full scorecard (all 8 criteria with the number each
+   * was decided on, both volume ratios, the contraction sequence) lives in the
+   * ticker dialog's Trend tab and in GET /signals/leaders; repeating it here
+   * only buries the two facts that decide whether to open the chart at all —
+   * where price sits against the pivot, and whether volume confirms.
+   *
+   * The links are the point of the message: it is a prompt to go and read, not
+   * a buy instruction. That caveat stays on the message rather than moving to
+   * the docs, because the message is what gets read at 22:30.
+   */
+  public formatLeaderCandidates(response: LeaderCandidatesResponse): string {
+    const { candidates, evaluated, trendPassCount } = response;
+
+    if (candidates.length === 0) {
+      return (
+        `📋 <b>Leader screen</b> — no candidates\n` +
+        `${trendPassCount}/${evaluated} names pass the Trend Template, none with a valid VCP base.`
+      );
+    }
+
+    const lines = [
+      `📋 <b>Leader screen</b> · ${trendPassCount}/${evaluated} pass the Trend Template`,
+      ``
+    ];
+
+    for (const candidate of candidates.slice(0, 8)) {
+      const {
+        dataSource,
+        price,
+        rsRank,
+        stopPrice,
+        symbol,
+        trendPasses,
+        vcpDryUpRatio,
+        vcpPivot,
+        vcpPivotDistancePct,
+        vcpStatus,
+        vcpVolumeRatio
+      } = candidate;
+
+      const icon = vcpStatus === 'BREAKOUT' ? '🚀' : '⏳';
+      const distance = (vcpPivotDistancePct ?? 0) * 100;
+
+      lines.push(
+        `${icon} <b>${this.escapeHtml(symbol)}</b> ${price.toFixed(2)} · ${trendPasses}/8 · RS ${rsRank ?? '—'}`
+      );
+
+      const detail = [
+        `pivot ${vcpPivot?.toFixed(2)} ${distance >= 0 ? '+' : ''}${distance.toFixed(1)}%`,
+        `vol ${vcpVolumeRatio?.toFixed(2)}×`,
+        vcpDryUpRatio == null ? null : `dry ${vcpDryUpRatio.toFixed(2)}×`,
+        stopPrice == null ? null : `stop ${stopPrice.toFixed(2)}`
+      ].filter(Boolean);
+
+      lines.push(detail.join(' · '));
+
+      const links = researchLinks({ dataSource, symbol })
+        .map(({ label, url }) => `<a href="${url}">${label}</a>`)
+        .join(' · ');
+
+      if (links) {
+        lines.push(links);
+      }
+
+      lines.push('');
+    }
+
+    lines.push(
+      `<i>Research shortlist, not a trigger. Measured 2026-08-21: breakout entries did not beat the universe base rate (t = −1.3 / −0.2 / +0.9 at 21/63/126d); the DIP path did.</i>`
+    );
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Escapes the three characters Telegram's HTML parse mode reserves. Applied
+   * to symbols rather than assumed safe — a ticker is external data.
+   */
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  /**
+   * Daily leader screen for every real user.
+   *
+   * Mirrors sendFundRecommendationsToAllUsers: one user's failure must not stop
+   * the others, so each is wrapped rather than letting the loop throw.
+   */
+  public async sendLeaderCandidatesToAllUsers(): Promise<void> {
+    const users = await this.prismaService.user.findMany({
+      select: { id: true },
+      where: { role: { not: 'DEMO' } }
+    });
+
+    let sent = 0;
+
+    for (const { id } of users) {
+      try {
+        sent += await this.sendLeaderCandidates(id);
+      } catch (error) {
+        this.logger.error(`Failed to send leader screen for user ${id}`, error);
+      }
+    }
+
+    // Shared with the boot catch-up, so a scheduled run that DID happen stops
+    // the next restart from screening again.
+    await this.propertyService.put({
+      key: PROPERTY_LEADER_SCREEN_LAST_RUN,
+      value: JSON.stringify(new Date().toISOString())
+    });
+
+    this.logger.log(`Leader screen complete - ${sent} breakout(s) alerted`);
+  }
+
+  /**
+   * Alerts on leaders that have actually BROKEN OUT, and reports how many were
+   * sent so a caller can tell "nothing qualified today" apart from "the send
+   * is broken".
+   *
+   * Deliberately breakout-only. AT_PIVOT is a watch state, not an event: a
+   * name can sit at its pivot for a fortnight, so alerting on it produced the
+   * same two dozen names every evening — the failure mode that makes an alert
+   * stop being read. A breakout is a dated event and is self-limiting without
+   * any extra filtering: across 833 tracked names a typical session produces
+   * about four. AT_PIVOT and FORMING remain visible in GET /signals/leaders,
+   * the watchlist columns and the ticker dialog's Trend tab.
+   *
+   * No RS floor is applied on top. Every candidate here has already passed all
+   * 8 Trend Template criteria, and criterion 8 *is* RS >= 70, so the floor is
+   * present by construction. Adding the stricter preferred RS on top was
+   * silently discarding most real breakouts — three of today's four.
+   */
+  public async sendLeaderCandidates(userId: string): Promise<number> {
+    // Exits first: a lot that hit its stop today should close at today's
+    // price, not sit open for another session behind the new entries.
+    await this.closeStoppedLeaderLots(userId);
+
+    const response = await this.computeLeaderCandidates(userId);
+
+    const breakouts = response.candidates.filter(({ vcpStatus }) => {
+      return vcpStatus === 'BREAKOUT';
+    });
+
+    if (breakouts.length === 0) {
+      return 0;
+    }
+
+    // A breakout bar keeps testing as BREAKOUT for several sessions after the
+    // event, so without a per-symbol cooldown one breakout would re-alert
+    // every evening until the volume surge rolled out of the 50-day average.
+    const states = await this.prismaService.signalState.findMany({
+      where: {
+        key: { in: breakouts.map((candidate) => leaderAlertKey(candidate)) },
+        userId
+      }
+    });
+
+    const now = new Date();
+    const fresh = selectFreshBreakouts({
+      candidates: breakouts,
+      cooldownMs: SIGNAL_LEADER_ALERT_COOLDOWN_DAYS * 24 * 60 * 60 * 1000,
+      lastNotifiedByKey: new Map(
+        states.map(({ key, lastNotifiedAt }) => [key, lastNotifiedAt])
+      ),
+      now
+    });
+
+    if (fresh.length === 0) {
+      this.logger.log(
+        `Leader screen: ${breakouts.length} breakout(s) still within the ${SIGNAL_LEADER_ALERT_COOLDOWN_DAYS}-day cooldown - nothing sent`
+      );
+
+      return 0;
+    }
+
+    await this.telegramBotService.sendMessage(
+      this.formatLeaderCandidates({ ...response, candidates: fresh }),
+      'HTML'
+    );
+
+    // Only mark the cooldown and open the simulated lot AFTER the message is
+    // away, so a failed send is retried tomorrow rather than silently
+    // swallowed by its own cooldown.
+    await this.recordLeaderAlerts({ candidates: fresh, now, userId });
+
+    // The gated subset — Minervini's own funnel, which this engine never had:
+    // market direction first, then leadership, then the setup. Recorded as its
+    // own signalType so the gate becomes measurable against the ungated alert
+    // rather than merely asserted. Historically ~11 events a year.
+    const gated = response.breadth?.healthy
+      ? fresh.filter(({ rsRank }) => {
+          return (rsRank ?? 0) >= SIGNAL_TREND_TEMPLATE_PREFERRED_RS;
+        })
+      : [];
+
+    if (gated.length > 0) {
+      await this.recordLeaderAlerts({
+        candidates: gated,
+        now,
+        signalType: 'LEADER_GATED',
+        userId
+      });
+
+      this.logger.log(
+        `Leader screen: ${gated.length} of ${fresh.length} breakout(s) also cleared healthy market + RS>=${SIGNAL_TREND_TEMPLATE_PREFERRED_RS}`
+      );
+    }
+
+    return fresh.length;
+  }
+
+  /**
+   * Marks the per-symbol cooldown and opens a simulated LEADER lot for each
+   * breakout that was just alerted.
+   *
+   * The SignalLog row is what puts the Leader line on the Simulation chart.
+   * It is written forward-only, at the moment the alert fires — there is no
+   * backfill, because a breakout that was never alerted was never a signal
+   * the user could have acted on, and inventing its history would make the
+   * curve a backtest wearing a live-results label.
+   *
+   * Best-effort throughout: neither write may break the alert that already
+   * went out.
+   */
+  private async recordLeaderAlerts({
+    candidates,
+    now,
+    signalType = 'LEADER',
+    userId
+  }: {
+    candidates: LeaderCandidate[];
+    now: Date;
+    signalType?: 'LEADER' | 'LEADER_GATED';
+    userId: string;
+  }): Promise<void> {
+    // The gated variant is a second row for the SAME event, so it must not
+    // re-stamp the cooldown the LEADER pass already set.
+    for (const candidate of signalType === 'LEADER' ? candidates : []) {
+      try {
+        const key = leaderAlertKey(candidate);
+
+        await this.prismaService.signalState.upsert({
+          create: {
+            key,
+            lastNotifiedAt: now,
+            lastPrice: candidate.price,
+            lastSignal: 'BUY',
+            userId
+          },
+          update: { lastNotifiedAt: now, lastPrice: candidate.price },
+          where: { userId_key: { key, userId } }
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Failed to persist leader cooldown for ${candidate.symbol}: ${
+            error?.message ?? error
+          }`
+        );
+      }
+    }
+
+    try {
+      await this.prismaService.signalLog.createMany({
+        data: candidates.map((candidate) => {
+          return {
+            category: 'BUY',
+            currency: candidate.currency ?? null,
+            dataSource: candidate.dataSource,
+            livePrice: candidate.price,
+            metrics: JSON.parse(
+              JSON.stringify({
+                rsRank: candidate.rsRank,
+                trendPasses: candidate.trendPasses,
+                vcpDryUpRatio: candidate.vcpDryUpRatio,
+                vcpPivot: candidate.vcpPivot,
+                vcpVolumeRatio: candidate.vcpVolumeRatio
+              })
+            ),
+            name: candidate.name ?? null,
+            reason: `VCP breakout above ${
+              candidate.vcpPivot?.toFixed(2) ?? 'pivot'
+            } on ${candidate.vcpVolumeRatio?.toFixed(2) ?? '?'}x volume${
+              signalType === 'LEADER_GATED' ? ' (healthy market, RS>=90)' : ''
+            }`,
+            signalType,
+            // Minervini's hard stop. Prefer the screen's own figure, which is
+            // already reward/risk-checked, and fall back to the flat 7.5%.
+            stopLoss:
+              candidate.stopPrice ??
+              candidate.price * (1 - SIGNAL_LEADER_STOP_PCT),
+            suggestedAmount: candidate.positionSize ?? null,
+            symbol: candidate.symbol,
+            userId
+          };
+        })
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to persist ${candidates.length} ${signalType} signal log row(s): ${
+          error?.message ?? error
+        }`
+      );
+    }
+  }
+
+  /**
+   * Closes any open simulated LEADER lot whose price has hit its stop, by
+   * writing the matching SELL row.
+   *
+   * There is no take-profit leg on purpose: the doctrine this screen
+   * implements is to cut at 7-8% and let winners run, so an open lot is
+   * marked to market day by day and only ever closed by its stop. Run once
+   * per daily screen, before new breakouts are alerted.
+   */
+  private async closeStoppedLeaderLots(userId: string): Promise<number> {
+    const rows = await this.prismaService.signalLog.findMany({
+      orderBy: { createdAt: 'asc' },
+      where: {
+        category: { in: ['BUY', 'SELL'] },
+        signalType: { in: ['LEADER', 'LEADER_GATED', 'TT8'] },
+        userId
+      }
+    });
+
+    // Same FIFO walk computeSimulation does, restricted to the LEADER bucket.
+    const openLotsByKey = new Map<string, (typeof rows)[number][]>();
+
+    for (const row of rows) {
+      // Same bucketing computeSimulation uses, so a LEADER exit can never
+      // close a LEADER_GATED or TT8 lot.
+      const key = `${row.signalType}:${row.dataSource}:${row.symbol}`;
+
+      if (row.category === 'BUY') {
+        openLotsByKey.set(key, [...(openLotsByKey.get(key) ?? []), row]);
+      } else {
+        openLotsByKey.get(key)?.shift();
+      }
+    }
+
+    const openLots = [...openLotsByKey.values()].flat();
+
+    if (openLots.length === 0) {
+      return 0;
+    }
+
+    const quotes = await this.dataProviderService.getQuotes({
+      items: openLots.map(({ dataSource, symbol }) => {
+        return { dataSource, symbol };
+      }),
+      useCache: true
+    });
+
+    const stopped = selectStoppedLots({
+      lots: openLots,
+      priceBySymbol: new Map(
+        openLots.map(({ symbol }) => [symbol, quotes[symbol]?.marketPrice])
+      )
+    });
+
+    if (stopped.length === 0) {
+      return 0;
+    }
+
+    try {
+      await this.prismaService.signalLog.createMany({
+        data: stopped.map((lot) => {
+          return {
+            category: 'SELL',
+            currency: lot.currency,
+            dataSource: lot.dataSource,
+            livePrice: quotes[lot.symbol]?.marketPrice ?? lot.stopLoss,
+            name: lot.name,
+            reason: `Stopped out at ${lot.stopLoss?.toFixed(2)}`,
+            signalType: lot.signalType,
+            symbol: lot.symbol,
+            userId
+          };
+        })
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to close ${stopped.length} leader lot(s): ${
+          error?.message ?? error
+        }`
+      );
+
+      return 0;
+    }
+
+    this.logger.log(`Leader screen: closed ${stopped.length} stopped lot(s)`);
+
+    return stopped.length;
+  }
+
+  /**
+   * Current score/RSI/MACD/Bollinger/reach/expected value for every watched
    * symbol, refreshed on demand (the watchlist UI polls this every 30 min).
    */
   public async getWatchlistMetrics(
     userId: string
   ): Promise<Record<string, WatchlistMetric>> {
+    const cached = this.watchlistMetricsCache.get(userId);
+
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+
     const watchlist = await this.getWatchlist(userId);
     const metrics = await this.computeMetricsSnapshot(watchlist);
 
@@ -3248,6 +5419,11 @@ export class SignalsService implements OnApplicationBootstrap {
       delete watchlistMetric.livePrice;
       result[symbol] = watchlistMetric;
     }
+
+    this.watchlistMetricsCache.set(userId, {
+      expiresAt: Date.now() + SIGNAL_WATCHLIST_METRICS_CACHE_TTL,
+      value: result
+    });
 
     return result;
   }
@@ -3418,18 +5594,32 @@ export class SignalsService implements OnApplicationBootstrap {
         (item) => item.dataSource === DataSource.YAHOO
       );
 
-      // Peer 3-month returns per catalog category (for the sector tailwind),
-      // computed once for only the categories that actually fired.
+      // Peer 3-month returns per peer group (for the sector tailwind), computed
+      // once for only the groups that actually fired.
+      //
+      // The group is the provider's sector where known, falling back to the
+      // curated catalog category — see `peerGroupFor`. Sector is the better
+      // grouping precisely because it is coarser: the curated taxonomy produces
+      // peer groups of one or two names, and a median over two names is noise.
+      const peerGroupBySymbol = new Map<string, string | null>();
+
+      for (const { sector, symbol } of yahooItems) {
+        peerGroupBySymbol.set(
+          symbol,
+          peerGroupFor({ category: categoryForSymbol(symbol), sector })
+        );
+      }
+
       const firedCategories = new Set(
         buySignals
-          .map((signal) => categoryForSymbol(signal.symbol))
-          .filter((category): category is string => category !== null)
+          .map((signal) => peerGroupBySymbol.get(signal.symbol) ?? null)
+          .filter((group): group is string => group !== null)
       );
 
       const peersByCategory = new Map<string, string[]>();
 
       for (const item of yahooItems) {
-        const category = categoryForSymbol(item.symbol);
+        const category = peerGroupBySymbol.get(item.symbol) ?? null;
 
         if (category && firedCategories.has(category)) {
           const peers = peersByCategory.get(category) ?? [];
@@ -3461,7 +5651,7 @@ export class SignalsService implements OnApplicationBootstrap {
 
       for (const signal of buySignals) {
         const screen = await this.screeningService.getScreen(signal.symbol);
-        const category = categoryForSymbol(signal.symbol);
+        const category = peerGroupBySymbol.get(signal.symbol) ?? null;
         const sectorTailwind = category
           ? (tailwindByCategory.get(category) ?? null)
           : null;

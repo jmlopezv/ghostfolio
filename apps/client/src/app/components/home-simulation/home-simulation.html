@@ -15,10 +15,10 @@
       </div>
 
       <p class="text-muted small mb-4" i18n>
-        Every BUY signal ever logged, paper-traded as if bought and tracked
-        until a matching SELL fires. The table and charts assume a
-        {{ assumedNotionalUsd }} USD position per trade; use the calculator to
-        test your own amount.
+        Every BUY signal ever logged, paper-traded as if bought and held until
+        the engine signalled an exit. The chart assumes a
+        {{ assumedNotionalUsd }} USD position per trade so every strategy is
+        weighted equally.
       </p>
 
       <gf-ticker-search
@@ -130,17 +130,17 @@
           </div>
         </div>
 
-        <!-- Charts + calculator -->
+        <!-- Strategy comparison chart -->
         <div class="row g-3 mb-4">
           @if (chartSeries.length > 0) {
-            <div class="col-12 col-lg-8">
+            <div class="col-12">
               <div class="card">
                 <div class="card-body">
                   <div
-                    class="align-items-center d-flex justify-content-between mb-2"
+                    class="align-items-center d-flex flex-wrap gap-2 justify-content-between mb-1"
                   >
                     <div class="small text-muted text-uppercase" i18n>
-                      Performance — average % net return across trades
+                      Performance — average % net return per position
                     </div>
                     <div class="btn-group" role="group">
                       @for (period of zoomPeriods; track period.key) {
@@ -161,9 +161,47 @@
                     </div>
                   </div>
 
+                  <p class="small text-muted mb-2" i18n>
+                    Every line treats each position as the same size, so the
+                    engine's suggestions and what you actually bought can be
+                    compared directly. This is <strong>not</strong> your account
+                    performance — Overview and Holdings report that. Click a
+                    legend entry to show or hide a line; drag across the chart
+                    to zoom, shift-drag to pan.
+                  </p>
+
+                  <div class="d-flex gap-2 mb-2">
+                    <button
+                      class="btn btn-sm btn-outline-secondary"
+                      i18n
+                      type="button"
+                      (click)="performanceChart()?.showAll()"
+                    >
+                      Show all
+                    </button>
+                    <button
+                      class="btn btn-sm btn-outline-secondary"
+                      i18n
+                      type="button"
+                      (click)="performanceChart()?.hideAll()"
+                    >
+                      Hide all
+                    </button>
+                    <button
+                      class="btn btn-sm btn-outline-secondary"
+                      i18n
+                      type="button"
+                      (click)="performanceChart()?.resetZoom()"
+                    >
+                      Reset zoom
+                    </button>
+                  </div>
+
                   <gf-simulation-performance-chart
+                    #performanceChart
                     [colorScheme]="user?.settings?.colorScheme"
                     [locale]="user?.settings?.locale || undefined"
+                    [markers]="chartMarkers"
                     [series]="chartSeries"
                   />
 
@@ -205,11 +243,11 @@
                       </table>
                     </div>
                     <p class="small text-muted mt-2 mb-0" i18n>
-                      Dip/Reversal/Tracked show "—" for a period the engine
-                      hasn't run long enough to cover yet (it only started
-                      logging signals a couple of months ago). S&P 500 uses its
-                      own real, full price history, so its longer periods are
-                      populated even when ours aren't.
+                      A line shows "—" for a period the engine hasn't run long
+                      enough to cover yet (it only started logging signals a
+                      couple of months ago). S&P 500 uses its own real, full
+                      price history, so its longer periods are populated even
+                      when ours aren't.
                     </p>
                   }
                 </div>
@@ -217,115 +255,222 @@
             </div>
           }
 
-          <div class="col-12 col-lg-4">
-            <div class="card h-100">
-              <div class="card-body">
-                <h2 class="h6" i18n>Calculator</h2>
-                <p class="small text-muted" i18n>
-                  Pick a signal, enter a USD amount, and see what you'd have
-                  after the $5 buy + $5 sell fee.
-                </p>
-
-                <div class="mb-2">
-                  <label
-                    class="form-label small"
-                    for="simulation-trade-select"
-                    i18n
-                    >Signal</label
-                  >
-                  <select
-                    class="form-select form-select-sm"
-                    id="simulation-trade-select"
-                    [(ngModel)]="selectedTradeIndex"
-                  >
-                    <option i18n [ngValue]="null">Select a signal…</option>
-                    @for (
-                      trade of trades;
-                      track trade.symbol + trade.buyDate;
-                      let i = $index
-                    ) {
-                      <option [ngValue]="i">{{ tradeLabel(trade) }}</option>
-                    }
-                  </select>
+          @if (exitMarkers.length > 0) {
+            <div class="col-12">
+              <div class="card">
+                <div class="card-body">
+                  <div class="small text-muted text-uppercase mb-1" i18n>
+                    Exits the engine signalled
+                  </div>
+                  <p class="small text-muted mb-2" i18n>
+                    Every sell alert the engine has sent.
+                    <strong>Signalled</strong> is what taking the advice would
+                    have returned from the signal's own entry;
+                    <strong>Actually sold</strong> is what you really did. A
+                    blank there means the engine said sell and you kept the
+                    position. These are the dots on the chart.
+                  </p>
+                  <div class="overflow-x-auto">
+                    <table class="small w-100">
+                      <thead>
+                        <tr class="text-muted">
+                          <th colspan="4"></th>
+                          <th class="text-end" colspan="4" i18n>Signalled</th>
+                          <th class="text-end" colspan="2" i18n>
+                            Actually sold
+                          </th>
+                        </tr>
+                        <tr class="text-muted">
+                          <th i18n>Exit date</th>
+                          <th i18n>Symbol</th>
+                          <th i18n>Type</th>
+                          <th i18n>Trigger</th>
+                          <th class="text-end" i18n>Entry</th>
+                          <th class="text-end" i18n>Exit</th>
+                          <th class="text-end" i18n>Held</th>
+                          <th class="text-end" i18n>Return</th>
+                          <th class="text-end" i18n>Date</th>
+                          <th class="text-end" i18n>Return</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (
+                          exit of exitMarkers;
+                          track exit.symbol + exit.date
+                        ) {
+                          <tr>
+                            <td>{{ exit.date }}</td>
+                            <td>
+                              <strong>{{ exit.symbol }}</strong>
+                              <span class="text-muted d-none d-md-inline">
+                                {{ exit.name }}</span
+                              >
+                            </td>
+                            <td>
+                              <span
+                                class="badge"
+                                [class]="'badge ' + badgeClass(exit.signalType)"
+                                >{{ exit.signalType }}</span
+                              >
+                            </td>
+                            <td class="text-muted">
+                              {{
+                                exit.status === 'STOP_HIT'
+                                  ? 'Stop-loss'
+                                  : 'Trailing exit'
+                              }}
+                            </td>
+                            <td class="text-end">
+                              {{ exit.entryPrice | number: '1.2-2' }}
+                            </td>
+                            <td class="text-end">
+                              {{ exit.exitPrice | number: '1.2-2' }}
+                              @if (exit.reconstructed) {
+                                <span
+                                  class="text-muted"
+                                  title="Reconstructed from that day's close — the tracker did not record the exact exit price. A trailing exit fires intraday, so the real fill differed slightly."
+                                  >*</span
+                                >
+                              }
+                            </td>
+                            <td class="text-end">{{ exit.holdingDays }}d</td>
+                            <td
+                              class="text-end"
+                              [class.text-danger]="exit.netReturnPct < 0"
+                              [class.text-success]="exit.netReturnPct >= 0"
+                            >
+                              <strong
+                                >{{
+                                  exit.netReturnPct | number: '1.1-1'
+                                }}%</strong
+                              >
+                            </td>
+                            <td class="text-end text-muted">
+                              {{ exit.soldDate || '—' }}
+                            </td>
+                            <td
+                              class="text-end"
+                              [class.text-danger]="exit.soldNetReturnPct < 0"
+                              [class.text-success]="exit.soldNetReturnPct >= 0"
+                            >
+                              @if (exit.soldNetReturnPct != null) {
+                                <strong
+                                  >{{
+                                    exit.soldNetReturnPct | number: '1.1-1'
+                                  }}%</strong
+                                >
+                              } @else {
+                                <span class="text-muted" i18n>not sold</span>
+                              }
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                  <p class="small text-muted mt-2 mb-0" i18n>
+                    * Reconstructed from the daily close. Exits recorded from
+                    2026-08-27 onward store the real price.
+                  </p>
                 </div>
-
-                <div class="mb-3">
-                  <label class="form-label small" for="simulation-amount" i18n
-                    >Amount (USD)</label
-                  >
-                  <input
-                    class="form-control form-control-sm"
-                    id="simulation-amount"
-                    min="0"
-                    type="number"
-                    [(ngModel)]="investedUsd"
-                  />
-                </div>
-
-                @if (selectedTrade && selectedTrade.grossReturnPct == null) {
-                  <div class="small text-muted" i18n>
-                    No price is known for this signal yet (a live-quote hiccup)
-                    — it'll calculate as soon as one resolves.
-                  </div>
-                } @else if (calculatorResult) {
-                  <div class="small">
-                    <div class="d-flex justify-content-between">
-                      <span class="text-muted" i18n>Gross proceeds</span>
-                      <span
-                        >{{
-                          calculatorResult.grossProceedsUsd | number: '1.2-2'
-                        }}
-                        USD</span
-                      >
-                    </div>
-                    <div class="d-flex justify-content-between">
-                      <span class="text-muted" i18n>Fees</span>
-                      <span
-                        >-{{
-                          calculatorResult.feesUsd | number: '1.2-2'
-                        }}
-                        USD</span
-                      >
-                    </div>
-                    <div class="d-flex justify-content-between fw-bold">
-                      <span i18n>Net proceeds</span>
-                      <span
-                        >{{
-                          calculatorResult.netProceedsUsd | number: '1.2-2'
-                        }}
-                        USD</span
-                      >
-                    </div>
-                    <div
-                      class="d-flex justify-content-between"
-                      [ngClass]="{
-                        'text-success': calculatorResult.netGainUsd >= 0,
-                        'text-danger': calculatorResult.netGainUsd < 0
-                      }"
-                    >
-                      <span i18n>Net gain/loss</span>
-                      <span
-                        >{{
-                          calculatorResult.netGainUsd | number: '1.2-2'
-                        }}
-                        USD</span
-                      >
-                    </div>
-                    @if (selectedTrade?.status === 'OPEN') {
-                      <div class="mt-2 small text-muted" i18n>
-                        Unrealized — this trade hasn't sold yet, valued at
-                        today's price.
-                      </div>
-                    }
-                  </div>
-                } @else {
-                  <div class="small text-muted" i18n>
-                    Pick a signal and an amount to calculate.
-                  </div>
-                }
               </div>
             </div>
-          </div>
+          }
+
+          @if (trackedPositions.length > 0) {
+            <div class="col-12">
+              <div class="card">
+                <div class="card-body">
+                  <div class="small text-muted text-uppercase mb-1" i18n>
+                    Open positions
+                  </div>
+                  <p class="small text-muted mb-2" i18n>
+                    Target is the hand-set thesis price where there is one,
+                    otherwise the engine's own take-profit. ETFs have neither —
+                    a basket has no single price it is heading for.
+                  </p>
+                  <div class="overflow-x-auto">
+                    <table class="small w-100">
+                      <thead>
+                        <tr class="text-muted">
+                          <th i18n>Symbol</th>
+                          <th i18n>From</th>
+                          <th class="text-end" i18n>Qty</th>
+                          <th class="text-end" i18n>Entry</th>
+                          <th class="text-end" i18n>Price</th>
+                          <th class="text-end" i18n>Net</th>
+                          <th class="text-end" i18n>Target</th>
+                          <th class="text-end" i18n>To target</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (
+                          position of trackedPositions;
+                          track position.symbol + position.entryDate
+                        ) {
+                          <tr>
+                            <td>
+                              <strong>{{ position.symbol }}</strong>
+                              <span class="text-muted d-none d-md-inline">
+                                {{ position.name }}</span
+                              >
+                            </td>
+                            <td>
+                              <span
+                                class="badge"
+                                [class]="
+                                  'badge ' + badgeClass(position.provenance)
+                                "
+                                >{{ position.provenance || '—' }}</span
+                              >
+                            </td>
+                            <td class="text-end">{{ position.quantity }}</td>
+                            <td class="text-end">
+                              {{ position.entryPrice | number: '1.2-2' }}
+                            </td>
+                            <td class="text-end">
+                              {{
+                                position.currentPrice != null
+                                  ? (position.currentPrice | number: '1.2-2')
+                                  : '—'
+                              }}
+                            </td>
+                            <td
+                              class="text-end"
+                              [class.text-danger]="position.netReturnPct < 0"
+                              [class.text-success]="position.netReturnPct >= 0"
+                            >
+                              {{
+                                position.netReturnPct != null
+                                  ? (position.netReturnPct | number: '1.1-1') +
+                                    '%'
+                                  : '—'
+                              }}
+                            </td>
+                            <td class="text-end">
+                              {{
+                                position.targetPrice != null
+                                  ? (position.targetPrice | number: '1.2-2')
+                                  : '—'
+                              }}
+                            </td>
+                            <td class="text-end text-muted">
+                              {{
+                                position.toTargetPct != null
+                                  ? (position.toTargetPct | number: '1.1-1') +
+                                    '%'
+                                  : '—'
+                              }}
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          }
         </div>
 
         <!-- Trade table -->
@@ -566,24 +711,24 @@
                 </td>
               </ng-container>
 
-              <ng-container matColumnDef="convictionAtBuy">
+              <ng-container matColumnDef="expectedValueAtBuy">
                 <th
                   *matHeaderCellDef
                   class="text-end"
                   i18n
                   mat-header-cell
                   mat-sort-header
-                  title="Conviction (0-100) at the moment the signal fired"
+                  title="Expected value at the moment the signal fired: probability × target gain − (1 − probability) × stop loss"
                 >
-                  Conv.
+                  EV
                 </th>
                 <td
                   *matCellDef="let trade"
                   class="text-end text-nowrap"
                   mat-cell
                 >
-                  @if (trade.convictionAtBuy != null) {
-                    {{ trade.convictionAtBuy | number: '1.0-0' }}
+                  @if (trade.expectedValueAtBuy != null) {
+                    {{ trade.expectedValueAtBuy | percent: '1.1-1' }}
                   } @else {
                     —
                   }

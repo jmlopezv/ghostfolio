@@ -1,11 +1,13 @@
 import {
-  SIGNAL_BUY_FEE_USD,
+  SIGNAL_NORDNET_COMMISSION_CLASS,
+  SIGNAL_SEK_PER_USD_FALLBACK,
   SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD
 } from '@ghostfolio/common/config';
 import {
   LineChartItem,
   SimulationReadoutPeriod
 } from '@ghostfolio/common/interfaces';
+import { nordnetCommissionUsd } from '@ghostfolio/common/nordnet-fees';
 
 import { startOfYear, subDays, subMonths, subWeeks, subYears } from 'date-fns';
 
@@ -24,9 +26,161 @@ export interface PerformanceSeriesTrade {
   buyPrice: number;
   currentPrice?: number;
   dataSource: string;
+  /**
+   * Commission drag on THIS trade, in percentage points, when it is known.
+   *
+   * Signal-derived trades are hypothetical and carry no real fee, so they leave
+   * this undefined and fall back to the assumed-notional figure. Trades built
+   * from real orders know exactly what was paid, and using the real number is
+   * the point of showing them beside the hypothetical ones.
+   */
+  feeDragPct?: number;
   netReturnPct?: number;
   sellDate?: string;
   symbol: string;
+}
+
+/** A real activity, reduced to what the FIFO walk below needs. */
+export interface OrderLike {
+  dataSource: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  /** Total commission on the order, in the instrument's own currency. */
+  fee: number;
+  quantity: number;
+  symbol: string;
+  tags: string[];
+  type: string;
+  unitPrice: number;
+}
+
+/** A trade reconstructed from real fills, carrying the tags of both legs. */
+export interface TrackedOrderTrade extends PerformanceSeriesTrade {
+  quantity: number;
+  tags: string[];
+}
+
+/**
+ * Reconstructs round trips from real activities, FIFO, one queue per symbol.
+ *
+ * This is what lets the Simulation chart show what was ACTUALLY bought beside
+ * what the engine SUGGESTED. It deliberately mirrors the FIFO walk
+ * `computeSimulation` already runs over `SignalLog`, but reads `Order` instead,
+ * so a position the engine never signalled — most of the portfolio — still
+ * appears.
+ *
+ * Three details matter and are easy to get wrong:
+ *
+ *  - **A sell can span several buy lots**, and a lot can be closed by several
+ *    sells. Both are split so each resulting trade has one buy price and one
+ *    sell price; a half-closed lot contributes a closed trade for the sold half
+ *    and stays open for the rest.
+ *  - **Fees are per ORDER, not per share.** They are apportioned across the
+ *    order's quantity and then across whatever slice of the lot is involved,
+ *    otherwise a partial sale would charge the whole commission to it.
+ *  - **Returns stay in the instrument's own currency.** A EUR listing's percent
+ *    move is computed in EUR, exactly as the signal-derived trades already are.
+ *    Converting to USD would mix an FX bet into a strategy comparison.
+ *
+ * Pure and synchronous, so the whole reconstruction is unit-testable without a
+ * database. `DIVIDEND` and every other activity type are ignored: they change
+ * the cash balance, not the price return of a position.
+ */
+export function ordersToTrades(orders: OrderLike[]): TrackedOrderTrade[] {
+  const chronological = [...orders]
+    .filter(({ type }) => type === 'BUY' || type === 'SELL')
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  interface Lot {
+    date: string;
+    /** Commission attributable to ONE share of this lot. */
+    feePerShare: number;
+    price: number;
+    quantity: number;
+    tags: string[];
+  }
+
+  const lotsBySymbol = new Map<string, Lot[]>();
+  const trades: TrackedOrderTrade[] = [];
+
+  const openLot = (order: OrderLike): Lot => ({
+    date: order.date,
+    feePerShare: order.quantity > 0 ? order.fee / order.quantity : 0,
+    price: order.unitPrice,
+    quantity: order.quantity,
+    tags: order.tags
+  });
+
+  for (const order of chronological) {
+    const key = `${order.dataSource}:${order.symbol}`;
+    const lots = lotsBySymbol.get(key) ?? [];
+
+    if (order.type === 'BUY') {
+      lots.push(openLot(order));
+      lotsBySymbol.set(key, lots);
+      continue;
+    }
+
+    const sellFeePerShare = order.quantity > 0 ? order.fee / order.quantity : 0;
+    let remaining = order.quantity;
+
+    while (remaining > 1e-9 && lots.length > 0) {
+      const lot = lots[0];
+      const matched = Math.min(remaining, lot.quantity);
+      const roundTripFeePerShare = lot.feePerShare + sellFeePerShare;
+
+      trades.push({
+        buyDate: lot.date,
+        buyPrice: lot.price,
+        dataSource: order.dataSource,
+        feeDragPct:
+          lot.price > 0 ? (roundTripFeePerShare / lot.price) * 100 : 0,
+        netReturnPct:
+          lot.price > 0
+            ? ((order.unitPrice - lot.price - roundTripFeePerShare) /
+                lot.price) *
+              100
+            : 0,
+        quantity: matched,
+        sellDate: order.date,
+        symbol: order.symbol,
+        // Both legs' tags, so a position bought on a signal and sold later is
+        // still attributed to the signal that opened it.
+        tags: [...new Set([...lot.tags, ...order.tags])]
+      });
+
+      lot.quantity -= matched;
+      remaining -= matched;
+
+      if (lot.quantity <= 1e-9) {
+        lots.shift();
+      }
+    }
+
+    lotsBySymbol.set(key, lots);
+    // A sell with no open lot (a position that predates the imported history)
+    // is dropped rather than allowed to invent a negative holding.
+  }
+
+  for (const [key, lots] of lotsBySymbol) {
+    const [dataSource, ...rest] = key.split(':');
+    const symbol = rest.join(':');
+
+    for (const lot of lots) {
+      trades.push({
+        buyDate: lot.date,
+        buyPrice: lot.price,
+        dataSource,
+        // Only the buy leg has been paid so far.
+        feeDragPct: lot.price > 0 ? (lot.feePerShare / lot.price) * 100 : 0,
+        quantity: lot.quantity,
+        symbol,
+        tags: lot.tags
+      });
+    }
+  }
+
+  return trades.sort((a, b) => a.buyDate.localeCompare(b.buyDate));
 }
 
 /**
@@ -75,8 +229,19 @@ export function buildPerformanceSeries(
   };
 
   const points: LineChartItem[] = [];
+  // Buy-side commission as a % drag on the assumed notional. Percentage-based
+  // under the current Nordnet class, so it no longer shrinks with position size
+  // above the minimum-fee threshold. Non-Nordic is the conservative assumption:
+  // the higher minimum, and most of the traded universe is US-listed.
   const feeDragPct =
-    (SIGNAL_BUY_FEE_USD / SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD) * 100;
+    (nordnetCommissionUsd({
+      commissionClass: SIGNAL_NORDNET_COMMISSION_CLASS,
+      isNordic: false,
+      sekPerUsd: SIGNAL_SEK_PER_USD_FALLBACK,
+      tradeValueUsd: SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD
+    }) /
+      SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD) *
+    100;
 
   for (
     let day = new Date(`${startDateStr}T00:00:00.000Z`);
@@ -111,7 +276,9 @@ export function buildPerformanceSeries(
         continue;
       }
 
-      values.push((price / trade.buyPrice - 1) * 100 - feeDragPct);
+      values.push(
+        (price / trade.buyPrice - 1) * 100 - (trade.feeDragPct ?? feeDragPct)
+      );
     }
 
     if (values.length > 0) {

@@ -2,6 +2,7 @@ import { AssetClass, AssetSubClass, DataSource, Type } from '@prisma/client';
 import { JobOptions, JobStatus } from 'bull';
 import ms from 'ms';
 
+import { NordnetCommissionClass } from './nordnet-fees';
 import { ColorScheme, DateRange } from './types';
 
 export const ghostfolioPrefix = 'GF';
@@ -213,6 +214,40 @@ export const PORTFOLIO_REPORT_PROCESS_JOB_OPTIONS: JobOptions = {
   removeOnFail: true
 };
 
+// Daily Minervini leader screen. Daily rather than weekly because a pivot
+// breakout is a one- or two-session event: a weekly cadence would report it
+// after the move. Research shortlist, not a buy trigger — see docs §0.3b.
+export const LEADER_SCREEN_PROCESS_JOB_NAME = 'LEADER_SCREEN';
+export const LEADER_SCREEN_PROCESS_JOB_OPTIONS: JobOptions = {
+  removeOnComplete: true,
+  removeOnFail: true
+};
+
+// Daily Trend Template entrant alert: names that have just entered 8/8 at
+// RS >= 90. Event-driven, so most days it sends nothing.
+export const TT8_ENTRANTS_PROCESS_JOB_NAME = 'TT8_ENTRANTS';
+export const TT8_ENTRANTS_PROCESS_JOB_OPTIONS: JobOptions = {
+  removeOnComplete: true,
+  removeOnFail: true
+};
+
+// Nightly incremental OHLCV gather. Without it nothing in the running
+// application ever appends to `OhlcBar`, so the Trend Template, the VCP
+// detector, ATR and the cross-sectional RS percentile all read whenever the
+// backfill script was last run by hand.
+export const OHLC_REFRESH_PROCESS_JOB_NAME = 'OHLC_REFRESH';
+export const OHLC_REFRESH_PROCESS_JOB_OPTIONS: JobOptions = {
+  removeOnComplete: true,
+  removeOnFail: true
+};
+
+// Twice-monthly Trend Template shortlist digest (1st and 15th).
+export const SHORTLIST_PROCESS_JOB_NAME = 'SHORTLIST';
+export const SHORTLIST_PROCESS_JOB_OPTIONS: JobOptions = {
+  removeOnComplete: true,
+  removeOnFail: true
+};
+
 // Weekly fund recommendation ("which funds to buy" for monthly accumulation).
 export const FUND_SIGNALS_PROCESS_JOB_NAME = 'FUND_SIGNALS';
 export const FUND_SIGNALS_PROCESS_JOB_OPTIONS: JobOptions = {
@@ -233,6 +268,55 @@ export const INTRADAY_TRAILING_CHECK_PROCESS_JOB_OPTIONS: JobOptions = {
 
 // Tag used to mark a holding as actively traded (eligible for take-profit SELL signals).
 export const SIGNAL_TAG_ACTIVE_TRADE = 'ACTIVE_TRADE';
+
+// Provenance tags on an Order: where the decision to buy actually came from.
+//
+// These drive the Simulation tab's Tracked lines, and nothing else — no signal,
+// gate or threshold reads them. They exist because "did the engine's advice pay
+// off?" is unanswerable unless the database records which positions were the
+// engine's idea and which were the user's own call. An untagged non-fund order
+// still appears in the overall Tracked line but in none of the breakdowns, so a
+// missing tag under-reports a bucket rather than corrupting one. Maintained in
+// Ghostfolio's own activity dialog; seeded by run-seed-order-tags.cjs.
+export const SIGNAL_TAG_PROVENANCE_BET = 'BET';
+export const SIGNAL_TAG_PROVENANCE_DIP = 'DIP';
+export const SIGNAL_TAG_PROVENANCE_LEADER = 'LEADER';
+
+/**
+ * `signalType` for a tracked purchase whose order carries no provenance tag.
+ *
+ * `SignalTradeTrackingService` writes a `SignalLog` row for every tracked buy,
+ * including ones that followed no signal, so the stop/target machinery has
+ * something to hang off. It must NOT choose that row's type: the type is the
+ * order's provenance tag. Two earlier versions chose one anyway — first `DIP`
+ * for everything, then `MANUAL` for everything — and both put positions in
+ * curves that did not describe them.
+ *
+ * UNTAGGED means the record is genuinely incomplete: a real position exists and
+ * nobody has said where it came from. It is a prompt to add the tag in
+ * Ghostfolio's activity dialog, not a strategy.
+ */
+export const SIGNAL_TYPE_UNTAGGED = 'UNTAGGED';
+
+/**
+ * Hand-set price targets, in each stock's own quote currency.
+ *
+ * DISPLAY ONLY. Nothing reads these to decide anything — no signal fires, no
+ * band moves, no ranking changes. They exist so the Simulation tab can show how
+ * far a position is from where the user thinks it is going, next to where the
+ * engine's own volatility-scaled take-profit sits.
+ *
+ * Taken from the "Average" column of the 2026-08-26 valuation sheet, which is
+ * the mid case between its Low and High scenarios. A stock listed here uses
+ * this number; a stock that is not falls back to the engine's take-profit, and
+ * an ETF or fund gets no target at all — a basket has no thesis price.
+ */
+export const PORTFOLIO_PRICE_TARGETS: Record<string, number> = {
+  HPE: 69.81,
+  NVDA: 314,
+  ORCL: 266,
+  WMT: 132
+};
 
 // Target allocation for REINVEST suggestions: 80% index funds / 20% individual stocks.
 export const SIGNAL_INDEX_RATIO = 0.8;
@@ -259,12 +343,23 @@ export const SIGNAL_REGIME_VIX_RISK_ON = 20;
 export const SIGNAL_ETF_BUY_DROP_PCT = 0.05;
 export const SIGNAL_ETF_BUY_SIGMA_MULT = 1.0;
 
-// Nordnet brokerage fees (per order, not per share). $5 flat for a single
-// instrument; ~$5.5–6 for multiple instruments in the same order. Since each
-// signal fires per-ticker and the full position is always traded at once,
-// $5/side = $10 round-trip is the right figure to use.
-export const SIGNAL_BUY_FEE_USD = 5;
-export const SIGNAL_SELL_FEE_USD = 5;
+// Nordnet brokerage commission. See libs/common/src/lib/nordnet-fees.ts for the
+// rate card and the arithmetic; the fee is `fixed + pct × tradeValue` per ORDER,
+// so a round trip is charged twice.
+//
+// The account is on Mini: 0.25% plus 9 SEK on non-Nordic venues, 1 SEK on
+// Nordic ones. A $550 US order therefore costs 9 SEK + 13 SEK ≈ $2.33, and the
+// round trip ≈ $4.65 (0.85% of the position).
+//
+// Both terms always apply — the fixed fee is not a floor the percentage can
+// replace. So the fee RATE does fall with size (2.40% round trip at $100, 0.85%
+// at $550, approaching 0.50% for large orders): trading larger amortises the
+// fixed component, with diminishing returns past the ~$380 parity point.
+export const SIGNAL_NORDNET_COMMISSION_CLASS: NordnetCommissionClass = 'MINI';
+// Fallback SEK/USD used by pure paths (backtests, unit tests) that have no
+// exchange-rate service. Live code should pass the real rate instead.
+// 9.4645 was the observed USDSEK close on 2026-08-21.
+export const SIGNAL_SEK_PER_USD_FALLBACK = 9.4645;
 
 // Flat position size (USD) the Simulation tab assumes for every paper trade's
 // fee-adjusted return, since SignalLog never records a real share count. The
@@ -329,7 +424,7 @@ export const SIGNAL_FORECAST_HORIZON_DAYS = 252; // ~12 trading months
 // Take-profit never targets less than +13.4% over the fee-adjusted cost basis,
 // otherwise scales up with the stock's own expected move over the horizon.
 // Scaled from the old 8% (set for the 15-day horizon) by √(42/15) ≈ 1.673 so
-// reach-probability/EV/conviction stay as conservative at 42 days as they
+// reach-probability/EV stay as conservative at 42 days as they
 // were at 15 — otherwise a fixed 8% target gets strictly easier to reach
 // (in the terminal-probability sense) purely by giving it more calendar
 // time, with nothing about the stock itself improving.
@@ -351,7 +446,15 @@ export const SIGNAL_TRACKED_TRADE_LOOKBACK_DAYS = 45;
 // computed straight from the real buy price instead (see
 // computeFreshLevels), so tracking always anchors to when you actually
 // bought, not an old, unrelated signal fire.
-export const SIGNAL_TRACKED_TRADE_MAX_MATCH_GAP_DAYS = 5;
+//
+// Widened 5 -> 14 on 2026-08-27, from measurement rather than preference: the
+// real AMZN purchase followed its dip signal by EIGHT days, so at 5 the signal
+// that actually prompted the trade was discarded and the buy was recorded as
+// unsignalled. The engine was being denied credit for calls it made. 14 covers
+// how this account actually trades — a signal is reviewed and acted on within a
+// fortnight — while still refusing a genuinely stale match (SEC0.DE, acted on
+// 23 days later, correctly stays unattributed).
+export const SIGNAL_TRACKED_TRADE_MAX_MATCH_GAP_DAYS = 14;
 
 // Default lookback window when a new ticker is added to the watchlist — long
 // enough for longer-horizon indicators/charts, not just the signals engine's
@@ -394,10 +497,22 @@ export const SIGNAL_NEWS_BUY_FLOOR = -0.2;
 export const SIGNAL_REVERSAL_RSI_MAX = 70;
 export const SIGNAL_REVERSAL_VOLUME_RATIO = 1.3;
 
-// Notional position size (USD) the backtest assumes per trade, so the flat
-// round-trip fee is expressed as a realistic drag (matches the user's monthly
-// stock budget of ~$200–250).
-export const SIGNAL_BACKTEST_POSITION_SIZE = 250;
+// Notional position size (USD) the backtest assumes per trade, so the
+// round-trip fee is expressed as a realistic drag.
+//
+// Because the commission is `fixed + pct`, the fixed 9 SEK always amortises:
+// the round trip is 2.40% of a $100 position, 1.26% at $250, 0.85% at $550 and
+// 0.69% at $1,000, flattening out toward 0.50%. Bigger is genuinely cheaper per
+// dollar traded, with sharply diminishing returns past the ~$380 parity point.
+//
+// 550 matches the user's stated preference of $500-600 per trade and sits where
+// the curve has mostly flattened.
+export const SIGNAL_BACKTEST_POSITION_SIZE = 550;
+// Floor for a real (non-backtest) buy. At $400 the round trip is ~$3.90, just
+// under 1% of the position; below that the fixed 9 SEK per order starts to
+// dominate and the effective rate climbs quickly (1.26% at $250, 2.40% at $100).
+// See commissionParityUsd in nordnet-fees.ts.
+export const SIGNAL_MIN_POSITION_USD = 400;
 // Slippage per side (basis points) charged in the backtest — a partial proxy for
 // bid/ask spread and gapping through stops that EOD data cannot model exactly.
 export const SIGNAL_BACKTEST_SLIPPAGE_BPS = 10;
@@ -421,12 +536,8 @@ export const SIGNAL_PORTFOLIO_STOCKS_RATIO = 0.4;
 // How many diversified funds the weekly recommendation / funds sleeve suggests.
 export const SIGNAL_FUND_RECOMMENDATION_COUNT = 4;
 
-// Strategy conviction = score × (1−w + w×reachProbability): how much the
-// probability of a gain weighs vs the raw composite score. Plus the bonus for an
-// actual dip-buy setup, and the window in which a past BUY still counts as
-// "recently signalled" for the re-confirmation control.
-export const SIGNAL_CONVICTION_PROB_WEIGHT = 0.5;
-export const SIGNAL_BUYZONE_CONVICTION_BONUS = 8;
+// The window in which a past BUY still counts as "recently signalled" for the
+// re-confirmation control.
 export const SIGNAL_RECENT_SIGNAL_WINDOW = ms('14 days');
 // Liquidity/risk cap: exclude names whose annualised volatility exceeds this
 // from buy recommendations (a proxy for wild, illiquid, blow-up-prone stocks).
@@ -437,8 +548,10 @@ export const SIGNAL_MAX_ANNUAL_VOL = 0.9;
 export const SIGNAL_STRATEGY_SCORE_FLOOR = 45;
 
 // Fee-aware basket sizing: fees should never eat more than ~10% of a
-// strategy's cash budget. If (ticker-count x SIGNAL_BUY_FEE_USD) / cash
-// exceeds this, drop the lowest-conviction pick and recheck.
+// strategy's cash budget. Every extra leg is another order and therefore
+// another fixed 9 SEK on top of the percentage, so splitting a small budget
+// across many tickers is genuinely expensive. When the summed commission
+// exceeds this share, drop the lowest-ranked (by EV) pick and recheck.
 export const SIGNAL_STRATEGY_MAX_FEE_RATIO = 0.1;
 
 // Fund-sleeve overlap: a stock/ETF candidate is flagged redundant when its
@@ -447,9 +560,12 @@ export const SIGNAL_STRATEGY_MAX_FEE_RATIO = 0.1;
 // excluded, so the user can still see it.
 export const SIGNAL_STRATEGY_REDUNDANCY_THRESHOLD = 0.4;
 
-// Conviction multiplier applied to a redundant candidate's expected-value
-// ranking key (not its displayed conviction score) so it sorts behind
-// non-redundant picks of similar quality without hiding it outright.
+// Penalty applied to a redundant candidate's expected-value ranking key so it
+// sorts behind non-redundant picks of similar quality without being hidden
+// outright. Applied sign-safely (see penalisedExpectedValue): expected values
+// are routinely NEGATIVE, and naively multiplying a negative EV by this factor
+// makes it larger, which promoted redundant candidates instead of demoting
+// them.
 export const SIGNAL_STRATEGY_REDUNDANCY_PENALTY = 0.5;
 
 // Fund-vs-fund overlap floor (recommendFunds): a candidate's risk-adjusted
@@ -606,3 +722,228 @@ export const TAG_ID_EXCLUDE_FROM_ANALYSIS =
 export const TAG_ID_DEMO = 'efa08cb3-9b9d-4974-ac68-db13a19c4874';
 
 export const UNKNOWN_KEY = 'UNKNOWN';
+
+// ---------------------------------------------------------------------------
+// Leader screening (Minervini). The engine's PRIMARY buy path as of 2026-08-21.
+//
+// Why these exist: the composite score weights (100 - RSI) and (1 - %B), so it
+// rewards weakness by construction and ranked the wrong names — 153 backtested
+// symbols, only 29% beat buy-and-hold, mean edge -23.5pp (docs §0.3). The
+// screen below is the opposite sign: it buys confirmed strength near highs.
+// ---------------------------------------------------------------------------
+
+// Trend Template thresholds. Sourced from Minervini's published criteria; the
+// preferred (stricter) values are noted where they differ from the minimum.
+// Criterion 8 of the Trend Template. Minervini states the criterion as RS >= 70;
+// 90 is his preference for what to actually BUY, which is a different question.
+// Keep them separate: raising this to 90 would silently redefine what "8/8"
+// means and break comparability with every historical screen.
+export const SIGNAL_TREND_TEMPLATE_MIN_RS = 70;
+/**
+ * The stricter RS the daily Telegram alert requires — roughly the top decile.
+ *
+ * Gating the *message* rather than the *criterion* is what lets the universe
+ * grow without the alert growing with it. At ~334 tracked names 13 were
+ * actionable per day; at ~757 that is ~30, against a hard cap of 8 candidates
+ * per message. Requiring the preferred RS keeps the list inside the cap while
+ * the watchlist and Trend tab still show every qualifying name.
+ */
+export const SIGNAL_TREND_TEMPLATE_PREFERRED_RS = 90;
+// Criterion 3: the 200-day average must have been rising for at least a month.
+// Measured as a duration, not a level comparison — one sharp uptick after a
+// long slide must not pass.
+export const SIGNAL_TREND_TEMPLATE_SMA200_RISING_DAYS = 21;
+// Criterion 6: price at least this far above the 52-week low.
+export const SIGNAL_TREND_TEMPLATE_MIN_ABOVE_LOW_PCT = 0.3;
+// Criterion 7: price no further than this below the 52-week high.
+export const SIGNAL_TREND_TEMPLATE_MAX_BELOW_HIGH_PCT = 0.25;
+// How many of the 8 criteria must pass for the name to be screen-eligible.
+// 8/8 is the doctrinal reading; the pass count is reported either way so a
+// near-miss is visible rather than silently dropped.
+export const SIGNAL_TREND_TEMPLATE_MIN_PASSES = 8;
+
+// Volatility Contraction Pattern. Minervini's own description: "the first
+// correction might be 20%, 25%, 33%, and then... the contractions are about
+// half of the previous correction."
+// Minimum swing size (fraction) that counts as a real turn rather than noise
+// when detecting contractions. Must stay below the tightest contraction we want
+// to see (3-5%), or the final and most important one is invisible.
+export const SIGNAL_VCP_SWING_THRESHOLD_PCT = 0.02;
+export const SIGNAL_VCP_MIN_CONTRACTIONS = 3; // 2 only in a strong regime
+export const SIGNAL_VCP_MAX_CONTRACTIONS = 6;
+// Each contraction must be shallower than the one before it. Allow a little
+// slack so a 12.0% -> 12.1% wobble is not treated as a widening base.
+export const SIGNAL_VCP_CONTRACTION_TOLERANCE = 0.02;
+// The final contraction should be tight — typically 3-5% before a breakout.
+export const SIGNAL_VCP_MAX_FINAL_TIGHTNESS_PCT = 0.1;
+// Base duration, in trading days: 4-12 weeks.
+export const SIGNAL_VCP_MIN_BASE_DAYS = 20;
+export const SIGNAL_VCP_MAX_BASE_DAYS = 60;
+// Volume must dry up through the base: final-contraction volume as a fraction
+// of the 50-day average.
+export const SIGNAL_VCP_MAX_DRYUP_RATIO = 0.85;
+// Breakout must come on real demand: 40-50% above average daily volume.
+export const SIGNAL_VCP_BREAKOUT_VOLUME_RATIO = 1.4;
+// How close BELOW the pivot counts as "at the pivot" for an actionable buy.
+// One-sided on purpose: a stock already above its pivot has either broken out
+// (confirmed by volume) or failed to (not confirmed). Neither is "approaching".
+export const SIGNAL_VCP_PIVOT_PROXIMITY_PCT = 0.02;
+
+/**
+ * When a rally between two adjacent pullbacks recovers less than this fraction
+ * of the first pullback, the two are one contraction that stair-stepped down,
+ * not two contractions.
+ *
+ * This is what makes the base readable without letting the detector cherry-pick.
+ * The previous implementation searched for the longest *subsequence* of swings
+ * that happened to shrink, which let it skip over intervening price action
+ * entirely: measured across 757 symbols, 77% of accepted bases contained a
+ * stretch where price broke BELOW the prior trough - up to 22% below - directly
+ * contradicting the higher-lows rule the search claimed to enforce, and 96.6%
+ * had discarded a pullback deeper than the one they kept. Merging adjacent
+ * pullbacks cannot hide a low, because the merged trough is the LOWER of the
+ * two; skipping them could, and did.
+ */
+export const SIGNAL_VCP_MERGE_RALLY_PCT = 0.5;
+
+/**
+ * Deepest the whole base may be, peak to trough.
+ *
+ * Minervini's bases run 10-35%; deeper than that is a broken stock rather than
+ * a consolidation. Currently a backstop rather than an active filter - measured
+ * base depth is median 16%, p90 27% - but the shape was previously unbounded.
+ */
+export const SIGNAL_VCP_MAX_BASE_DEPTH_PCT = 0.35;
+
+// Minervini risk management: never lose more than 7-8% on a position, and only
+// take setups whose realistic target is worth the risk.
+export const SIGNAL_LEADER_STOP_PCT = 0.075;
+export const SIGNAL_LEADER_MIN_REWARD_RISK = 2;
+
+/**
+ * How long a single symbol stays silenced after its breakout is alerted.
+ *
+ * A breakout bar keeps satisfying the BREAKOUT test for several sessions
+ * afterwards, so without a cooldown one event would re-alert every day until
+ * the volume surge rolls out of the average. Five trading days is a week of
+ * silence per name — long enough to stop the repeat, short enough that a
+ * genuine second breakout from a new base still gets through.
+ */
+export const SIGNAL_LEADER_ALERT_COOLDOWN_DAYS = 5;
+
+/**
+ * How many Yahoo Profile pages the background expense-ratio warm-up fetches
+ * at once.
+ *
+ * Deliberately small. Yahoo rate-limits bursts, and `getYahooEtfProfile`'s
+ * single retry cannot recover from a block that the rest of its own burst is
+ * still causing — so a wide fan-out is not just slower, it is self-defeating.
+ * This runs off the request path, so throughput is irrelevant; landing in the
+ * cache is the only thing that matters.
+ */
+export const SIGNAL_YAHOO_FEE_REFILL_CONCURRENCY = 4;
+
+/**
+ * Worker-pool width for the nightly OHLCV gather.
+ *
+ * Same reasoning as the fee refill, and the same number: one chart request per
+ * symbol across the whole universe is the largest burst this application makes
+ * at Yahoo, and it runs unattended at 22:05 with 25 minutes of headroom before
+ * the leader screen reads the result. Being blocked halfway costs a day of
+ * bars; finishing four minutes sooner buys nothing.
+ */
+export const SIGNAL_OHLC_REFRESH_CONCURRENCY = 4;
+
+/**
+ * How far back the nightly gather asks for, chosen from the gap since the newest
+ * stored bar. Yahoo bills a range request the same regardless of span, but a
+ * narrow range keeps the response small on the ordinary night where one bar is
+ * missing. `createMany({ skipDuplicates: true })` makes any overlap free.
+ */
+export const SIGNAL_OHLC_REFRESH_RANGES = {
+  /** Gap of a long holiday or a symbol that fell behind. */
+  medium: { maxGapDays: 60, range: '3mo' },
+  /** The ordinary case: one or two missing sessions. */
+  short: { maxGapDays: 5, range: '1mo' },
+  /** No stored bars at all, or a gap wide enough that history is missing. */
+  full: { range: '5y' }
+} as const;
+
+/**
+ * Share of the tracked universe that must be above its own 200-day average for
+ * the market to count as healthy.
+ *
+ * Minervini's first rule is market direction, and this engine had no notion of
+ * it. There is no index data stored locally (`^GSPC` and `^VIX` have zero rows
+ * in both OhlcBar and MarketData), so BREADTH over the universe itself is the
+ * honest proxy: it needs no new feed, it is computable point-in-time with no
+ * lookahead, and it degrades gracefully as the universe grows.
+ *
+ * 50% is the natural dividing line rather than a tuned one - deliberately, since
+ * the sample of breakouts is far too small to fit a threshold against without
+ * simply overfitting it.
+ */
+export const SIGNAL_MARKET_BREADTH_HEALTHY_PCT = 0.5;
+
+/**
+ * RS floor for the daily Trend Template entrant alert.
+ *
+ * Measured over 94 trading days across 752 names, new 8/8 entrants arrive at a
+ * mean of 13.4/day, median 7, and spike to 142 when the cross-section re-ranks.
+ * That is unreadable within a week. Restricted to RS >= 90 the same series is a
+ * mean of 3.9 and a median of 2, silent on 28 of 94 days - an alert rather than
+ * a feed.
+ */
+export const SIGNAL_TT8_ALERT_MIN_RS = 90;
+
+/**
+ * How long a symbol stays silenced after its Trend Template entrant alert.
+ *
+ * Several criteria are boundary tests - price vs the 50-day, within 25% of the
+ * 52-week high - and a name sitting on one of them can cross back and forth on
+ * fractions of a percent. Without this, such a name re-alerts every other day
+ * while telling you nothing new.
+ */
+export const SIGNAL_TT8_COOLDOWN_DAYS = 10;
+
+/** Names per shortlist message; the rest are summarised as a "+N more" footer. */
+export const SIGNAL_SHORTLIST_MAX = 12;
+
+/**
+ * How long a computed watchlist-metrics snapshot is reused.
+ *
+ * The snapshot costs a full history hydrate and cross-sectional ranking over
+ * the whole universe, and the endpoint had no cache at all — so every page
+ * load and every navigation recomputed it from scratch, on top of the 30-minute
+ * poll the UI already runs. Five minutes is well inside the staleness the UI
+ * is designed around and collapses a browsing session onto one computation.
+ */
+export const SIGNAL_WATCHLIST_METRICS_CACHE_TTL = 5 * 60 * 1000;
+
+// Liquidity floor for the screen (average daily dollar volume). A breakout on
+// an illiquid name is unfillable at the quoted price, which is precisely the
+// failure mode a backtest cannot see.
+export const SIGNAL_SCREEN_MIN_DOLLAR_VOLUME = 5_000_000;
+
+// Cross-sectional relative strength: IBD-style weighting of trailing returns,
+// most recent quarter double-weighted, then converted to a 1-99 percentile
+// across the universe.
+export const SIGNAL_RS_WEIGHTS = {
+  return3m: 0.4,
+  return6m: 0.2,
+  return9m: 0.2,
+  return12m: 0.2
+};
+// Minimum universe size before a percentile means anything. Ranking 5 names
+// 1-99 would be arithmetic theatre.
+export const SIGNAL_RS_MIN_UNIVERSE = 30;
+
+// Relative strength is CROSS-SECTIONAL: it cannot be derived from one symbol's
+// history, only from the whole universe at once. The watchlist-metrics pass
+// already computes the full map every refresh, so it publishes it here for
+// per-symbol readers (the ticker dialog's Trend tab) rather than having each
+// reader re-rank ~150 names on demand. A cold cache yields no rank, which
+// renders as UNRANKED rather than as a failed criterion - the same distinction
+// CrossSectionalService already draws for a newly listed stock.
+export const SIGNAL_RS_RANK_CACHE_KEY = 'signals:rs-rank-map';
+export const SIGNAL_RS_RANK_CACHE_TTL = 60 * 60; // seconds

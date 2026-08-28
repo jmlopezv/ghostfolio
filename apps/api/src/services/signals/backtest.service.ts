@@ -3,7 +3,7 @@ import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.s
 import {
   SIGNAL_BACKTEST_POSITION_SIZE,
   SIGNAL_BACKTEST_SLIPPAGE_BPS,
-  SIGNAL_BUY_FEE_USD,
+  SIGNAL_NORDNET_COMMISSION_CLASS,
   SIGNAL_BUY_SCORE_MIN,
   SIGNAL_BUY_SIGMA_MULT,
   SIGNAL_DEFAULT_BUY_DROP_PCT,
@@ -11,7 +11,7 @@ import {
   SIGNAL_EXIT_MODE,
   SIGNAL_HOLD_TRAIL_PCT,
   SIGNAL_HORIZON_DAYS,
-  SIGNAL_SELL_FEE_USD,
+  SIGNAL_SEK_PER_USD_FALLBACK,
   SIGNAL_STOP_VOL_MULT,
   SIGNAL_TAKE_PROFIT_FLOOR_PCT,
   SIGNAL_TAKE_PROFIT_VOL_MULT,
@@ -20,6 +20,10 @@ import {
 } from '@ghostfolio/common/config';
 import { DATE_FORMAT } from '@ghostfolio/common/helper';
 import { BacktestResult, BacktestTrade } from '@ghostfolio/common/interfaces';
+import {
+  isNordicSymbol,
+  nordnetRoundTripUsd
+} from '@ghostfolio/common/nordnet-fees';
 
 import { Injectable } from '@nestjs/common';
 import { DataSource } from '@prisma/client';
@@ -136,6 +140,7 @@ export class BacktestService {
       positionSize,
       series: tradingDaySeries,
       slippageBps,
+      symbol,
       takeProfitPct,
       warmupBars
     });
@@ -240,6 +245,7 @@ export class BacktestService {
     positionSize,
     series,
     slippageBps,
+    symbol,
     takeProfitPct,
     warmupBars
   }: {
@@ -250,6 +256,8 @@ export class BacktestService {
     positionSize: number;
     series: { date: Date; marketPrice: number }[];
     slippageBps: number;
+    /** Needed for the commission model: Nordic venues have a lower minimum. */
+    symbol: string;
     takeProfitPct: number;
     warmupBars: number;
   }): {
@@ -261,7 +269,14 @@ export class BacktestService {
     const trades: BacktestTrade[] = [];
     const entryIndices: number[] = [];
     const equityCurve: number[] = [];
-    const roundTripFee = SIGNAL_BUY_FEE_USD + SIGNAL_SELL_FEE_USD;
+    // Commission is a percentage of trade value under the current Nordnet
+    // class, not a flat amount, so it scales with the position being modelled.
+    const roundTripFee = nordnetRoundTripUsd({
+      commissionClass: SIGNAL_NORDNET_COMMISSION_CLASS,
+      isNordic: isNordicSymbol(symbol),
+      sekPerUsd: SIGNAL_SEK_PER_USD_FALLBACK,
+      tradeValueUsd: positionSize
+    });
     const slip = slippageBps / 10_000;
 
     let entryIndex: number | null = null;

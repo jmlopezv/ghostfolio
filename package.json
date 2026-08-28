@@ -99,6 +99,7 @@
     "chartjs-chart-treemap": "3.1.0",
     "chartjs-plugin-annotation": "3.1.0",
     "chartjs-plugin-datalabels": "2.2.0",
+    "chartjs-plugin-zoom": "^2.2.0",
     "cheerio": "1.2.0",
     "class-transformer": "0.5.1",
     "class-validator": "0.15.1",

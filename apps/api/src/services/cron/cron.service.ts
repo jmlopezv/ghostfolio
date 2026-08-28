@@ -23,6 +23,16 @@ export class CronService implements OnApplicationBootstrap {
   private static readonly EVERY_HOUR_AT_RANDOM_MINUTE = `${new Date().getMinutes()} * * * *`;
   private static readonly EVERY_MONDAY_AT_LUNCH_TIME = '0 12 * * 1';
   private static readonly EVERY_SUNDAY_AT_LUNCH_TIME = '0 12 * * 0';
+  // 22:05 CET: both the European (~17:30) and US (22:00) closes have settled,
+  // and the gather has 25 minutes to finish before the leader screen reads the
+  // bars it writes.
+  private static readonly EVERY_WEEKDAY_BEFORE_LEADER_SCREEN = '5 22 * * 1-5';
+  // 22:30 CET ≈ 30 min after the 16:00 ET US close, so the daily bar is settled.
+  private static readonly EVERY_WEEKDAY_AFTER_US_CLOSE = '30 22 * * 1-5';
+  // 07:00 CET, ahead of the 09:00 European open, reading the settled US close.
+  private static readonly EVERY_WEEKDAY_BEFORE_EU_OPEN = '0 7 * * 1-5';
+  // The 1st and the 15th, same pre-open slot.
+  private static readonly TWICE_MONTHLY_BEFORE_EU_OPEN = '0 7 1,15 * *';
 
   public constructor(
     private readonly configurationService: ConfigurationService,
@@ -77,6 +87,39 @@ export class CronService implements OnApplicationBootstrap {
     }
 
     await this.tradingSignalsService.addReportToQueue();
+  }
+
+  @Cron(CronService.EVERY_WEEKDAY_BEFORE_LEADER_SCREEN)
+  public async runEveryWeekdayBeforeLeaderScreen() {
+    // Nightly OHLCV gather. Nothing else in the application appends to
+    // `OhlcBar`, so without this the Trend Template, the VCP detector, ATR and
+    // the RS percentile keep reading whatever day the backfill script last ran.
+    if (!isWeekend(new Date())) {
+      await this.tradingSignalsService.addOhlcRefreshToQueue();
+    }
+  }
+
+  @Cron(CronService.EVERY_WEEKDAY_AFTER_US_CLOSE)
+  public async runEveryWeekdayAfterUsClose() {
+    // Minervini leader screen. After the US close so the day's bar — and the
+    // breakout volume that confirms it — is final rather than intraday.
+    if (!isWeekend(new Date())) {
+      await this.tradingSignalsService.addLeaderScreenToQueue();
+    }
+  }
+
+  @Cron(CronService.EVERY_WEEKDAY_BEFORE_EU_OPEN)
+  public async runEveryWeekdayBeforeEuOpen() {
+    // Trend Template entrants: names that crossed into 8/8 at RS >= 90 on the
+    // settled US close. Event-driven, so most days this sends nothing.
+    if (!isWeekend(new Date())) {
+      await this.tradingSignalsService.addTrendTemplateEntrantsToQueue();
+    }
+  }
+
+  @Cron(CronService.TWICE_MONTHLY_BEFORE_EU_OPEN)
+  public async runTwiceMonthlyBeforeEuOpen() {
+    await this.tradingSignalsService.addShortlistToQueue();
   }
 
   @Cron(CronService.EVERY_MONDAY_AT_LUNCH_TIME)

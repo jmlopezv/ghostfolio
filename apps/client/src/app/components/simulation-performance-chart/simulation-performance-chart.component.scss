@@ -2,7 +2,11 @@
   display: block;
 
   .chart-container {
-    aspect-ratio: 16 / 9;
+    // Wider than tall: the chart carries ten-plus series now, and a 16/9 box
+    // compressed them into an unreadable band. A min-height keeps it usable on
+    // a narrow viewport, where the aspect ratio alone would collapse it.
+    aspect-ratio: 21 / 9;
+    min-height: 22rem;
 
     ngx-skeleton-loader {
       height: 100%;

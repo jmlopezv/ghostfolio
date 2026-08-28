@@ -4,7 +4,9 @@ import {
   LineChartItem,
   SimulatedTrade,
   SimulationReadoutPeriod,
+  SignalExitMarker,
   SimulationResponse,
+  TrackedPosition,
   User
 } from '@ghostfolio/common/interfaces';
 import { openBenchmarkDetailDialog } from '@ghostfolio/ui/benchmark/benchmark-detail-dialog/open-benchmark-detail-dialog';
@@ -39,15 +41,9 @@ import { NgxSkeletonLoaderModule } from 'ngx-skeleton-loader';
 
 import {
   GfSimulationPerformanceChartComponent,
+  SimulationChartMarker,
   SimulationChartSeries
 } from '../simulation-performance-chart/simulation-performance-chart.component';
-
-interface CalculatorResult {
-  feesUsd: number;
-  grossProceedsUsd: number;
-  netGainUsd: number;
-  netProceedsUsd: number;
-}
 
 type ZoomPeriodKey = SimulationReadoutPeriod | 'max';
 type ReadoutPeriodKey = SimulationReadoutPeriod;
@@ -73,12 +69,47 @@ const READOUT_PERIODS: { key: ReadoutPeriodKey; label: string }[] = [
   { key: '1y', label: '1Y' }
 ];
 
-// Fixed per-series colors for the Simulation performance chart — local to
-// this page since no other chart needs a 4th/5th color.
-const DIP_COLOR = 'rgb(54, 207, 204)';
-const REVERSAL_COLOR = 'rgb(226, 106, 106)';
-const TRACKED_COLOR = 'rgb(84, 163, 84)';
-const BENCHMARK_COLOR = 'rgb(150, 150, 150)';
+// Fixed per-series colors for the Simulation performance chart.
+//
+// Eleven lines need eleven SEPARATED HUES, not shades of one. An earlier
+// version grouped by family — four greens for the real-money lines — on the
+// theory that a shared hue would read as a group. On a chart with this many
+// overlapping curves it read as one indistinguishable smear instead, which is
+// why only three lines appeared to be drawn. Grouping is what the legend and
+// the labels are for; colour's only job here is to tell two lines apart.
+//
+// Hues are spread around the wheel and no two adjacent entries sit within
+// ~40 degrees of each other.
+const DIP_COLOR = 'rgb(0, 176, 185)'; // teal
+const REVERSAL_COLOR = 'rgb(224, 74, 74)'; // red
+const LEADER_COLOR = 'rgb(240, 150, 20)'; // amber
+const LEADER_GATED_COLOR = 'rgb(150, 84, 8)'; // brown
+const TT8_COLOR = 'rgb(140, 82, 226)'; // violet
+const WATCH_LEADER_COLOR = 'rgb(214, 92, 200)'; // magenta
+const TRACKED_COLOR = 'rgb(30, 110, 60)'; // deep green
+const TRACKED_BET_COLOR = 'rgb(120, 176, 40)'; // olive
+const TRACKED_DIP_COLOR = 'rgb(40, 120, 216)'; // blue
+const TRACKED_LEADER_COLOR = 'rgb(200, 60, 130)'; // pink
+const BENCHMARK_COLOR = 'rgb(140, 140, 140)'; // grey, dashed
+
+/**
+ * Bootstrap contextual class per strategy/status chip.
+ *
+ * The tables rendered every badge `bg-secondary`, so a DIP, a BET and a LEADER
+ * were visually identical — the one thing a badge exists to prevent.
+ */
+const BADGE_CLASS: Record<string, string> = {
+  BET: 'bg-success',
+  BOUGHT: 'bg-primary',
+  CLOSED: 'bg-warning text-dark',
+  DIP: 'bg-info text-dark',
+  LEADER: 'bg-danger',
+  OPEN: 'bg-secondary',
+  REVERSAL: 'bg-warning text-dark',
+  SOLD: 'bg-dark',
+  TT8: 'bg-primary',
+  UNTAGGED: 'bg-secondary'
+};
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
@@ -170,7 +201,7 @@ const DISPLAYED_COLUMNS = [
   'scoreAtBuy',
   'rsiAtBuy',
   'reachProbabilityAtBuy',
-  'convictionAtBuy',
+  'expectedValueAtBuy',
   'takeProfit',
   'stopLoss',
   'currentOrSellPrice',
@@ -205,11 +236,9 @@ export class GfHomeSimulationComponent implements OnInit {
     SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD;
   protected readonly dataSource = new MatTableDataSource<SimulatedTrade>([]);
   protected readonly displayedColumns = DISPLAYED_COLUMNS;
-  protected investedUsd = SIGNAL_SIMULATION_ASSUMED_NOTIONAL_USD;
   protected isLoading = false;
   protected readonly readoutPeriods = READOUT_PERIODS;
   protected searchTerm = '';
-  protected selectedTradeIndex: number | null = null;
   protected readonly selectedZoomPeriod = signal<ZoomPeriodKey>('max');
   protected simulation: SimulationResponse | null = null;
   protected trades: SimulatedTrade[] = [];
@@ -220,6 +249,10 @@ export class GfHomeSimulationComponent implements OnInit {
     () => this.deviceDetectorService.deviceInfo().deviceType
   );
   protected readonly sort = viewChild(MatSort);
+  /** Drives the show-all / hide-all / reset-zoom buttons above the chart. */
+  protected readonly performanceChart = viewChild(
+    GfSimulationPerformanceChartComponent
+  );
 
   private readonly changeDetectorRef = inject(ChangeDetectorRef);
   private readonly dataService = inject(DataService);
@@ -282,80 +315,148 @@ export class GfHomeSimulationComponent implements OnInit {
     this.load();
   }
 
-  protected get calculatorResult(): CalculatorResult | null {
-    const trade = this.selectedTrade;
-
-    // grossReturnPct is only undefined when no price is known yet (a
-    // transient live-quote hiccup on an OPEN trade) — the calculator has
-    // nothing to compute against until then.
-    if (!trade || !this.investedUsd || trade.grossReturnPct == null) {
-      return null;
-    }
-
-    const grossProceedsUsd =
-      this.investedUsd * (1 + trade.grossReturnPct / 100);
-    // Only the buy leg has actually been paid for a still-OPEN trade; the
-    // sell fee is charged once a matching SELL is logged and it closes.
-    const feesUsd = trade.status === 'CLOSED' ? 10 : 5;
-    const netProceedsUsd = grossProceedsUsd - feesUsd;
-    const netGainUsd = netProceedsUsd - this.investedUsd;
-
-    return { feesUsd, grossProceedsUsd, netGainUsd, netProceedsUsd };
-  }
-
-  protected get selectedTrade(): SimulatedTrade | null {
-    return this.selectedTradeIndex != null
-      ? (this.trades[this.selectedTradeIndex] ?? null)
-      : null;
-  }
-
   /**
    * One dataset per non-empty bucket (Dip / Reversal / Tracked / S&P 500),
    * sliced to the currently selected zoom period. Chart-zooming is a client-
    * side slice of the already-fetched full daily curves — no re-fetch per
    * button click.
    */
+  /** Bootstrap class for a strategy or status chip; grey only if unrecognised. */
+  protected badgeClass(value?: string): string {
+    return BADGE_CLASS[value ?? ''] ?? 'bg-secondary';
+  }
+
+  /** Exits the engine signalled, newest first, for the table under the chart. */
+  protected get exitMarkers(): SignalExitMarker[] {
+    return [...(this.simulation?.exitMarkers ?? [])].sort((a, b) =>
+      b.date.localeCompare(a.date)
+    );
+  }
+
+  /**
+   * The same exits as chart annotations.
+   *
+   * Pinned at the trade's OWN return, not at the value the strategy curve
+   * happens to hold that day. The y-axis is already "% net return", so a dot at
+   * +18.1% reads correctly against it, and its height above the line is exactly
+   * how much that one trade beat the bucket average by. Pinning it to the curve
+   * instead would put a dot labelled +18.1% at the 5% mark.
+   *
+   * Every exit is marked, including ones on positions the engine never
+   * suggested buying — it still told the user when to sell them, and that is
+   * the part being measured.
+   */
+  protected get chartMarkers(): SimulationChartMarker[] {
+    return this.exitMarkers.map((exit) => ({
+      date: exit.date,
+      label: `${exit.symbol} ${exit.netReturnPct >= 0 ? '+' : ''}${exit.netReturnPct.toFixed(1)}%`,
+      value: exit.netReturnPct
+    }));
+  }
+
+  /** Real open positions, strongest first. */
+  protected get trackedPositions(): TrackedPosition[] {
+    return [...(this.simulation?.trackedPositions ?? [])].sort(
+      (a, b) => (b.netReturnPct ?? 0) - (a.netReturnPct ?? 0)
+    );
+  }
+
   protected get chartSeries(): SimulationChartSeries[] {
     if (!this.simulation) {
       return [];
     }
 
     const period = this.selectedZoomPeriod();
-    const series: SimulationChartSeries[] = [];
 
-    if (this.simulation.dipSeries.length > 0) {
-      series.push({
+    // An empty bucket is omitted entirely rather than drawn flat: a legend
+    // entry for a strategy that has never fired reads as "this made 0%", which
+    // is a different and wrong claim. Leader Breakout is the live example —
+    // absent until a breakout actually fires.
+    return this.chartDefinitions
+      .filter(({ data }) => data?.length > 0)
+      .map(({ color, dashed, data, hidden, label }) => ({
+        color,
+        dashed,
+        data: filterByPeriod(data, period),
+        hidden,
+        label
+      }));
+  }
+
+  /**
+   * Every candidate line, in legend order: engine suggestions first, then what
+   * was actually bought, then the benchmark.
+   *
+   * Every line is drawn on load. An earlier version started the four Tracked
+   * lines hidden to reduce clutter, which was a reasonable idea and a bad one
+   * in practice: the legend that was supposed to bring them back was never
+   * registered, so they were simply unreachable. Hiding anything by default
+   * only works if the control that unhides it demonstrably exists.
+   */
+  private get chartDefinitions(): (SimulationChartSeries & {
+    data: LineChartItem[];
+  })[] {
+    const simulation = this.simulation;
+
+    return [
+      {
         color: DIP_COLOR,
-        data: filterByPeriod(this.simulation.dipSeries, period),
+        data: simulation.dipSeries,
         label: $localize`Dip`
-      });
-    }
-
-    if (this.simulation.reversalSeries.length > 0) {
-      series.push({
+      },
+      {
         color: REVERSAL_COLOR,
-        data: filterByPeriod(this.simulation.reversalSeries, period),
+        data: simulation.reversalSeries,
         label: $localize`Reversal`
-      });
-    }
-
-    if (this.simulation.trackedSeries.length > 0) {
-      series.push({
+      },
+      {
+        color: WATCH_LEADER_COLOR,
+        data: simulation.watchLeaderSeries,
+        label: $localize`Watch Leader`
+      },
+      {
+        color: LEADER_COLOR,
+        data: simulation.leaderSeries,
+        label: $localize`Leader Breakout`
+      },
+      {
+        color: LEADER_GATED_COLOR,
+        data: simulation.leaderGatedSeries,
+        label: $localize`Leader Breakout (gated)`
+      },
+      {
+        color: TT8_COLOR,
+        data: simulation.tt8Series,
+        label: $localize`Trend Template (bought)`
+      },
+      {
         color: TRACKED_COLOR,
-        data: filterByPeriod(this.simulation.trackedSeries, period),
+        data: simulation.trackedSeries,
         label: $localize`Tracked`
-      });
-    }
-
-    if (this.simulation.benchmarkSeries?.length) {
-      series.push({
+      },
+      {
+        color: TRACKED_BET_COLOR,
+        data: simulation.trackedBetSeries,
+        label: $localize`Tracked Bet`
+      },
+      {
+        color: TRACKED_DIP_COLOR,
+        data: simulation.trackedDipSeries,
+        label: $localize`Tracked Dip`
+      },
+      {
+        color: TRACKED_LEADER_COLOR,
+        data: simulation.trackedLeaderSeries,
+        label: $localize`Tracked Leader`
+      },
+      {
         color: BENCHMARK_COLOR,
-        data: filterByPeriod(this.simulation.benchmarkSeries, period),
+        // Dashed: a reference, not a strategy anyone ran.
+        dashed: true,
+        data: simulation.benchmarkSeries,
         label: 'S&P 500'
-      });
-    }
-
-    return series;
+      }
+    ];
   }
 
   /**
@@ -392,13 +493,13 @@ export class GfHomeSimulationComponent implements OnInit {
       });
     };
 
-    pushRow($localize`Dip`, DIP_COLOR, this.simulation.dipSeries);
-    pushRow(
-      $localize`Reversal`,
-      REVERSAL_COLOR,
-      this.simulation.reversalSeries
-    );
-    pushRow($localize`Tracked`, TRACKED_COLOR, this.simulation.trackedSeries);
+    // Same order and the same non-empty rule as the chart, so a line and its
+    // row can never disagree about whether a strategy exists.
+    for (const { color, data, label } of this.chartDefinitions) {
+      if (label !== 'S&P 500') {
+        pushRow(label, color, data ?? []);
+      }
+    }
 
     // S&P 500 uses real, calendar-anchored trailing returns computed
     // server-side from its own full history (see benchmarkReadout) — NOT
@@ -482,13 +583,6 @@ export class GfHomeSimulationComponent implements OnInit {
         this.simulation = response;
         this.trades = response.trades;
         this.dataSource.data = response.trades;
-
-        if (
-          this.selectedTradeIndex != null &&
-          this.selectedTradeIndex >= this.trades.length
-        ) {
-          this.selectedTradeIndex = null;
-        }
 
         this.isLoading = false;
         this.changeDetectorRef.markForCheck();

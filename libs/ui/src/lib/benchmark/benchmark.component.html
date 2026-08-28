@@ -186,6 +186,81 @@
       </td>
     </ng-container>
 
+    <!--
+      Leader-screen columns (Minervini). Research context, NOT a buy trigger:
+      the 2026-08-21 event study found breakout entries did not beat the
+      universe base rate, while the existing DIP entry did. See docs §0.3b.
+    -->
+    <ng-container matColumnDef="trendTemplate">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="trendTemplatePasses"
+      >
+        <span i18n title="Minervini Trend Template criteria passed, out of 8"
+          >Trend</span
+        >
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right" mat-cell>
+        @if (isNumber(element?.trendTemplatePasses)) {
+          <span
+            [class.text-success]="element.trendTemplatePasses === 8"
+            [title]="
+              element.trendTemplatePasses === 8
+                ? 'Passes all 8 Trend Template criteria'
+                : element.trendTemplatePasses + ' of 8 criteria pass'
+            "
+            >{{ element.trendTemplatePasses }}/8</span
+          >
+          @if (isNumber(element?.rsRank)) {
+            <small class="text-muted d-block">RS {{ element.rsRank }}</small>
+          }
+        } @else {
+          —
+        }
+      </td>
+    </ng-container>
+
+    <ng-container matColumnDef="vcp">
+      <th
+        *matHeaderCellDef
+        class="px-1 text-right"
+        mat-header-cell
+        mat-sort-header="vcpContractions"
+      >
+        <span
+          i18n
+          title="Volatility Contraction Pattern: tightening pullbacks before a breakout"
+          >VCP</span
+        >
+      </th>
+      <td *matCellDef="let element" class="px-1 text-right" mat-cell>
+        @if (element?.vcpStatus) {
+          <span
+            [class.text-success]="element.vcpStatus === 'BREAKOUT'"
+            [class.text-warning]="element.vcpStatus === 'AT_PIVOT'"
+            [title]="vcpTooltip(element)"
+          >
+            {{ element.vcpDepthsPct?.join('→') }}%
+          </span>
+          <small class="text-muted d-block">
+            @if (element.vcpStatus === 'BREAKOUT') {
+              <ng-container i18n>breakout</ng-container>
+            } @else if (element.vcpStatus === 'AT_PIVOT') {
+              <ng-container i18n>at pivot</ng-container>
+            } @else {
+              {{ element.vcpPivot | number: '1.2-2' }}
+            }
+          </small>
+        } @else {
+          <span class="text-muted" [title]="element?.vcpRejectedReason ?? ''"
+            >—</span
+          >
+        }
+      </td>
+    </ng-container>
+
     <ng-container matColumnDef="rsi">
       <th
         *matHeaderCellDef
@@ -276,25 +351,25 @@
       </td>
     </ng-container>
 
-    <ng-container matColumnDef="conviction">
+    <ng-container matColumnDef="expectedValue">
       <th
         *matHeaderCellDef
         class="px-1 text-right"
         mat-header-cell
-        mat-sort-header="conviction"
+        mat-sort-header="expectedValue"
       >
         <a
           i18n
-          [fragment]="'metric-conviction'"
+          [fragment]="'metric-expected-value'"
           [routerLink]="['/home', 'metrics']"
           (click)="$event.stopPropagation()"
-          >Conv.</a
+          >EV</a
         >
       </th>
       <td *matCellDef="let element" class="px-1 text-right" mat-cell>
         {{
-          isNumber(element?.conviction)
-            ? (element?.conviction | number: '1.0-0')
+          isNumber(element?.expectedValue)
+            ? (element?.expectedValue | percent: '1.1-1')
             : '—'
         }}
       </td>

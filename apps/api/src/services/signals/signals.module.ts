@@ -12,12 +12,16 @@ import { PrismaModule } from '@ghostfolio/api/services/prisma/prisma.module';
 import { PropertyModule } from '@ghostfolio/api/services/property/property.module';
 import { AssetDetailService } from '@ghostfolio/api/services/signals/asset-detail.service';
 import { BacktestService } from '@ghostfolio/api/services/signals/backtest.service';
+import { CrossSectionalService } from '@ghostfolio/api/services/signals/cross-sectional.service';
 import { ForecastService } from '@ghostfolio/api/services/signals/forecast.service';
 import { FundDataService } from '@ghostfolio/api/services/signals/fund-data.service';
 import { FundHistoryService } from '@ghostfolio/api/services/signals/fund-history.service';
 import { FundamentalsService } from '@ghostfolio/api/services/signals/fundamentals.service';
 import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
+import { LeaderScreenService } from '@ghostfolio/api/services/signals/leader-screen.service';
+import { MarketBreadthService } from '@ghostfolio/api/services/signals/market-breadth.service';
 import { MarketRegimeService } from '@ghostfolio/api/services/signals/market-regime.service';
+import { OhlcBarService } from '@ghostfolio/api/services/signals/ohlc-bar.service';
 import { OhlcService } from '@ghostfolio/api/services/signals/ohlc.service';
 import { ScreeningService } from '@ghostfolio/api/services/signals/screening.service';
 import { SignalTradeTrackingService } from '@ghostfolio/api/services/signals/signal-trade-tracking.service';
@@ -34,7 +38,10 @@ import { Module } from '@nestjs/common';
     BacktestService,
     ForecastService,
     FundHistoryService,
+    CrossSectionalService,
     IndicatorsService,
+    LeaderScreenService,
+    OhlcBarService,
     SignalsService
   ],
   imports: [
@@ -61,7 +68,11 @@ import { Module } from '@nestjs/common';
     FundDataService,
     FundHistoryService,
     IndicatorsService,
+    CrossSectionalService,
+    LeaderScreenService,
+    MarketBreadthService,
     MarketRegimeService,
+    OhlcBarService,
     OhlcService,
     ScreeningService,
     SignalTradeTrackingService,

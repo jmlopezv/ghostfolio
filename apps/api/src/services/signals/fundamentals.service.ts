@@ -20,6 +20,40 @@ const FUNDAMENTALS_RETRY_TTL = 2 * 60 * 60 * 1000;
 const NONE = 'NONE';
 
 /**
+ * Yahoo divides a pence price by a pounds EPS on most LSE lines, inflating the
+ * forward multiple 100x: AZN.L reports 1065 for a real 10.7. Left alone, every
+ * GBp-quoted name scores 0 on the valuation term (`100 - forwardPE * 2` clamps
+ * at zero above 50x), which silently marks the entire UK universe as maximally
+ * expensive.
+ *
+ * It does not do it on all of them — some LSE lines arrive already in pounds —
+ * so rescaling every GBp name would corrupt the ones that were already right.
+ * Rescale only the inflated ones, then discard anything that lands implausibly
+ * cheap: that is exactly how a genuinely 100x+ name looks after a divide it did
+ * not deserve. Discarded means unknown, not zero, and `computeScore`
+ * re-normalizes over the remaining terms.
+ *
+ * Currency decides, not the `.L` suffix — the LSE also carries EUR-quoted lines
+ * (MTLN.L), which need no rescaling.
+ */
+export function normalizeForwardPE(
+  forwardPE: number | null | undefined,
+  currency: string | null | undefined
+): number | null {
+  if (forwardPE === null || forwardPE === undefined) {
+    return null;
+  }
+
+  if (currency === 'GBp' && forwardPE > 100) {
+    const rescaled = forwardPE / 100;
+
+    return rescaled < 3 ? null : rescaled;
+  }
+
+  return forwardPE;
+}
+
+/**
  * Fetches a lightweight valuation/quality/growth snapshot from Yahoo's free
  * `quoteSummary` fundamentals modules and reduces it to a single 0-100
  * fundamentals score — a complement to, not a replacement for, the purely
@@ -138,6 +172,7 @@ export class FundamentalsService {
         modules: [
           'defaultKeyStatistics',
           'financialData',
+          'price',
           'recommendationTrend'
         ]
       });
@@ -146,7 +181,12 @@ export class FundamentalsService {
       const keyStatistics = result?.defaultKeyStatistics;
       const recommendation = result?.recommendationTrend?.trend?.[0];
 
-      const forwardPE = keyStatistics?.forwardPE ?? null;
+      // `price` is fetched only for its currency, which is what tells a
+      // pence-denominated multiple apart from a real one.
+      const forwardPE = normalizeForwardPE(
+        keyStatistics?.forwardPE,
+        result?.price?.currency
+      );
       const returnOnEquity = financialData?.returnOnEquity ?? null;
       const debtToEquity = financialData?.debtToEquity ?? null;
       const earningsGrowth = financialData?.earningsGrowth ?? null;

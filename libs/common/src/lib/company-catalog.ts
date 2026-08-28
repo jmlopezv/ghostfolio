@@ -384,7 +384,7 @@ export const COMPANY_CATALOG: CatalogCategory[] = [
   },
 
   // ---- Thematic / sector ETFs (UCITS, EUR/XETRA) — equity "winner" baskets;
-  // they live in the STOCK (33%) risk sleeve and get conviction/EV signals.
+  // they live in the STOCK (33%) risk sleeve and get expected-value signals.
   {
     category: 'etf-semiconductors',
     companies: [y('VVSM.DE', 'VanEck Semiconductor UCITS ETF', 'EUR')]

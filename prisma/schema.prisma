@@ -133,6 +133,35 @@ model MarketData {
   @@index([symbol])
 }
 
+/// Full daily OHLCV bars, owned by this fork.
+///
+/// Deliberately NOT extra columns on `MarketData`: that table is upstream-owned
+/// and `MarketDataService.replaceForSymbol` deletes and re-inserts its rows on
+/// every re-gather, which would silently null any OHLCV stored there. Keeping
+/// bars in their own table also matches how the fork's other additions
+/// (SignalConfig, SignalState, SignalLog, AcademyProgress) are structured.
+///
+/// `MarketData` stays the close-only source of truth for the existing signal
+/// paths; only indicators that genuinely need highs, lows or volume (ATR, VCP,
+/// volume dry-up, breakout confirmation, Darvas boxes) read from here.
+model OhlcBar {
+  close      Float
+  createdAt  DateTime   @default(now())
+  dataSource DataSource
+  date       DateTime
+  high       Float
+  id         String     @id @default(uuid())
+  low        Float
+  open       Float
+  symbol     String
+  volume     Float
+
+  @@unique([dataSource, date, symbol])
+  @@index([dataSource, symbol])
+  @@index([date])
+  @@index([symbol, date])
+}
+
 model Order {
   account         Account?      @relation(fields: [accountId, accountUserId], references: [id, userId])
   accountId       String?

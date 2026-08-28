@@ -549,7 +549,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '- **Higher-low**: the recent low is above the prior low — the decline itself is losing downward force, structurally.\n' +
           '- **Reclaimed SMA20**: price has fought back above its short-term average — a real, not just intraday, sign of strength.\n' +
           '- **Volume ≥ 1.3× 20-day average**: capitulation-style volume confirms real buying interest is stepping in, not a thin, unconvincing bounce.\n\n' +
-          'Even after all five confirm, a REVERSAL candidate is tagged `signalType: REVERSAL, bearMarket: true` and still has to clear the same EV/conviction ranking and volatility cap as everything else (Level 3/4) — a confirmed reversal earns the *chance* to be ranked, not an automatic buy.',
+          'Even after all five confirm, a REVERSAL candidate is tagged `signalType: REVERSAL, bearMarket: true` and still has to clear the same EV ranking and volatility cap as everything else (Level 3/4) — a confirmed reversal earns the *chance* to be ranked, not an automatic buy.',
         quiz: [
           {
             id: 'q1',
@@ -877,13 +877,13 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
       },
       {
         id: 'l3-expected-value',
-        title: 'Expected value & conviction: what actually ranks a trade',
+        title: 'Expected value: what actually ranks a trade',
         glossaryRef: 'expected-value',
         practiceSymbolDefault: 'AAPL',
         theory:
           '## The formula\n\n' +
-          '```\nEV = p · targetGainPct − (1 − p) · stopLossPct\nwhere p = reach probability\nconviction = 50 + EV · 1000  (+ small situational bonuses)\n```\n\n' +
-          "Expected value is the probability-weighted payoff of a trade: the odds of winning times what you'd gain, minus the odds of losing times what you'd lose. This — **not the composite score** — is what actually ranks candidates against each other in the strategy builder. Conviction is simply EV rendered as a friendlier 0–100 number for the UI (50 = break-even), with small bonuses for a live buy-zone setup or a recent re-confirmation.\n\n" +
+          '```\nEV = p · targetGainPct − (1 − p) · stopLossPct\nwhere p = reach probability\n```\n\n' +
+          "Expected value is the probability-weighted payoff of a trade: the odds of winning times what you'd gain, minus the odds of losing times what you'd lose. This — **not the composite score** — is what actually ranks candidates against each other in the strategy builder, and it is the number shown in the EV column across the app.\n\n" +
           '## Why EV is often negative — and why that is correct\n\n' +
           'Because reach probability is deliberately conservative (Level 3, previous lesson) and stop-losses are real, a great many candidates will show a **negative** expected value even when their composite score looks attractive. This is not a bug: it is the system correctly saying "this looks technically interesting, but the honest odds times payoff don\'t clear the bar." The composite score and expected value are answering genuinely different questions — "does this look attractive" vs. "is the math actually in your favor" — and keeping them as two separate numbers (rather than one blended score) is what lets the engine reject a good-looking-but-bad-math trade instead of talking itself into it.',
         quiz: [
@@ -900,10 +900,10 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q2',
             type: 'calculation',
             prompt:
-              'A different candidate has p = 0.42, target gain = 12%, stop loss = 6%, PLUS an $8 buy-zone conviction bonus (it is a live, confirmed dip-buy setup right now). Compute EV, the base conviction (before the bonus), and the final conviction after adding the bonus.',
-            correctAnswer: 'EV=1.56%, base conviction=66, final conviction=74',
+              'A candidate has target gain = 12% and stop loss = 6%. What reach probability would it need just to BREAK EVEN (EV = 0)? Give it as a percentage, one decimal place.',
+            correctAnswer: '33.3%',
             explanation:
-              "EV = 0.42×0.12 − 0.58×0.06 = 0.0504 − 0.0348 = 0.0156 = 1.56%. Base conviction = 50 + 0.0156×1000 = 50 + 15.6 ≈ **66**. Adding the buy-zone bonus: 66 + 8 = **74**. Note the bonus is a small situational add-on on top of the EV-driven number, not a replacement for it — a name with genuinely poor EV doesn't get rescued into a high conviction just by sitting in a live buy zone."
+              'Set EV = 0: p·g = (1−p)·L, so p = L / (g + L) = 0.06 / (0.12 + 0.06) = **33.3%**. This is the single most useful thing to compute about any setup — it tells you the hit rate the payoff geometry demands, before you look at any probability estimate. The live engine risks 2σ to make 1.5σ, which needs 2 / (1.5 + 2) = **57.1%** regardless of volatility, while the honest zero-drift probability is far lower. That gap is exactly why EV is almost always negative.'
           },
           {
             id: 'q3',
@@ -987,7 +987,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         title: 'Why 60% funds / 40% stocks',
         theory:
           '## The split\n\n' +
-          "The portfolio's target shape is **60% low-fee, diversified funds** and **40% individually-picked stocks/ETFs** (`SIGNAL_PORTFOLIO_FUNDS_RATIO = 0.6`). The funds sleeve is the reliable core — broad, cheap, diversified exposure that does not depend on any single stock pick going right. The stock sleeve is where the whole technical-signal machinery (Levels 1–3) actually gets to do its work: individual conviction-ranked picks, sized and timed by the engine.\n\n" +
+          "The portfolio's target shape is **60% low-fee, diversified funds** and **40% individually-picked stocks/ETFs** (`SIGNAL_PORTFOLIO_FUNDS_RATIO = 0.6`). The funds sleeve is the reliable core — broad, cheap, diversified exposure that does not depend on any single stock pick going right. The stock sleeve is where the whole technical-signal machinery (Levels 1–3) actually gets to do its work: individual EV-ranked picks, sized and timed by the engine.\n\n" +
           '## The honest reason for the split\n\n' +
           "This is not just a diversification platitude — it is a direct response to the engine's own backtest evidence (Level 5): across roughly 150 evaluated names, only a minority of individually-traded rules actually beat simply holding. Leaning most of the portfolio on a cheap, diversified core and treating individual stock signals as a smaller, higher-conviction satellite is the engine's way of taking its own honest evidence seriously, rather than assuming every signal it generates is a good idea to bet the whole portfolio on.",
         quiz: [
@@ -1089,7 +1089,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         title: 'Recent-signal control: the 14-day cooldown',
         theory:
           '## The rule\n\n' +
-          '`SIGNAL_RECENT_SIGNAL_WINDOW` is a 14-day window: if a name already had a BUY signal fire recently, it is treated differently on subsequent strategy runs — flagged and re-confirmed (with a small conviction bonus for staying attractive) rather than presented as if freshly discovered. Combined with the eligibility gate\'s separate "recently-exited" cooldown (Level 2), this keeps the strategy output stable and readable run to run, instead of a shuffled top-5 list every 30 minutes as tiny score fluctuations move names in and out of the ranking.\n\n' +
+          '`SIGNAL_RECENT_SIGNAL_WINDOW` is a 14-day window: if a name already had a BUY signal fire recently, it is treated differently on subsequent strategy runs — flagged and re-confirmed (noted in the rationale as still valid) rather than presented as if freshly discovered. Combined with the eligibility gate\'s separate "recently-exited" cooldown (Level 2), this keeps the strategy output stable and readable run to run, instead of a shuffled top-5 list every 30 minutes as tiny score fluctuations move names in and out of the ranking.\n\n' +
           '## Why this matters for trust in the system\n\n' +
           'A recommendation engine that changes its mind every half hour is not trustworthy, even if each individual recalculation is technically correct. Recognizing "this is the same idea I told you about yesterday, and it still holds up" versus silently replacing it with a superficially different name is what makes the output usable for actually making decisions, not just a stream of numbers.\n\n' +
           '## Two different cooldowns, easy to confuse\n\n' +
@@ -1101,13 +1101,13 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             prompt:
               'A stock had a BUY signal fire 5 days ago and still qualifies today. What does the engine do?',
             options: [
-              'Flags it as a re-confirmed recent BUY with a small conviction bonus, rather than presenting it as newly discovered',
+              'Flags it as a re-confirmed recent BUY that is still valid, rather than presenting it as newly discovered',
               'Ignores it completely for 14 days',
               'Automatically doubles the position size',
               'Removes it from the watchlist'
             ],
             correctAnswer:
-              'Flags it as a re-confirmed recent BUY with a small conviction bonus, rather than presenting it as newly discovered',
+              'Flags it as a re-confirmed recent BUY that is still valid, rather than presenting it as newly discovered',
             explanation:
               'The recent-signal window recognizes continuity rather than treating every run as a blank slate.'
           },
@@ -1135,10 +1135,10 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         theory:
           '## Four shapes, same underlying candidates\n\n' +
           'All four strategies draw from the same EV-ranked, eligibility-gated candidate list (Levels 2–3) — they differ only in how concentrated or spread the resulting basket is:\n\n' +
-          '- **Aggressive**: 100% of the budget on the single top-conviction pick. Maximum concentration, maximum exposure to being wrong about one name.\n' +
+          '- **Aggressive**: 100% of the budget on the single top-EV pick. Maximum concentration, maximum exposure to being wrong about one name.\n' +
           '- **Balanced**: the top 2 picks from *distinct* categories/sectors, roughly split ~50/50 — some concentration, but not "all eggs in one basket."\n' +
           '- **Spread**: 3–5 picks across distinct categories, evenly split — the most diversified of the four active-picking strategies.\n' +
-          '- **Safe 80/20**: 80% into the core index fund (`NORDNET_GLOBAL_INDEX`), 20% into the single top-conviction stock — a way to still participate in the best current idea without materially risking the "safe" allocation.\n\n' +
+          '- **Safe 80/20**: 80% into the core index fund (`NORDNET_GLOBAL_INDEX`), 20% into the single top-EV stock — a way to still participate in the best current idea without materially risking the "safe" allocation.\n\n' +
           '## Why "distinct categories" matters for Balanced/Spread\n\n' +
           'Picking the top 3 candidates by raw EV alone could easily mean 3 semiconductor stocks that all move together — diversified in name only. Requiring distinct categories forces genuine risk spread, not just a longer list of correlated names.',
         quiz: [
@@ -1180,22 +1180,23 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
         id: 'l4-fee-aware-sizing',
         title: 'Fee-aware whole-share sizing & remainder minimization',
         theory:
-          '## The two problems flat fees create\n\n' +
-          "Nordnet charges a flat $5 fee per order. Two practical problems fall out of that: (1) splitting a small budget across too many tiny legs can let fees eat an unreasonable share of the total, and (2) since you can only buy whole shares, an even split across legs almost always leaves some cash unspent (whichever leg's price doesn't divide evenly into its share).\n\n" +
+          '## The two problems per-order fees create\n\n' +
+          "Nordnet charges a fixed 9 SEK (~$0.95) plus 0.25% on every order. Two practical problems fall out of that: (1) each extra leg is another order and therefore another fixed fee, so splitting a small budget across many tiny legs lets fees eat an unreasonable share of the total, and (2) since you can only buy whole shares, an even split across legs almost always leaves some cash unspent (whichever leg's price doesn't divide evenly into its share).\n\n" +
+          'Note that the percentage part is indifferent to how you split: N orders of `cash/N` each pay `0.25% × cash/N`, summing to `0.25% × cash` no matter what N is. **Only the fixed part cares about leg count** — and it cares a lot.\n\n' +
           '## Fee-aware trimming\n\n' +
-          '```\nfeeRatio = (basket.length × $5) / cash\n```\n\n' +
-          'If the fee ratio would exceed `SIGNAL_STRATEGY_MAX_FEE_RATIO` (10%), the engine drops the lowest-conviction leg and rechecks — repeating until the ratio clears or only one ticker remains. A $200 budget split five ways would spend $25 (12.5%) on fees alone; the engine would rather trim to fewer, larger legs than let fees quietly erode more than a tenth of the deployment.\n\n' +
+          '```\nfeeRatio = Σ commission(cash / legs) / cash\n```\n\n' +
+          'If the fee ratio would exceed `SIGNAL_STRATEGY_MAX_FEE_RATIO` (10%), the engine drops the lowest-ranked leg and rechecks — repeating until the ratio clears or only one ticker remains. A $45 budget split five ways spends about $4.87 (10.8%) on fees; trimming to four brings it to 8.7%. The engine would rather hold fewer, larger legs than let fees quietly erode more than a tenth of the deployment.\n\n' +
           '## Remainder minimization\n\n' +
-          'After an even split and whole-share rounding down, there is almost always leftover cash (e.g. a $100 leg buying a $37 stock leaves $26 unspent). Rather than letting that cash sit idle, the engine greedily hands pooled leftovers to the highest-conviction leg that can afford one more whole share, repeating until no leg can absorb any more — without double-charging the flat fee on the extra share.',
+          'After an even split and whole-share rounding down, there is almost always leftover cash (e.g. a $100 leg buying a $37 stock leaves $26 unspent). Rather than letting that cash sit idle, the engine greedily hands pooled leftovers to the highest-EV leg that can afford one more whole share, repeating until no leg can absorb any more — charging that leg one commission on its final value, never one per share.',
         quiz: [
           {
             id: 'q1',
             type: 'calculation',
             prompt:
-              'A basket has 4 legs and a $5 flat fee per leg, with $150 of cash. Compute the fee ratio and state whether it passes the 10% cap.',
-            correctAnswer: '13.3%, fails',
+              'A basket has 4 legs and $40 of cash, split evenly. Nordnet charges 9 SEK (~$0.95) plus 0.25% per order. Compute the fee ratio and state whether it passes the 10% cap.',
+            correctAnswer: '9.8%, passes',
             explanation:
-              '(4 × $5) / $150 = $20/$150 ≈ 0.133 = 13.3% — above the 10% cap, so the engine would trim the lowest-conviction leg and recheck.'
+              'Each leg is $10, so each order costs $0.95 + 0.25% × $10 ($0.025) = $0.976. Four legs = $3.90; $3.90/$40 ≈ 0.098 = **9.8%**, just inside the cap. Push it to five legs and it becomes $4.86/$40 = 12.1%, which fails — the fixed fee is what breaks it, since the percentage part contributes the same $0.10 in total however you split.'
           },
           {
             id: 'q2',
@@ -1203,14 +1204,14 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             prompt: 'What problem does "remainder minimization" solve?',
             options: [
               'Leftover cash from whole-share rounding sitting idle instead of being put to work',
-              'The flat $5 fee being charged twice on the same share',
+              'The per-order commission being charged twice on the same share',
               'Stocks trading at fractional prices',
               'Currency conversion losses'
             ],
             correctAnswer:
               'Leftover cash from whole-share rounding sitting idle instead of being put to work',
             explanation:
-              'An even split plus whole-share rounding leaves cash on the table; greedily reallocating it (highest-conviction leg first) puts more of the budget to work.'
+              'An even split plus whole-share rounding leaves cash on the table; greedily reallocating it (highest-EV leg first) puts more of the budget to work.'
           }
         ]
       },
@@ -1673,7 +1674,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q3',
             type: 'multiple-choice',
             prompt:
-              'Why does the strategy layer plumb `terPct` onto candidates without yet using it in the EV/conviction ranking (Level 3)?',
+              'Why does the strategy layer plumb `terPct` onto candidates without yet using it in the EV ranking (Level 3)?',
             options: [
               'A deliberately cautious rollout — compute and expose the data first, decide later (with real numbers in hand) whether/how to fold it into ranking, rather than guessing at a formula up front',
               'TER data is not reliable enough to ever be used',
@@ -1694,7 +1695,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '## The key distinction: data availability, not just legal structure\n\n' +
           "Both funds and ETFs are diversified baskets, but they are treated completely differently by this engine because of one practical fact: an ETF trades on an exchange with a **full daily OHLC price history via Yahoo Finance**, exactly like a stock — so every technical indicator, the composite score, EV ranking, and even backtesting all work on an ETF exactly as they do on AAPL or any other stock. A MANUAL-priced fund, by contrast, has no such history (Level 3 of the previous session's work confirmed Nordnet's own NAV history isn't even retrievable without a live login) — so it structurally cannot be evaluated the same way.\n\n" +
           '## The practical consequence\n\n' +
-          'This is why an ETF like a semiconductor-theme or clean-energy-theme basket sits in the **40% stock sleeve**, ranked and possibly bought/sold by the exact same conviction engine as an individual stock — while a fund sits in the **60% core sleeve**, valued for its category share but never technically traded by the engine. The theme-category taxonomy for ETFs (`etf-semiconductors`, `etf-ai`, etc.) exists specifically to avoid stacking several ETFs that all bet on the same underlying theme without realizing it.',
+          'This is why an ETF like a semiconductor-theme or clean-energy-theme basket sits in the **40% stock sleeve**, ranked and possibly bought/sold by the exact same EV-ranking engine as an individual stock — while a fund sits in the **60% core sleeve**, valued for its category share but never technically traded by the engine. The theme-category taxonomy for ETFs (`etf-semiconductors`, `etf-ai`, etc.) exists specifically to avoid stacking several ETFs that all bet on the same underlying theme without realizing it.',
         furtherReading: [
           {
             title: 'Exchange-traded fund — Wikipedia',
@@ -1824,7 +1825,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
           '## Two different questions, deliberately kept separate\n\n' +
           'The technical composite score (Level 2) answers "is this technically oversold right now" — pure price/volume behavior, with zero awareness of whether the underlying business is actually any good. The fundamentals score answers a completely different question: "is this a cheap, profitable, growing business that analysts like." A stock can score high on one and low on the other — a fundamentally excellent company can be technically overbought, and a fundamentally mediocre one can be technically oversold. Blending the two into one number would hide exactly the information a user most needs: *which* kind of attractive (or unattractive) a name currently is.\n\n' +
           '## The rollout precedent\n\n' +
-          'Just like the ETF TER field when it was first added (Level 6), the fundamentals score is deliberately "plumbing only for now" — computed, cached, and shown alongside the technical score, but **not yet folded into the EV/conviction ranking**. This is a considered, cautious rollout: see how the real numbers behave across real symbols first, then decide later (with actual data in hand) whether and how to combine it with everything else — rather than guessing at a blending formula up front.',
+          'Just like the ETF TER field when it was first added (Level 6), the fundamentals score is deliberately "plumbing only for now" — computed, cached, and shown alongside the technical score, but **not yet folded into the EV ranking**. This is a considered, cautious rollout: see how the real numbers behave across real symbols first, then decide later (with actual data in hand) whether and how to combine it with everything else — rather than guessing at a blending formula up front.',
         quiz: [
           {
             id: 'q1',
@@ -1846,7 +1847,7 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
             id: 'q2',
             type: 'multiple-choice',
             prompt:
-              'What is the current role of the fundamentals score in the EV/conviction ranking (Level 3)?',
+              'What is the current role of the fundamentals score in the EV ranking (Level 3)?',
             options: [
               'It is not yet used in ranking at all — shown for context only, following the same cautious rollout precedent as the ETF TER field',
               'It fully replaces the technical score in ranking',
@@ -2254,6 +2255,805 @@ export const ACADEMY_LEVELS: AcademyLevel[] = [
               'No — with so little time left, rapid time decay and/or a drop in implied volatility could partly or fully offset the favorable underlying move, so the warrant could underperform, and could even fall in price despite the "right" move happening',
             explanation:
               'This is precisely the "interaction of leverage, time, and volatility routinely produces outcomes that diverge sharply from intuition" point from the theory above — near maturity, time decay accelerates, and a simultaneous drop in implied volatility can eat into or even overwhelm gains from a genuinely correct directional call. This counterintuitive possibility is exactly the kind of thing a real appropriateness test is trying to confirm you understand.'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 'level-9',
+    title: 'Level 9 — Reading charts & screening with TradingView',
+    description:
+      "The manual counterpart to the engine: how to read a candle, what TradingView actually gives you, how to read a financials page, and how a trend-following screen like Minervini's works — including an honest account of where it disagrees with this engine.",
+    lessons: [
+      {
+        id: 'l9-candles',
+        title: 'Reading candlesticks',
+        glossaryRef: 'yang-zhang',
+        practiceSymbolDefault: 'AAPL',
+        theory:
+          '## Four numbers per bar\n\n' +
+          'Every candle encodes one period as four numbers — **open, high, low, close** (OHLC):\n\n' +
+          '```\n' +
+          '        │  ← upper wick: high\n' +
+          '      ┌─┴─┐\n' +
+          '      │   │ ← body: open to close\n' +
+          '      └─┬─┘   (filled/red = close < open,\n' +
+          '        │      hollow/green = close > open)\n' +
+          '        │  ← lower wick: low\n' +
+          '```\n\n' +
+          'The **body** is where the period started and finished; the **wicks** are where price went but did not stay. That distinction is the whole point — a close tells you the outcome, a wick tells you what was attempted and rejected.\n\n' +
+          '## What a wick actually says\n\n' +
+          '| Shape | Reading |\n' +
+          '| --- | --- |\n' +
+          '| Long upper wick, small body | Buyers pushed up and were sold into — supply above |\n' +
+          '| Long lower wick, small body | Sellers pushed down and were bought — demand below |\n' +
+          '| Tiny body, wicks both sides (**doji**) | Genuine indecision; open ≈ close |\n' +
+          '| Large body, negligible wicks (**marubozu**) | One side controlled the whole period |\n\n' +
+          "Two-bar shapes worth knowing: a **bullish engulfing** (a down bar entirely covered by the next up bar's body), a **hammer** (long lower wick after a decline), a **shooting star** (long upper wick after an advance), an **inside bar** (range contained within the prior bar — a pause), and an **outside bar** (range covering it — an expansion).\n\n" +
+          '## The honest caveat\n\n' +
+          'Single-candle patterns are **weak standalone signals**. Their published hit rates barely differ from chance once you account for how many patterns you could have looked for. What they are genuinely good for is *context at a level you already care about*: a hammer at the 200-day average means something; the same hammer in the middle of nowhere does not. Treat a candle as evidence about who won a fight at a specific price, never as a reason to trade on its own.\n\n' +
+          '## Where this engine uses OHLC\n\n' +
+          'The indicators in Level 1 all run on **closes only** — SMA, RSI, MACD, Bollinger. But `OhlcService` does fetch full bars, for one specific job: volatility. `garmanKlass` and `yangZhang` estimate daily σ from the *whole bar* rather than close-to-close, and are roughly **7–8× more statistically efficient** as a result — precisely because the high and low carry information the close throws away. Yang-Zhang additionally handles the overnight gap (`ln(open / previous close)`), which is why it is the estimator used for the stop, target and trailing bands on owned positions.\n\n' +
+          'So when you look at a wick and think "the close hid what happened there", you are having exactly the insight that makes those estimators work.',
+        furtherReading: [
+          {
+            title: 'Candlestick chart — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Candlestick_chart'
+          },
+          {
+            title: 'Candlestick analysis on TradingView',
+            url: 'https://www.tradingview.com/education/candlestick/'
+          }
+        ],
+        quiz: [
+          {
+            id: 'q1',
+            type: 'calculation',
+            prompt:
+              'A daily bar has open 100, high 112, low 98, close 102. Compute the upper wick as a percentage of the full high-to-low range, rounded to the nearest whole percent.',
+            correctAnswer: '71',
+            explanation:
+              "Upper wick = high − max(open, close) = 112 − 102 = 10. Full range = high − low = 112 − 98 = 14. 10/14 = 0.714 → **71%**. Nearly three-quarters of the day's range was territory price visited and gave back — the close alone (102, a modest gain) tells you none of that. This is the information the close discards and Garman-Klass/Yang-Zhang recover."
+          },
+          {
+            id: 'q2',
+            type: 'multiple-choice',
+            prompt:
+              'Why are the Garman-Klass and Yang-Zhang estimators more efficient than close-to-close volatility?',
+            options: [
+              'They use the intraday range (high/low, and for Yang-Zhang the overnight gap), so each bar contributes far more information than a single close-to-close difference',
+              'They use a longer lookback window than close-to-close does',
+              'They apply a smoothing filter that removes outliers',
+              'They are computed on weekly rather than daily bars'
+            ],
+            correctAnswer:
+              'They use the intraday range (high/low, and for Yang-Zhang the overnight gap), so each bar contributes far more information than a single close-to-close difference',
+            explanation:
+              'Efficiency here means "less estimation error for the same number of bars". Close-to-close uses one number per day; the OHLC estimators use four, including the extremes that define how much the price actually moved.'
+          },
+          {
+            id: 'q3',
+            type: 'multiple-choice',
+            prompt:
+              'A stock prints a textbook hammer (long lower wick, small body) in the middle of a range, at no notable level. How much weight should that carry on its own?',
+            options: [
+              'Very little — candle patterns are weak standalone signals; they matter as context at a level that already means something, not as reasons to trade',
+              'A great deal — a hammer is a reliable reversal signal wherever it appears',
+              'It should be treated as a confirmed buy once the next bar opens higher',
+              'It is meaningless in all contexts and should always be ignored'
+            ],
+            correctAnswer:
+              'Very little — candle patterns are weak standalone signals; they matter as context at a level that already means something, not as reasons to trade',
+            explanation:
+              'The pattern describes who won a fight at a price. If the price is not one you already cared about, the fight was not about anything. This is why the engine gates its own REVERSAL path on structure *plus* location (below the 200-day) *plus* capitulation volume, rather than on a shape alone.'
+          }
+        ]
+      },
+      {
+        id: 'l9-tradingview-features',
+        title: 'TradingView: the features and metrics that matter here',
+        practiceSymbolDefault: 'APH',
+        theory:
+          '## Addressing a symbol: `EXCHANGE-TICKER`\n\n' +
+          'Every TradingView instrument lives at `tradingview.com/symbols/EXCHANGE-TICKER/`, and it is **strict** about the exchange. `NASDAQ-AAL` resolves; `NYSE-AAL` is a 404 — American Airlines lists on Nasdaq. Dropping the exchange is not a safe shortcut either: a bare ticker resolves to whichever listing TradingView treats as primary, so bare `AIR` lands on **Airbus in Paris**, not the US-listed AAR Corp this watchlist tracks.\n\n' +
+          "The share-class separator differs by region too — Yahoo's `BRK-B` is TradingView's `BRK.B`, but Yahoo's `ASSA-B.ST` is TradingView's `ASSA_B`. This is why the \"View on TradingView ↗\" link in an asset's **Style** tab is *built* from a mapping table rather than string-concatenated.\n\n" +
+          '| Yahoo | TradingView |\n' +
+          '| --- | --- |\n' +
+          '| `AAPL` | `NASDAQ-AAPL` |\n' +
+          '| `APH` | `NYSE-APH` |\n' +
+          '| `BRK-B` | `NYSE-BRK.B` |\n' +
+          '| `ASSA-B.ST` | `OMXSTO-ASSA_B` |\n' +
+          '| `EXV1.DE` | `XETR-EXV1` |\n' +
+          '| `NOVO-B.CO` | `OMXCOP-NOVO_B` |\n\n' +
+          '## The features worth your time\n\n' +
+          '- **Timeframes.** Daily is what this engine stores. Switch to **weekly** when you want trend rather than noise — a 30-week weekly average is the classic stage-analysis reference, and it is far harder to fake with one good day.\n' +
+          '- **Built-in indicators.** RSI, MACD, Bollinger Bands and moving averages are all there. See the parameter warning below.\n' +
+          '- **Alerts.** Price or indicator conditions that notify you. Useful for the levels this engine already computes: a stop, a target, a 200-day cross.\n' +
+          '- **Bar replay.** Rewinds the chart and steps forward bar by bar, hiding the future. The only honest way to practise reading a setup — a chart you have already seen the outcome of teaches you nothing.\n' +
+          "- **Screener.** Cross-sectional filtering across the market. Level 9's last lesson uses this.\n" +
+          '- **Pine Script.** The escape hatch when a built-in cannot express your rule.\n\n' +
+          '## Warning: the same indicator name is not the same number\n\n' +
+          "To compare a TradingView reading with this engine's, you must set the parameters to match:\n\n" +
+          '| Engine | Setting |\n' +
+          '| --- | --- |\n' +
+          '| RSI | period **14**, Wilder smoothing |\n' +
+          '| MACD | **12 / 26 / 9** on EMA |\n' +
+          '| Bollinger | period **20**, **2** standard deviations |\n' +
+          '| Trend | SMA **50** and SMA **200** |\n\n' +
+          'Defaults usually match, but not always, and a length-9 RSI against a length-14 RSI will simply disagree — that is not a bug in either.\n\n' +
+          '## Where definitions genuinely differ\n\n' +
+          'TradingView\'s **"Perf %"** columns and this engine\'s `return1yPct` are not computed the same way. The engine walks its stored history to the last point on or before the cutoff date (a calendar-anchored lookup, which is what fixed the Eli Lilly discrepancy), and it uses close prices without dividends. Vendors vary on both the anchor and whether distributions are included. Expect small disagreements, and when they are large, check the anchor date before assuming a bug.',
+        furtherReading: [
+          {
+            title: 'TradingView Help Center',
+            url: 'https://www.tradingview.com/support/'
+          },
+          {
+            title: 'TradingView charts',
+            url: 'https://www.tradingview.com/chart/'
+          },
+          {
+            title: 'Pine Script documentation',
+            url: 'https://www.tradingview.com/pine-script-docs/welcome/'
+          }
+        ],
+        quiz: [
+          {
+            id: 'q1',
+            type: 'multiple-choice',
+            prompt:
+              'Why does the app build TradingView URLs from a mapping table rather than just appending the ticker?',
+            options: [
+              'TradingView 404s on a wrong exchange prefix, and a bare ticker silently resolves to whichever listing it considers primary — so bare `AIR` opens Airbus in Paris rather than the US-listed AAR Corp',
+              'TradingView requires an API key embedded in the URL',
+              'The mapping table is needed to translate company names into tickers',
+              'Ticker symbols change too frequently to be used directly'
+            ],
+            correctAnswer:
+              'TradingView 404s on a wrong exchange prefix, and a bare ticker silently resolves to whichever listing it considers primary — so bare `AIR` opens Airbus in Paris rather than the US-listed AAR Corp',
+            explanation:
+              'The silent-wrong-symbol case is the dangerous one: a 404 is obvious, but a chart of the wrong company looks completely normal. The watchlist holds `AIR`, `AIR.DE` and `AIR.PA` simultaneously, which is exactly when this bites.'
+          },
+          {
+            id: 'q2',
+            type: 'multiple-choice',
+            prompt:
+              "You add RSI on TradingView and it reads 41, while this app's watchlist shows RSI 47 for the same symbol on the same day. What should you check first?",
+            options: [
+              'The indicator parameters — the engine uses period 14 with Wilder smoothing, and a different length or smoothing method will legitimately produce a different number',
+              'Whether the engine has a calculation bug, since RSI is unambiguous',
+              'Whether the stock split recently, which is the only cause of RSI disagreement',
+              'Nothing — RSI is a proprietary metric and the two are not comparable'
+            ],
+            correctAnswer:
+              'The indicator parameters — the engine uses period 14 with Wilder smoothing, and a different length or smoothing method will legitimately produce a different number',
+            explanation:
+              'Indicator names are not standards. Matching parameters is the precondition for any comparison — only once they match is a disagreement worth investigating.'
+          },
+          {
+            id: 'q3',
+            type: 'multiple-choice',
+            prompt:
+              'What makes bar replay more useful for practice than simply scrolling back on a chart?',
+            options: [
+              'It hides the future and steps forward bar by bar, so you decide without already knowing the outcome',
+              'It uses higher-resolution data than the normal chart',
+              'It automatically labels the correct entry and exit points',
+              "It applies the engine's indicators automatically"
+            ],
+            correctAnswer:
+              'It hides the future and steps forward bar by bar, so you decide without already knowing the outcome',
+            explanation:
+              "Reading a chart whose outcome you already know is the discretionary version of an in-sample backtest: it will make almost any method look obvious. Level 5's out-of-sample lesson makes the same argument in numbers."
+          }
+        ]
+      },
+      {
+        id: 'l9-financials',
+        title: 'Reading the Financials tab',
+        glossaryRef: 'fundamentals-score',
+        practiceSymbolDefault: 'APH',
+        theory:
+          '## Four panels, four questions\n\n' +
+          "A symbol's **Financials** page condenses the statements into four charts. Each answers a different question, and each has an **Annual / Quarterly** toggle that matters more than it looks.\n\n" +
+          '### 1. Performance — is the business growing, and does growth reach the bottom line?\n\n' +
+          "Revenue and net income as bars, with **net margin %** as a line on its own axis. The line is the part people skip and shouldn't:\n\n" +
+          '- Revenue up, **margin flat** → growth is being bought with proportional cost. Fine, but not leverage.\n' +
+          '- Revenue up, **margin rising** → each new dollar of sales is more profitable than the last. This is operating leverage, and it is what compounds.\n' +
+          '- Revenue up, **margin falling** → discounting, cost inflation, or a mix shift into worse business.\n\n' +
+          '### 2. Revenue to profit conversion — where does the money go?\n\n' +
+          'A waterfall from the top line down:\n\n' +
+          '```\n' +
+          'Revenue → (−COGS) → Gross profit → (−Op expenses) → Op income\n' +
+          '        → (±Non-op income/expenses) → (−Taxes) → Net income\n' +
+          '```\n\n' +
+          'Read the *step sizes*, not just the endpoint. A large COGS step is a low-gross-margin business; a large Op-expenses step means heavy R&D or SG&A. Comparing the same waterfall year over year shows whether operating expenses are growing slower than gross profit — the mechanical source of margin expansion.\n\n' +
+          '### 3. Debt level and coverage — can they carry it?\n\n' +
+          'Three series: **debt**, **free cash flow**, and **cash & equivalents**. Debt on its own says almost nothing — a large, stable, cash-generative business can carry a lot. The question is coverage: roughly *how many years of current free cash flow would repay the debt*, and is that ratio improving or deteriorating. Rising debt alongside rising FCF is very different from rising debt with flat FCF.\n\n' +
+          '### 4. Earnings — is the company beating what was expected?\n\n' +
+          'Actual EPS against consensus estimate per period, plus the **next report date**. Two things matter: the pattern of beats and misses, and the fact that a report is imminent. A position entered days before earnings is a bet on an announcement, not on the setup you analysed.\n\n' +
+          '## Annual vs Quarterly\n\n' +
+          "Annual is for judging the business; **quarterly is for spotting acceleration**. Growth screens in the O'Neil/Minervini tradition are built on *recent quarterly* earnings and sales growth versus the year-ago quarter, precisely because an annual figure smooths away the inflection you are looking for.\n\n" +
+          '## What the engine does and does not do with this\n\n' +
+          '`FundamentalsService` fetches a small snapshot from Yahoo — **forward P/E, return on equity, debt-to-equity, trailing earnings growth, analyst net-buy ratio** — and reduces it to a 0–100 score (weights: valuation 0.30, quality 0.25, growth 0.25, analyst 0.20; Level 7 covers the math).\n\n' +
+          'Be clear about its status: that score is **carried on every candidate but is not used in ranking**. The code says so — `StrategyCandidate.fundamentalsScore` is annotated *"Plumbing only for now — not yet used in ranking."* The expected-value ordering that produces the strategies is purely technical: reach probability, target gain, stop distance.\n\n' +
+          'So the Financials tab is not a nicer view of something the engine already decides. It is where the fundamental judgement happens **manually**, today. The engine will happily rank a deteriorating business highly if its price geometry looks good.',
+        furtherReading: [
+          {
+            title: 'Example: Amphenol financial statements on TradingView',
+            url: 'https://www.tradingview.com/symbols/NYSE-APH/financials-overview/'
+          },
+          {
+            title: 'Investing basics — Investor.gov (SEC)',
+            url: 'https://www.investor.gov/introduction-investing/investing-basics/how-stock-markets-work'
+          }
+        ],
+        quiz: [
+          {
+            id: 'q1',
+            type: 'calculation',
+            prompt:
+              "A company reports revenue 24.0B and net income 4.5B. The prior year it reported revenue 18.0B and net income 3.06B. Compute this year's net margin as a percentage, rounded to one decimal.",
+            correctAnswer: '18.8',
+            explanation:
+              'Net margin = net income / revenue = 4.5 / 24.0 = 0.1875 → **18.8%**. The prior year was 3.06/18.0 = 17.0%, so revenue grew 33% *and* margin expanded ~1.8 points — the "each new dollar of sales is more profitable" case. Revenue growth alone would not have told you that.'
+          },
+          {
+            id: 'q2',
+            type: 'multiple-choice',
+            prompt:
+              "A company's debt rose 40% year over year. What does the Debt level and coverage panel need to show before you can judge whether that is a problem?",
+            options: [
+              'Free cash flow and cash alongside it — coverage is debt relative to the cash flow available to service it, and rising debt with rising FCF is a different situation from rising debt with flat FCF',
+              'Nothing else — a 40% debt increase is always a red flag',
+              'Only the interest rate on the debt',
+              'The share price over the same period'
+            ],
+            correctAnswer:
+              'Free cash flow and cash alongside it — coverage is debt relative to the cash flow available to service it, and rising debt with rising FCF is a different situation from rising debt with flat FCF',
+            explanation:
+              'That is why the panel plots all three series together. Debt is a number; coverage is a ratio, and only the ratio is a judgement.'
+          },
+          {
+            id: 'q3',
+            type: 'multiple-choice',
+            prompt:
+              "The engine's fundamentals score reads 78/100 for a stock and the strategies list ranks it first by expected value. What is the actual relationship between those two facts?",
+            options: [
+              'None — the fundamentals score is computed and stored but explicitly not used in ranking ("plumbing only"); the EV ordering is purely technical, so the two happened to agree by coincidence',
+              'The fundamentals score is the dominant input to the EV ranking, so a high score directly caused the top rank',
+              'The fundamentals score acts as a gate: nothing below 50 can be ranked at all',
+              'The EV ranking is computed first and then multiplied by the fundamentals score'
+            ],
+            correctAnswer:
+              'None — the fundamentals score is computed and stored but explicitly not used in ranking ("plumbing only"); the EV ordering is purely technical, so the two happened to agree by coincidence',
+            explanation:
+              'Worth internalising, because it is easy to assume a number shown on screen is feeding the decision. It is not. Fundamental judgement on a candidate is currently yours to make, which is exactly what the Financials tab is for.'
+          }
+        ]
+      },
+      {
+        id: 'l9-minervini-screen',
+        title: 'Screening for strength: the Minervini-style workflow',
+        practiceSymbolDefault: 'NVDA',
+        theory:
+          '## A different question from the one this engine asks\n\n' +
+          'The engine asks *"is something I already follow temporarily cheap?"*. A trend-following screen asks *"which stocks are strong enough to be worth owning at all?"*. These are not the same question, and — importantly — they point in **opposite directions**. More on that below.\n\n' +
+          '## The Trend Template\n\n' +
+          "Mark Minervini's screen (in the O'Neil/CAN SLIM tradition) filters on a set of moving-average and 52-week-range conditions. All must hold:\n\n" +
+          '1. Price above both the **150-day** and **200-day** moving averages\n' +
+          '2. The 150-day average is **above** the 200-day\n' +
+          '3. The 200-day average is **trending up** (typically for at least a month)\n' +
+          '4. The **50-day** is above both the 150-day and the 200-day\n' +
+          '5. Price is above the 50-day\n' +
+          '6. Price is at least **30% above** its 52-week low\n' +
+          '7. Price is within **25% of** its 52-week high\n' +
+          '8. **Relative strength rank is high** — Minervini prefers 90 or better, i.e. outperforming 90% of the market\n\n' +
+          'Criteria 1–5 are one idea stated carefully: the averages should be *stacked* (50 > 150 > 200) with price on top, and the slowest one should be rising. Criteria 6–7 place the stock in the upper part of its own yearly range. Criterion 8 is the only **cross-sectional** one — it compares the stock to every other stock.\n\n' +
+          '## Doing it in the screener\n\n' +
+          "TradingView's stock screener expresses criteria 1, 2, 4, 5 directly (price and moving-average columns with comparison filters). Criteria 6 and 7 come from the 52-week high/low columns. Two honest gaps:\n\n" +
+          "- **The 200-day slope (criterion 3)** is not a native column. The workable substitute is comparing today's 200-day average to its value a month ago, which needs a Pine Script indicator rather than a screener filter.\n" +
+          '- **Relative strength *rank* (criterion 8)** is cross-sectional — a percentile against the whole universe. The screener\'s "Performance %" columns give you *absolute* return, which is a proxy, not a rank. Sorting by 6-month performance and taking the top decile approximates it; community Pine scripts implement the real thing. Do not mistake one for the other.\n\n' +
+          'The **VCP** (volatility contraction pattern) Minervini pairs with this — a sequence of progressively shallower pullbacks on drying-up volume, bought at the pivot — is genuinely discretionary. It is read off a chart, not filtered for. Treat the template as the mechanical part and the pattern as judgement.\n\n' +
+          '## Why this contradicts the engine, and why that is fine\n\n' +
+          'Look at what the composite score in Level 2 rewards: **low RSI** (oversold) and **low Bollinger %B** (near the lower band). It scores *weakness* as attractive, then gates it on not being in a confirmed downtrend. The trend template demands the opposite — strength, near the highs, outperforming the market.\n\n' +
+          'This is not a parameter you can tune. It is the **opposite sign**. So a screening workflow is a *second* workflow that lives beside the engine, not a replacement for it, and blending the two scores would produce something that means nothing.\n\n' +
+          '## Why bother, given the engine works?\n\n' +
+          "Because the engine's own evidence says the **entry** is the weak link:\n\n" +
+          '- Across 153 watchlist names, only **29% beat simply holding**, with a mean edge of **−23.5 percentage points**. The rule wins on names that fell (by cutting losses) and misses the big winners entirely.\n' +
+          '- A sweep of the trailing-stop width across 331 symbols changed time-in-market only from **30.6% to 35.4%** — a 5× change in the exit parameter barely moved anything, and the share of names beating buy-and-hold stayed pinned around 23–25%.\n\n' +
+          'No exit fixes a trade that never happens. Selection is the lever.\n\n' +
+          '## The cost constraint — read this before adopting the method\n\n' +
+          'Nordnet charges **9 SEK plus 0.25%** per order on a non-Nordic venue, and a round trip is two orders. On a ~$300 stock order that is about **$3.40 round trip, or 1.1%** before the position does anything — and on a ~$100 order it is **2.4%**, because the fixed 9 SEK is the same either way.\n\n' +
+          "Set against risk management that cuts losers at **5–8%**, the cost is a real but survivable drag, and the method's relatively high turnover multiplies it.\n\n" +
+          'The arithmetic does not forbid the approach; it constrains the size. Because the fixed component is charged whatever you trade, fewer and larger positions genuinely lower the cost ratio — sharply up to a few hundred dollars, then with diminishing returns as the 0.25% starts to dominate.',
+        furtherReading: [
+          {
+            title: 'TradingView stock screener',
+            url: 'https://www.tradingview.com/screener/'
+          },
+          {
+            title: 'CAN SLIM — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/CAN_SLIM'
+          }
+        ],
+        quiz: [
+          {
+            id: 'q1',
+            type: 'calculation',
+            prompt:
+              'A stock has a 52-week low of 40 and a 52-week high of 100, and trades at 74. Compute how far it is below its 52-week high, as a percentage rounded to one decimal. Then decide: does it satisfy the "within 25% of the 52-week high" criterion? Answer with just the percentage.',
+            correctAnswer: '26.0',
+            explanation:
+              '(100 − 74)/100 = 0.26 → **26.0%** below the high, so it **fails** criterion 7 by one point. (It comfortably passes criterion 6: 74 is 85% above the 40 low, well over the 30% required.) Note how a single borderline criterion rejects the name — the template is deliberately a conjunction, and Minervini reports it eliminating roughly 95% of the market.'
+          },
+          {
+            id: 'q2',
+            type: 'multiple-choice',
+            prompt:
+              "Why can the trend template not simply be merged into the engine's existing composite score?",
+            options: [
+              'They point in opposite directions — the composite score rewards low RSI and low %B (weakness), while the template requires strength near 52-week highs, so averaging them produces a number that means nothing',
+              'The template uses moving averages the engine does not compute',
+              'The template requires intraday data the engine does not store',
+              'They are fully compatible and merging them is the recommended approach'
+            ],
+            correctAnswer:
+              'They point in opposite directions — the composite score rewards low RSI and low %B (weakness), while the template requires strength near 52-week highs, so averaging them produces a number that means nothing',
+            explanation:
+              'This is the key structural point of the lesson. Two coherent methods with opposite signs must be run as separate workflows with separate positions; blended, they cancel into noise.'
+          },
+          {
+            id: 'q3',
+            type: 'multiple-choice',
+            prompt:
+              'You sort the TradingView screener by 6-month performance and take the top 20 names. Have you implemented criterion 8, relative strength rank ≥ 90?',
+            options: [
+              'Only approximately — "Performance %" is an absolute return, whereas RS rank is a percentile against the whole universe; sorting the filtered subset is a proxy, and the real rank needs a Pine script or a data source that computes it',
+              'Yes — sorting by performance is exactly how RS rank is defined',
+              'No, and there is no way to approximate RS rank on TradingView at all',
+              'Yes, provided the screener is set to a 12-month rather than 6-month window'
+            ],
+            correctAnswer:
+              'Only approximately — "Performance %" is an absolute return, whereas RS rank is a percentile against the whole universe; sorting the filtered subset is a proxy, and the real rank needs a Pine script or a data source that computes it',
+            explanation:
+              'The distinction matters because a percentile is relative to everything, while a sort is relative to whatever survived your other filters. It was also, until 2026-08-21, the one criterion this engine could not express at all: every other metric it computes (RSI, MACD, Bollinger, the composite score) is absolute and per-symbol. `CrossSectionalService` now supplies a real 1-99 percentile across the watchlist — see Level 10.'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    id: 'level-10',
+    title:
+      'Level 10 — Buying strength: the Minervini playbook (and what it measured)',
+    description:
+      "The opposite sign to the dip engine: buy confirmed leaders near highs instead of oversold names. Covers the Trend Template, the Volatility Contraction Pattern, and Minervini's risk arithmetic — plus the honest result when this engine actually tested the method on its own universe.",
+    lessons: [
+      {
+        id: 'l10-why-strength',
+        title: 'Why we tested buying strength',
+        glossaryRef: 'composite-score',
+        practiceSymbolDefault: 'MRK',
+        theory:
+          '## The engine has a sign\n\n' +
+          'The composite score in `IndicatorsService.computeScore` weights two of its five terms like this:\n\n' +
+          '```\n' +
+          'score += 0.25 × (100 − RSI)        // low RSI scores HIGH\n' +
+          'score += 0.30 × (1 − %B) × 100     // low %B  scores HIGH\n' +
+          '```\n\n' +
+          '55% of the score therefore rewards **weakness**. That is not a bug — it is a mean-reversion engine answering "is this temporarily cheap?" But it means the engine is structurally incapable of liking a stock making new highs, which is precisely what every trend-following method wants to buy.\n\n' +
+          '## The hypothesis\n\n' +
+          '§0.3 of the engine docs records a hard result: **153 names, only 44 (29%) beat buy-and-hold, mean edge −23.5pp.** The intuitive explanation was that the score picks bad tickers because it rewards weakness — and that switching to Minervini-style leadership screening would fix it.\n\n' +
+          'That hypothesis was testable, so it was tested. Two things had to be built first: full daily OHLCV history (the `OhlcBar` table — the old `MarketData` stores closes only, so ATR, volume and pattern rules were literally uncomputable over history), and cross-sectional relative-strength ranking.\n\n' +
+          '## What the test found\n\n' +
+          'Forward returns after each signal, measured against the base rate of every symbol-day in the universe:\n\n' +
+          '| Signal | 21d | 63d | 126d |\n' +
+          '| --- | --- | --- | --- |\n' +
+          '| **DIP (this engine)** | **+1.22pp** (t=3.07) | **+3.00pp** (t=4.66) | **+4.35pp** (t=4.24) |\n' +
+          '| Trend Template 8/8 | −0.18pp | −0.26pp | **+1.45pp** (t=4.11) |\n' +
+          '| Leader breakout | −0.86pp | −0.26pp | +1.90pp (t=0.90) |\n' +
+          '| Leader at pivot | −0.51pp | **−1.57pp** (t=−3.25) | −1.20pp |\n\n' +
+          '**The hypothesis was wrong.** The dip entry beats the base rate at every horizon and by a wide statistical margin. The breakout entry does not beat it at any horizon, and buying *at* the pivot is significantly worse at three months.\n\n' +
+          '## So why did §0.3 look so bad?\n\n' +
+          '**Exposure.** The dip engine is in the market ~31% of the time; the leader strategy ~8%. Buy-and-hold is in 100% of the time. In a rising market, comparing total return against a permanently-invested benchmark punishes any strategy that sits in cash — regardless of how good its picks are. The −23.5pp is mostly that, not bad selection.\n\n' +
+          'The lesson generalises well beyond this engine: **a backtest number means nothing until you know what it is being compared against, and whether that comparison is fair.**\n\n' +
+          '## What survived\n\n' +
+          'The Trend Template alone shows a genuine **126-day** edge (+1.45pp, t=4.11) even though it is useless at 21 days. That is a real finding with a clear reading: it is a *quality filter measured in months*, not an entry trigger measured in weeks. That is exactly how it now appears in the product — as watchlist columns and a research shortlist at `GET /signals/leaders`, explicitly not as a buy signal.',
+        furtherReading: [
+          {
+            title: 'Momentum investing — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Momentum_investing'
+          },
+          {
+            title: '3 key lessons from Trade Like a Stock Market Wizard',
+            url: 'https://www.finermarketpoints.com/post/3-key-lessons-from-trade-like-a-stock-market-wizard'
+          }
+        ],
+        quiz: [
+          {
+            id: 'q1',
+            type: 'calculation',
+            prompt:
+              'The composite score gives Bollinger %B a weight of 0.30 and RSI a weight of 0.25, and both reward LOW readings. What percentage of the total score therefore rewards weakness? Answer as a whole number.',
+            correctAnswer: '55',
+            explanation:
+              '0.30 + 0.25 = 0.55, i.e. **55%**. Momentum (0.15), MACD (0.15) and trend (0.15) make up the rest. This is why the engine and a trend-following screen are not two settings of one dial — they point in opposite directions by construction, and no amount of parameter tuning reconciles them.'
+          },
+          {
+            id: 'q2',
+            type: 'multiple-choice',
+            prompt:
+              "The leader strategy showed a mean edge of −174.8pp against buy-and-hold, worse than the dip engine's −23.5pp. What does this most likely indicate?",
+            options: [
+              'The leader entry picks much worse tickers than the dip entry',
+              'The leader strategy was in the market only ~8% of the time versus 100% for buy-and-hold, so the comparison mostly measures exposure rather than pick quality',
+              'The exit rules were wrong and a better exit would make it positive',
+              'The backtest had a look-ahead bug'
+            ],
+            correctAnswer:
+              'The leader strategy was in the market only ~8% of the time versus 100% for buy-and-hold, so the comparison mostly measures exposure rather than pick quality',
+            explanation:
+              'Exposure dominates. Over a window where one holding returned +2072%, a strategy sitting in cash 92% of the time cannot compete on total return however good its entries are. The event study — comparing forward returns after a signal against the base rate — is the metric that isolates pick quality, and it is the one that showed the dip entry winning and the breakout entry not.'
+          },
+          {
+            id: 'q3',
+            type: 'multiple-choice',
+            prompt:
+              'Why can the DIP entry not simply be gated on the Trend Template ("buy dips, but only in confirmed leaders")?',
+            options: [
+              'It would be too slow to compute on every evaluation',
+              'The Trend Template needs 200 days of history that the watchlist does not have',
+              'They are mutually exclusive: a dip is ≥10% below the 30-day high, which puts price under the 50-day average on 99.7% of dip days, so the combination produced zero signals in four years',
+              'Minervini does not permit buying pullbacks'
+            ],
+            correctAnswer:
+              'They are mutually exclusive: a dip is ≥10% below the 30-day high, which puts price under the 50-day average on 99.7% of dip days, so the combination produced zero signals in four years',
+            explanation:
+              'Measured over 632 real dip days, the criterion "price > SMA50" passed 0.3% of the time and the maximum pass count was 6/8 — 7 and 8 never occurred. The two entries are not differently tuned, they are structurally incompatible. Gating one on the other silences the engine, which is why the plan changed once the numbers arrived.'
+          }
+        ]
+      },
+      {
+        id: 'l10-trend-template',
+        title: 'The Trend Template',
+        practiceSymbolDefault: 'LLY',
+        theory:
+          '## Eight criteria, one question\n\n' +
+          "Minervini's Trend Template asks: *is this stock in a confirmed Stage 2 uptrend?* It is a gate, not a score — the doctrinal reading is that all eight must pass.\n\n" +
+          '| # | Criterion |\n' +
+          '| --- | --- |\n' +
+          '| 1 | Price above the 50-, 150- and 200-day moving averages |\n' +
+          '| 2 | SMA150 above SMA200 |\n' +
+          '| 3 | SMA200 trending up for at least 1 month (prefer 4–5) |\n' +
+          '| 4 | SMA50 > SMA150 > SMA200 — the full stack, in order |\n' +
+          '| 5 | Price above the SMA50 |\n' +
+          '| 6 | At least **30% above** the 52-week low |\n' +
+          '| 7 | Within **25% of** the 52-week high |\n' +
+          '| 8 | Relative strength percentile **≥ 70** (prefer ≥ 90) |\n\n' +
+          "Criteria 1 and 5 overlap; both appear in Minervini's published list and `LeaderScreenService.trendTemplate` keeps both, so the pass count matches the canonical 8.\n\n" +
+          '## Criterion 3 is a duration, not a comparison\n\n' +
+          'A tempting shortcut is `SMA200 today > SMA200 a month ago`. That passes for a stock that collapsed for a year and ticked up once. The engine instead uses `slopeUpDuration` — how many *consecutive* days the average has been non-decreasing — because "trending up for a month" is a statement about persistence.\n\n' +
+          '## Criterion 8 is the one that needs the whole market\n\n' +
+          'Criteria 1–7 are computable from a single symbol\'s own history. Criterion 8 is **cross-sectional**: a percentile only exists relative to every other stock. This is why `CrossSectionalService` had to be built — RSI, MACD, Bollinger and the composite score are all absolute and per-symbol, and none of them can answer "how does this compare with everything else right now?"\n\n' +
+          'The rank uses IBD-style weighting — the most recent quarter counted double the other three — then converted to a 1–99 percentile across the universe.\n\n' +
+          '## A percentile is only as good as the universe behind it\n\n' +
+          'This part is easy to miss: RS rank is **not a property of the stock**. It is a property of the stock *and* the list it is compared against. Rank the same name against 300 stocks and against 750 and you get two different numbers, neither of them wrong.\n\n' +
+          'Two consequences. First, a small universe makes the percentile coarse — across 334 names each rank step covers roughly 0.3% of the list, so "RS 79" and "RS 82" are nearly the same statement. Second, and more subtly, **the universe defines what "strong" means**: a hand-curated list of quality large caps contains no genuinely weak names, so sitting in its bottom decile is not the same as being weak in the market. `SIGNAL_RS_MIN_UNIVERSE = 30` is a floor below which the number is arithmetic theatre — it is not a target.\n\n' +
+          'That is why the tracked universe was widened to full S&P 500 and EURO STOXX 50 membership (~750 names): not to have more to look at, but to make this one number mean more.\n\n' +
+          '## Point-in-time, or it is worthless\n\n' +
+          'A cross-sectional rank computed from the full price series and then applied to a past date silently encodes the future. The backtest looks healthy and means nothing. `CrossSectionalService.rank` therefore takes an `asOf` date and filters to bars at or before it, and a regression test asserts that appending future bars leaves a past ranking byte-identical.\n\n' +
+          '## How selective is it, really?\n\n' +
+          "Minervini says the template eliminates ~95% of stocks. On this watchlist it passes **47 of 331 (14%)** — noticeably looser, and the reason is that the universe is a hand-curated list of quality large-caps rather than the whole market. A filter's selectivity is a property of what you point it at, not of the filter alone.",
+        furtherReading: [
+          {
+            title: 'Relative strength — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Relative_strength'
+          },
+          {
+            title: '3 key lessons from Trade Like a Stock Market Wizard',
+            url: 'https://www.finermarketpoints.com/post/3-key-lessons-from-trade-like-a-stock-market-wizard'
+          }
+        ],
+        quiz: [
+          {
+            id: 'q1',
+            type: 'calculation',
+            prompt:
+              'A stock trades at 96. Its 52-week high is 120. What percentage below the 52-week high is it, to one decimal place?',
+            correctAnswer: '20.0',
+            explanation:
+              '(120 − 96) / 120 = 0.20 → **20.0%**. That is inside the 25% limit, so criterion 7 passes. Note the denominator is the high, not the current price — anchoring to the high is what makes it a statement about how much of the advance has been given back.'
+          },
+          {
+            id: 'q2',
+            type: 'multiple-choice',
+            prompt:
+              'Why does the engine measure criterion 3 as a consecutive-day count rather than comparing the SMA200 with its value a month ago?',
+            options: [
+              'It is faster to compute',
+              'A single sharp uptick after a long decline would pass a simple comparison, but "trending up for a month" is a claim about persistence',
+              'The SMA200 is too noisy to compare directly',
+              'Minervini specifies the calculation that way'
+            ],
+            correctAnswer:
+              'A single sharp uptick after a long decline would pass a simple comparison, but "trending up for a month" is a claim about persistence',
+            explanation:
+              'A stock down 60% over a year can easily have its 200-day average higher than it was 21 days ago during a bounce. `slopeUpDuration` counts backwards from today and stops at the first down-tick, so it measures the thing the criterion actually describes.'
+          },
+          {
+            id: 'q3',
+            type: 'multiple-choice',
+            prompt:
+              "Which Trend Template criterion cannot be computed from a single stock's own price history?",
+            options: [
+              'Criterion 3 — SMA200 rising for a month',
+              'Criterion 6 — at least 30% above the 52-week low',
+              'Criterion 8 — relative strength percentile ≥ 70',
+              'Criterion 4 — SMA50 > SMA150 > SMA200'
+            ],
+            correctAnswer: 'Criterion 8 — relative strength percentile ≥ 70',
+            explanation:
+              'A percentile is by definition relative to a population. The other seven are self-contained. This is the one criterion the engine could not express at all before `CrossSectionalService` existed — every prior metric (RSI, MACD, Bollinger, the composite score) is absolute and per-symbol.'
+          }
+        ]
+      },
+      {
+        id: 'l10-vcp',
+        title: 'The Volatility Contraction Pattern',
+        practiceSymbolDefault: 'EQNR.OL',
+        theory:
+          '## What the pattern claims\n\n' +
+          'A VCP is a base in which each pullback is **shallower than the one before**, on **progressively lighter volume**. The story is supply being absorbed: each wave of sellers is smaller than the last, until almost none remain and the stock can move on modest demand.\n\n' +
+          'Minervini\'s own description: *"the first correction might be 20%, 25%, 33%, and then it\'ll contract usually the contractions are about half of the previous correction. So maybe it contracts to 10 or 15 and then contracts to 3, 4 or 5 or 8%."*\n\n' +
+          '| Element | Rule |\n' +
+          '| --- | --- |\n' +
+          '| Contractions | 3–4 typical, 3 the practical minimum |\n' +
+          '| Depth sequence | each roughly **half** the prior; never wider (e.g. 18% → 12% → 6%) |\n' +
+          '| Volume | falls through the base, lowest in the final contraction |\n' +
+          '| Base duration | 4–12 weeks |\n' +
+          '| Final tightness | typically 3–5% |\n' +
+          '| **Pivot** | the **high of the final, tightest contraction** |\n' +
+          '| Breakout | through the pivot on **40–50% above average volume** |\n\n' +
+          'Note that volume appears **twice** in that table, and the engine tests it twice: once for the dry-up through the base (`dryUpRatio ≤ 0.85`, a hard gate on whether a base qualifies as a VCP at all) and again for expansion on the breakout (`breakoutRatio ≥ 1.40`, which separates a confirmed BREAKOUT from an unconfirmed AT_PIVOT). The two are independent, and passing one says nothing about the other — the next lesson works through a name that aced the first and failed the second.\n\n' +
+          '## Detecting it is harder than describing it\n\n' +
+          'The first implementation of `vcpStructure` used a 2% swing filter and then required the resulting pullbacks to shrink monotonically. On real charts it rejected **every single name**, reporting 9–16 "contractions" each.\n\n' +
+          'The tension is fundamental: a filter loose enough to see the final 3–5% contraction also sees every intermediate wiggle, and a filter tight enough to ignore wiggles is blind to the final contraction — the one that defines the pivot.\n\n' +
+          '**The resolution:** detect *every* swing, then extract the longest chain of pullbacks that both shrink in depth and make **higher lows**, ending at the most recent one. The skipped swings are the wiggles *inside* a larger contraction — which is exactly how a chartist reads a base by eye. After that change the same universe produced 21 valid VCPs among 47 leaders.\n\n' +
+          '## Be honest about what this is\n\n' +
+          'The VCP is a **discretionary** pattern. `vcpStructure` is a quantitative proxy for it and will disagree with a trained eye in both directions. It is a shortlist generator, not a verdict — which is why the engine reports the contraction sequence, the pivot, the volume ratio and the *rejection reason* rather than a bare yes/no.\n\n' +
+          '## And be honest about the result\n\n' +
+          'Buying the breakout did not beat the universe base rate at 21, 63 or 126 days on this watchlist, and buying *at* the pivot was significantly worse at 63 days (t = −3.25). The pattern is real and worth being able to see; the evidence here does not support trading it mechanically. Level 10 lesson 1 covers why.',
+        furtherReading: [
+          {
+            title:
+              "What is a VCP pattern — Minervini's Volatility Contraction Pattern explained",
+            url: 'https://www.finermarketpoints.com/post/what-is-a-vcp-pattern-mark-minervini-s-volatility-contraction-pattern-explained'
+          },
+          {
+            title: 'Average true range — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Average_true_range'
+          }
+        ],
+        quiz: [
+          {
+            id: 'q1',
+            type: 'calculation',
+            prompt:
+              'A base contracts from a peak of 98 down to a trough of 86.24. What is the contraction depth as a percentage, to one decimal place?',
+            correctAnswer: '12.0',
+            explanation:
+              '(98 − 86.24) / 98 = 0.12 → **12.0%**. If the previous contraction was 18% and the next is 6%, that is the canonical 18 → 12 → 6 sequence: each roughly half the last, none wider than its predecessor.'
+          },
+          {
+            id: 'q2',
+            type: 'multiple-choice',
+            prompt: 'Where is the pivot in a VCP?',
+            options: [
+              'The lowest low of the base',
+              'The high of the first, deepest contraction',
+              'The high of the final, tightest contraction',
+              'The midpoint between the base high and base low'
+            ],
+            correctAnswer: 'The high of the final, tightest contraction',
+            explanation:
+              'The pivot is the last remaining overhead supply. Clearing it on expanding volume means the final holders willing to sell at that price are gone. Anchoring to the *first* peak instead would put the trigger far above where the setup actually resolves.'
+          },
+          {
+            id: 'q3',
+            type: 'multiple-choice',
+            prompt:
+              'Why does a naive 2% swing filter fail to find VCPs on real charts?',
+            options: [
+              'It is too tight to detect the first, deepest contraction',
+              'Real stocks wiggle more than 2% constantly, so it reports 9–16 noisy swings that never form a shrinking sequence',
+              'Volume data is unavailable at that resolution',
+              'It cannot handle gaps between sessions'
+            ],
+            correctAnswer:
+              'Real stocks wiggle more than 2% constantly, so it reports 9–16 noisy swings that never form a shrinking sequence',
+            explanation:
+              'And simply raising the threshold does not help — it would hide the final 3–5% contraction that defines the pivot. The fix is to detect every swing and then extract the dominant chain of shrinking pullbacks with rising lows, treating the rest as noise inside a larger contraction.'
+          }
+        ]
+      },
+      {
+        id: 'l10-volume',
+        title: 'Volume: the confirmation half of the pattern',
+        practiceSymbolDefault: 'UNP',
+        theory:
+          '## Why volume carries information at all\n\n' +
+          'Price tells you *where* a stock traded. Volume tells you **how many shares had to change hands to put it there** — and that second number is what separates a move with something behind it from a move that simply drifted.\n\n' +
+          "The usual reading: most of a large cap's float is held by funds, and a retail-sized order cannot move it. So when price rises on unusually light volume, few shares traded — the move happened because nobody was offering stock, not because anyone was buying it aggressively. When price rises on heavy volume, someone large had to be accumulating.\n\n" +
+          '> **Mark this as interpretation, not measurement.** The thresholds and formulas below are exactly what the engine computes. "Volume is a proxy for institutional participation" is the conventional reading of those numbers, widely used and reasonable — but this engine does not observe who is trading, only how much. Hold it as a working model, not a fact.\n\n' +
+          '## The signature has two phases, and the engine tests both\n\n' +
+          '```\n' +
+          'dryUpRatio    = meanVolume(final contraction) / avgVolume₅₀   must be ≤ 0.85\n' +
+          'breakoutRatio = volume(latest bar)            / avgVolume₅₀   must be ≥ 1.40\n' +
+          '```\n\n' +
+          '**Phase 1 — dry-up, before the breakout.** Through successive contractions volume should decline, and be lowest in the final, tightest one. The reading is supply exhaustion: everyone who wanted out has gone. Note what this ratio measures — the *mean daily volume across the final contraction*, not a single day, and not a total.\n\n' +
+          'This is a **hard gate**. A base whose final contraction trades above 0.85× average is rejected outright, so any VCP you are shown has already passed it.\n\n' +
+          '**Phase 2 — expansion, at the breakout.** Then demand has to actually show up. Minervini\'s "40–50% above average" is where the 1.40× threshold comes from.\n\n' +
+          '## They are a matched pair — and that is the whole lesson\n\n' +
+          'On 2026-08-20 two names on this watchlist passed all 8 Trend Template criteria with near-identical bases:\n\n' +
+          '| | UNP | JNJ |\n' +
+          '| --- | --- | --- |\n' +
+          '| Trend Template | 8/8 | 8/8 |\n' +
+          '| RS rank | 79 | 81 |\n' +
+          '| Contractions | 7.5% → 3.5% → 2.6% | 5.2% → 4.0% → 3.4% |\n' +
+          '| Price vs pivot | +1.95% | +1.22% |\n' +
+          '| **Dry-up** | 0.73× | **0.65×** |\n' +
+          '| **Breakout volume** | **1.45×** | **0.80×** |\n' +
+          '| Status | **BREAKOUT** | **AT_PIVOT** |\n\n' +
+          "Read the dry-up row carefully: **JNJ's supply dried up more thoroughly than UNP's** — 0.65× against 0.73×. By the first test JNJ was the better setup.\n\n" +
+          'It still did not confirm. JNJ crossed its pivot on 0.80× volume — *below* an ordinary day. Fewer shares traded on the day it broke out than on a random Tuesday. Nothing had to be bought to get it there; it floated up through a thin order book. There is no accumulated position defending that level, so there is nothing to stop it falling back through.\n\n' +
+          'UNP crossed on 1.45×. Same structure, opposite meaning.\n\n' +
+          '## Why AT_PIVOT is a watch state, not a trigger\n\n' +
+          'AT_PIVOT means price is within 2% of the pivot. It tests **price only** and says nothing whatsoever about volume. A stock can sit at its pivot for weeks and never confirm.\n\n' +
+          'That is what makes it useful to *see* rather than to act on: it tells you which names to read about now, so that if one does break out on real volume you already know the business and are not researching under time pressure. That is the whole purpose of the evening alert.\n\n' +
+          '## The honest caveat, again\n\n' +
+          'Being able to read this does not mean trading it works. On this watchlist, buying confirmed breakouts did not beat the universe base rate at 21, 63 or 126 days. The volume tests tell you what the chart is saying; they do not promise the chart is right.',
+        furtherReading: [
+          {
+            title: 'Volume (finance) — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Volume_(finance)'
+          },
+          {
+            title: 'Market depth — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Market_depth'
+          },
+          {
+            title:
+              "What is a VCP pattern — Minervini's Volatility Contraction Pattern explained",
+            url: 'https://www.finermarketpoints.com/post/what-is-a-vcp-pattern-mark-minervini-s-volatility-contraction-pattern-explained'
+          }
+        ],
+        quiz: [
+          {
+            id: 'q1',
+            type: 'calculation',
+            prompt:
+              "A base's final contraction averages 1,479,000 shares a day while the 50-day average volume is 2,220,000. What is the dry-up ratio, to two decimal places?",
+            correctAnswer: '0.67',
+            explanation:
+              '1,479,000 / 2,220,000 = **0.67**. That is comfortably below the 0.85 ceiling, so the base passes the dry-up gate — roughly a third less trading than normal while price coiled. Note this is the *mean daily* volume across the contraction, not one quiet session.'
+          },
+          {
+            id: 'q2',
+            type: 'multiple-choice',
+            prompt:
+              'A stock has 8/8 on the Trend Template, three clean contractions, a dry-up ratio of 0.65, and has just closed 1.2% above its pivot on 0.80× average volume. What does the engine call it, and why?',
+            options: [
+              'BREAKOUT — it cleared the pivot and dried up beautifully',
+              'AT_PIVOT — the structure and dry-up are ideal, but the breakout needs ≥ 1.40× volume and got 0.80×',
+              'No valid VCP — a dry-up ratio of 0.65 is too low to be credible',
+              'BREAKOUT — dry-up below 0.70 overrides the volume requirement'
+            ],
+            correctAnswer:
+              'AT_PIVOT — the structure and dry-up are ideal, but the breakout needs ≥ 1.40× volume and got 0.80×',
+            explanation:
+              'This is JNJ on 2026-08-20 exactly. The two volume tests are independent and both required — passing the first well does not compensate for failing the second. Below-average volume on the breakout day means almost nothing had to be bought to lift it through the pivot, so no position is defending that level.'
+          },
+          {
+            id: 'q3',
+            type: 'multiple-choice',
+            prompt: 'Which statement about the dry-up test is accurate?',
+            options: [
+              'It is one input to a score, so a weak reading can be offset by strong criteria elsewhere',
+              'It is a hard gate — a base failing it is rejected outright, so every VCP shown has already passed',
+              'It is only checked once price has already cleared the pivot',
+              'It compares the single quietest day of the base against the 50-day average'
+            ],
+            correctAnswer:
+              'It is a hard gate — a base failing it is rejected outright, so every VCP shown has already passed',
+            explanation:
+              'A dryUpRatio above 0.85 returns no valid structure at all, with the reason recorded so the near-miss stays legible. Nothing about the Trend Template can compensate: a base where sellers never went quiet is not a VCP, regardless of how strong the trend looks.'
+          }
+        ]
+      },
+      {
+        id: 'l10-risk',
+        title: 'Risk management and the arithmetic of fees',
+        practiceSymbolDefault: 'AAPL',
+        theory:
+          '## The rule that matters more than the entry\n\n' +
+          "Minervini's core claim is that **strict stop-losses matter more than win rates**. The published thresholds:\n\n" +
+          '- Maximum loss per position: **7–8%** below entry\n' +
+          '- Target win size: **20–30%+**\n' +
+          '- Expected win rate: **45–60%** — you lose on nearly half your trades\n\n' +
+          'Five winners at +25% against five losers at −7.5% is +125% − 37.5% = **+87.5%**, with a 50% win rate. The asymmetry does the work, not the accuracy.\n\n' +
+          '## Why losses compound against you\n\n' +
+          'Recovery is not symmetric with loss:\n\n' +
+          '| Loss | Gain needed to break even |\n' +
+          '| --- | --- |\n' +
+          '| 7% | 7.5% |\n' +
+          '| 25% | 33% |\n' +
+          '| 50% | 100% |\n' +
+          '| 75% | 300% |\n\n' +
+          'A 7% loss is an inconvenience. A 50% loss requires a double just to return to where you started. This is the entire argument for cutting quickly.\n\n' +
+          '## The fee arithmetic, and why the answer changed twice\n\n' +
+          'Nordnet charges **per order**: `fee = fixed fee + commission% × trade value`. Both terms always apply — the fixed fee is not a floor the percentage replaces. Buying and selling are separate orders, so a round trip is charged twice. On the **Mini** class that is 0.25% plus 9 SEK on non-Nordic venues, or 1 SEK on Nordic ones.\n\n' +
+          'At USDSEK 9.46:\n\n' +
+          '| Position | Per order | Round trip | Round trip as % of position |\n' +
+          '| --- | --- | --- | --- |\n' +
+          '| $100 | $1.20 | $2.40 | **2.40%** |\n' +
+          '| $250 | $1.58 | $3.15 | 1.26% |\n' +
+          '| $550 | $2.33 | $4.65 | 0.85% |\n' +
+          '| $1000 | $3.45 | $6.90 | 0.69% |\n' +
+          '| $5000 | $13.45 | $26.90 | 0.54% |\n\n' +
+          '## Why the rate falls, and where it stops falling\n\n' +
+          'The fixed 9 SEK is charged whatever you trade, so it spreads over a larger base as the position grows — the rate falls from 2.40% at $100 toward an asymptote of **0.50%** (two lots of 0.25%). It never reaches it.\n\n' +
+          '**"Trade bigger to amortise the fee" is therefore true here**, but only for the fixed half, and with sharply diminishing returns. The useful reference point is where the two components cost the same: **9 / 0.0025 = 3,600 SEK ≈ $380**. Below it most of your bill is the fixed fee and size helps a lot; above it the percentage dominates and size barely moves the rate.\n\n' +
+          'This engine has had the model wrong twice, in opposite directions — first a flat $10 round trip, then `max(pct × value, minimum)`, which made the rate look constant above $380 and led it to teach that size buys nothing. Both were corrected against the published card.\n\n' +
+          'The transferable lesson is about **fee shape, not fee level**: a flat fee, a pure percentage, and `fixed + percentage` reward completely different position sizing, and getting the shape wrong quietly changes what the engine recommends.\n\n' +
+          '## Sizing the stop with ATR, not a fixed percentage\n\n' +
+          "A fixed 7.5% stop assumes every stock has the same daily noise. It does not. The backtest here makes the point sharply: the same leader entries produced a **73% win rate** with the engine's volatility-scaled exit and only **~30%** with a fixed 7.5% stop — the fixed stop sat inside the names' ordinary daily range and got hit by noise rather than by being wrong.\n\n" +
+          "`IndicatorsService.atr` gives Wilder's Average True Range, which counts overnight gaps as well as intraday range — the thing a stop actually has to survive. Treat 7–8% as a *maximum*, and place the actual stop at whichever is tighter: the maximum, or a volatility-appropriate distance below a real structural level.",
+        furtherReading: [
+          {
+            title: 'Stop-loss order — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Stop-loss_order'
+          },
+          {
+            title: 'Average true range — Wikipedia',
+            url: 'https://en.wikipedia.org/wiki/Average_true_range'
+          }
+        ],
+        quiz: [
+          {
+            id: 'q1',
+            type: 'calculation',
+            prompt:
+              'Nordnet Mini charges 9 SEK plus 0.25% per order on a non-Nordic venue, and a round trip is two orders. At USDSEK 9.46, what does a round trip on a $250 position cost as a percentage of the position? Round to one decimal place.',
+            correctAnswer: '1.3%',
+            explanation:
+              'One order = 9 SEK ($0.95) + 0.25% × $250 ($0.63) = $1.58. Round trip = $3.15, which is **1.3%** of $250. The same calculation at $1,000 gives 0.69% — the fixed 9 SEK is identical in both, so it weighs four times as heavily on the smaller position. That is the whole reason size affects the rate at all.'
+          },
+          {
+            id: 'q2',
+            type: 'calculation',
+            prompt:
+              'A position falls 25%. What percentage gain is needed to get back to break-even? Round to the nearest whole percent.',
+            correctAnswer: '33',
+            explanation:
+              '1 / (1 − 0.25) − 1 = 0.333 → **33%**. Recovery grows faster than the loss: 50% down needs 100% up, 75% down needs 300%. Cutting at 7% needs only 7.5% back, which is why the rule is a maximum rather than a guideline.'
+          },
+          {
+            id: 'q3',
+            type: 'multiple-choice',
+            prompt:
+              "In this engine's backtest, the same leader entries produced a 73% win rate with the volatility-scaled exit but only ~30% with a fixed 7.5% stop. What is the most likely reason?",
+            options: [
+              'The fixed stop was applied at the wrong price',
+              'A fixed 7.5% stop sits inside the ordinary daily range of many of these stocks, so it is hit by noise rather than by the thesis failing',
+              'The volatility-scaled exit takes profit earlier and so wins more often by definition',
+              'The fixed stop version traded different symbols'
+            ],
+            correctAnswer:
+              'A fixed 7.5% stop sits inside the ordinary daily range of many of these stocks, so it is hit by noise rather than by the thesis failing',
+            explanation:
+              "The entries were identical across all four exit variants — only the exit changed. A stop must sit outside the noise it is meant to ignore, which is what ATR measures. Minervini's 7–8% is a maximum acceptable loss, not a claim that every stock has the same volatility."
           }
         ]
       }

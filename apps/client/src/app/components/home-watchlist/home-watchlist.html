@@ -52,6 +52,18 @@
           <span i18n>Funds</span> ({{ fundCount }})
         </button>
       </div>
+      <button
+        class="btn btn-outline-secondary mb-3 ml-2"
+        type="button"
+        [disabled]="isSendingLeaderScreen"
+        (click)="onSendLeaderScreen()"
+      >
+        @if (isSendingLeaderScreen) {
+          <span i18n>Screening…</span>
+        } @else {
+          <span i18n>Send leader screen</span>
+        }
+      </button>
       <gf-benchmark
         [benchmarks]="filteredWatchlist"
         [deviceType]="deviceType()"

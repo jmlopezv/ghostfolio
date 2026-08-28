@@ -24,8 +24,11 @@ export interface IndicatorSnapshot {
  * score and volatility-adaptive threshold helpers.
  *
  * Implemented directly (no external dependency) so it is fully unit-testable and
- * carries no install/version risk. EOD data only provides close prices, so
- * volatility is measured close-to-close rather than via true ATR.
+ * carries no install/version risk.
+ *
+ * Most methods take a plain `number[]` of closes, which is all `MarketData`
+ * stores. The bar-based ones (`trueRange`, `atr`, `highestHigh`, `lowestLow`)
+ * need highs and lows and therefore read from the fork's `OhlcBar` table.
  */
 @Injectable()
 export class IndicatorsService {
@@ -298,6 +301,150 @@ export class IndicatorsService {
     }
 
     return Math.max(...values.slice(Math.max(0, values.length - lookback)));
+  }
+
+  /**
+   * Wilder's True Range for each bar: the largest of today's range, the gap up
+   * from yesterday's close, and the gap down from it. Unlike a close-to-close
+   * move it counts overnight gaps, which is exactly what a stop has to survive.
+   *
+   * Needs highs and lows, so it only works on stored `OhlcBar` rows — the
+   * close-only `MarketData` series cannot produce it.
+   */
+  public trueRange(
+    bars: { close: number; high: number; low: number }[]
+  ): number[] {
+    if (bars.length === 0) {
+      return [];
+    }
+
+    const ranges: number[] = [bars[0].high - bars[0].low];
+
+    for (let i = 1; i < bars.length; i++) {
+      const previousClose = bars[i - 1].close;
+
+      ranges.push(
+        Math.max(
+          bars[i].high - bars[i].low,
+          Math.abs(bars[i].high - previousClose),
+          Math.abs(bars[i].low - previousClose)
+        )
+      );
+    }
+
+    return ranges;
+  }
+
+  /**
+   * Wilder-smoothed Average True Range. Wilder's own smoothing (not a plain SMA)
+   * so the number matches what TradingView and every charting package shows —
+   * a stop derived from a different ATR than the one on screen is a trap.
+   */
+  public atr(
+    bars: { close: number; high: number; low: number }[],
+    period = 14
+  ): number {
+    if (bars.length < period + 1 || period <= 0) {
+      return null;
+    }
+
+    const ranges = this.trueRange(bars);
+    // Seed with a simple mean of the first `period` true ranges, then smooth.
+    let atr =
+      ranges.slice(1, period + 1).reduce((sum, value) => sum + value, 0) /
+      period;
+
+    for (let i = period + 1; i < ranges.length; i++) {
+      atr = (atr * (period - 1) + ranges[i]) / period;
+    }
+
+    return atr;
+  }
+
+  /**
+   * How many consecutive bars, counting back from the end, a series has been
+   * non-decreasing. Minervini's Trend Template criterion 3 asks for a 200-day
+   * average that has been trending up for at least a month, which is a duration
+   * question rather than a "higher than N bars ago" one — a single sharp uptick
+   * after a long slide would pass the latter and fail this.
+   */
+  public slopeUpDuration(series: number[]): number {
+    let duration = 0;
+
+    for (let i = series.length - 1; i > 0; i--) {
+      if (
+        series[i] === null ||
+        series[i - 1] === null ||
+        series[i] < series[i - 1]
+      ) {
+        break;
+      }
+
+      duration++;
+    }
+
+    return duration;
+  }
+
+  /** Rolling series of an SMA, so its slope/duration can be measured. */
+  public smaSeries(values: number[], period: number): number[] {
+    if (values.length < period || period <= 0) {
+      return [];
+    }
+
+    const series: number[] = [];
+    let windowSum = values
+      .slice(0, period)
+      .reduce((sum, value) => sum + value, 0);
+
+    series.push(windowSum / period);
+
+    for (let i = period; i < values.length; i++) {
+      windowSum += values[i] - values[i - period];
+      series.push(windowSum / period);
+    }
+
+    return series;
+  }
+
+  /** Highest high over the trailing lookback (52-week high when lookback = 252). */
+  public highestHigh(bars: { high: number }[], lookback: number): number {
+    if (bars.length === 0) {
+      return null;
+    }
+
+    const window = bars.slice(Math.max(0, bars.length - lookback));
+
+    return Math.max(...window.map(({ high }) => high));
+  }
+
+  /** Lowest low over the trailing lookback (52-week low when lookback = 252). */
+  public lowestLow(bars: { low: number }[], lookback: number): number {
+    if (bars.length === 0) {
+      return null;
+    }
+
+    const window = bars.slice(Math.max(0, bars.length - lookback));
+
+    return Math.min(...window.map(({ low }) => low));
+  }
+
+  /**
+   * Average daily volume over the trailing lookback. Doubles as the liquidity
+   * filter: a breakout on an illiquid name is unfillable at the quoted price.
+   */
+  public averageVolume(volumes: number[], lookback = 50): number {
+    if (volumes.length === 0) {
+      return null;
+    }
+
+    const window = volumes.slice(Math.max(0, volumes.length - lookback));
+
+    if (window.length === 0) {
+      return null;
+    }
+
+    return window.reduce((sum, value) => sum + value, 0) / window.length;
   }
 
   public computeSnapshot(closes: number[]): IndicatorSnapshot {

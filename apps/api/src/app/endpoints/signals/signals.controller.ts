@@ -12,6 +12,8 @@ import {
   FundMetricsResponse,
   FundRecommendationResponse,
   InvestmentStrategiesResponse,
+  LeaderCandidatesResponse,
+  ShortlistResponse,
   PortfolioReport,
   SignalLogResponse,
   SimulationResponse,
@@ -148,6 +150,49 @@ export class SignalsController {
     await this.signalsService.checkTrailingPositionsIntraday();
 
     return { status: 'ok' };
+  }
+
+  /**
+   * Minervini leader shortlist. Research surface, not a buy signal — the
+   * 2026-08-21 event study found breakout entries did not beat the universe
+   * base rate, while the DIP path did. See docs/TRADING_SIGNALS.md §0.3b.
+   */
+  @Get('leaders')
+  @UseGuards(AuthGuard('jwt'))
+  public async getLeaderCandidates(): Promise<LeaderCandidatesResponse> {
+    return this.signalsService.computeLeaderCandidates(this.request.user.id);
+  }
+
+  @Post('leaders/send')
+  @HttpCode(200)
+  @UseGuards(AuthGuard('jwt'))
+  public async sendLeaderCandidates(): Promise<{
+    sent: number;
+    status: string;
+  }> {
+    // Reports the count so the caller can distinguish "no breakout qualified
+    // today" from "the send is broken" — the two were indistinguishable
+    // before, which is how a permanently-suppressed alert went unnoticed.
+    const sent = await this.signalsService.sendLeaderCandidates(
+      this.request.user.id
+    );
+
+    return { sent, status: 'ok' };
+  }
+
+  @Get('shortlist')
+  @UseGuards(AuthGuard('jwt'))
+  public async getShortlist(): Promise<ShortlistResponse> {
+    return this.signalsService.computeShortlist(this.request.user.id);
+  }
+
+  @Post('shortlist/send')
+  @HttpCode(200)
+  @UseGuards(AuthGuard('jwt'))
+  public async sendShortlist(): Promise<{ sent: number; status: string }> {
+    const sent = await this.signalsService.sendShortlist(this.request.user.id);
+
+    return { sent, status: 'ok' };
   }
 
   @Get('strategies')

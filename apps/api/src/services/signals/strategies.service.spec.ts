@@ -45,9 +45,11 @@ describe('StrategiesService', () => {
       const leg = aggressive.legs[0];
 
       expect(leg.shares).toBe(1); // floor(250 / 212)
-      expect(leg.fee).toBe(5);
-      expect(leg.cost).toBeCloseTo(217); // 212 + 5 fee
-      expect(aggressive.cashLeft).toBeCloseTo(33);
+      // Commission is 9 SEK + 0.25% x value on a non-Nordic venue. A $212 trade
+      // is 2,006 SEK, so 9 + 5.02 = 14.02 SEK; 14.02 / 9.4645 = $1.48.
+      expect(leg.fee).toBeCloseTo(1.48, 2);
+      expect(leg.cost).toBeCloseTo(213.48, 2);
+      expect(aggressive.cashLeft).toBeCloseTo(36.52, 2);
     });
 
     it('skips an unaffordable whole share (zero shares, no fee)', () => {
@@ -337,16 +339,13 @@ describe('StrategiesService', () => {
     });
   });
 
-  describe('expectedValue + conviction', () => {
-    it('EV and conviction rise with the probability of a gain', () => {
+  describe('expectedValue', () => {
+    it('rises with the probability of a gain', () => {
       const low = candidate('A', 'tech', 100, 70, { reachProbability: 0.1 });
       const high = candidate('A', 'tech', 100, 70, { reachProbability: 0.9 });
 
       expect(service.expectedValue(high)).toBeGreaterThan(
         service.expectedValue(low)
-      );
-      expect(service.computeConviction(high)).toBeGreaterThan(
-        service.computeConviction(low)
       );
     });
 
@@ -360,19 +359,10 @@ describe('StrategiesService', () => {
       // 0.6·0.10 − 0.4·0.05 = 0.06 − 0.02 = 0.04
       expect(service.expectedValue(c)).toBeCloseTo(0.04);
     });
-
-    it('rewards a buy-zone setup', () => {
-      const base = service.computeConviction(candidate('A', 'tech', 100, 70));
-      const zone = service.computeConviction(
-        candidate('A', 'tech', 100, 70, { isBuyZone: true })
-      );
-
-      expect(zone).toBeGreaterThan(base);
-    });
   });
 
-  describe('buildStrategies — conviction ranking + recent-signal control', () => {
-    it('ranks the highest-conviction name into Aggressive, not just first', () => {
+  describe('buildStrategies — EV ranking + recent-signal control', () => {
+    it('ranks the highest-EV name into Aggressive, not just first', () => {
       const strategies = service.buildStrategies({
         candidates: [
           candidate('LOW', 'tech', 100, 60, { reachProbability: 0.2 }),
@@ -386,8 +376,8 @@ describe('StrategiesService', () => {
 
       const aggressive = strategies.find((s) => s.name === 'Aggressive');
       expect(aggressive.legs[0].symbol).toBe('HIGH');
-      expect(aggressive.legs[0].conviction).toBeGreaterThan(0);
-      expect(aggressive.legs[0].rationale).toContain('conviction');
+      expect(aggressive.legs[0].expectedValue).toBeGreaterThan(0);
+      expect(aggressive.legs[0].rationale).toContain('EV');
     });
 
     it('excludes downtrends and recently-exited names from the picks', () => {
@@ -450,16 +440,19 @@ describe('StrategiesService', () => {
 
   describe('buildStrategies — fee-aware sizing, remainder minimization, redundancy', () => {
     it('reduces the ticker count on Spread when fees would exceed the max ratio', () => {
-      // 5 legs x $5 fee = $25; $25/200 = 12.5% > 10% -> drop to 4: 4x5/200 = 10%, passes.
+      // Every leg is another order and therefore another fixed 9 SEK (~$0.95)
+      // plus its percentage, so splitting a small budget breaches the ratio:
+      // 5 legs x ~$0.97 = $4.87; 4.87/45 = 10.8% > 10% -> drop to 4:
+      // 4 x ~$0.98 = $3.92; 3.92/45 = 8.7%, passes.
       const strategies = service.buildStrategies({
         candidates: [
-          candidate('A', 'tech', 40, 90),
-          candidate('B', 'bank', 40, 89),
-          candidate('C', 'health', 40, 88),
-          candidate('D', 'energy-petrol', 40, 87),
-          candidate('E', 'defense', 40, 86)
+          candidate('A', 'tech', 8, 90),
+          candidate('B', 'bank', 8, 89),
+          candidate('C', 'health', 8, 88),
+          candidate('D', 'energy-petrol', 8, 87),
+          candidate('E', 'defense', 8, 86)
         ],
-        cash: 200
+        cash: 45
       });
 
       const spread = strategies.find((s) => s.name === 'Spread');
@@ -483,14 +476,18 @@ describe('StrategiesService', () => {
     });
 
     it('minimizes aggregate leftover cash vs. a naive even split, without double-charging the fee', () => {
-      // netCapital = 465 - 3x$5 fee = 450. evenBudget = 150/leg.
-      // CHEAP(40): floor(150/40)=3 shares, cost=125, wastes 25 of its slice.
-      // MID/MID2(76): floor(150/76)=1 share, cost=81 each, wastes ~69 each.
-      // Naive (no 2nd pass) leftover = 450 - (125+81+81) = 163.
+      // netCapital = 455 - 3x$0.95 commission = 452.15. evenBudget = 150.72/leg.
+      // CHEAP(40): floor(150.72/40)=3 shares, cost=120.
+      // MID/MID2(76): floor(150.72/76)=1 share, cost=76 each.
+      // Naive (no 2nd pass) leftover = 452.15 - (120+76+76) = 180.15.
       // Greedy 2nd pass repeatedly hands the pooled leftover to CHEAP (the
-      // cheapest, highest-ranked leg) until nothing more fits: ends at 7
-      // shares / cost 285, leftover down to 3 — far below the naive 163 —
-      // and CHEAP's fee is still exactly $5, never doubled.
+      // cheapest, highest-ranked leg) until nothing more fits: 4 more shares
+      // to reach 7, and CHEAP's commission is charged once, never doubled.
+      //
+      // The cash figure moved 465 -> 455 when the flat fee became a percentage:
+      // at 465 the larger netCapital let MID/MID2 afford 2 shares each, which
+      // left too little pooled cash for the second pass to do anything and
+      // quietly stopped the test exercising the behaviour it exists for.
       const candidates = [
         candidate('CHEAP', 'tech', 40, 90),
         candidate('MID', 'bank', 76, 89),
@@ -498,15 +495,17 @@ describe('StrategiesService', () => {
       ];
       const strategies = service.buildStrategies({
         candidates,
-        cash: 465
+        cash: 455
       });
 
       const spread = strategies.find((s) => s.name === 'Spread');
       const cheapLeg = spread.legs.find((leg) => leg.symbol === 'CHEAP');
 
-      expect(spread.cashLeft).toBeLessThan(163);
+      expect(spread.cashLeft).toBeLessThan(180);
       expect(cheapLeg.shares).toBe(7);
-      expect(cheapLeg.fee).toBe(5); // fee never doubled despite receiving extra shares
+      // Charged once despite the extra shares: 7 x $40 = $280 = 2,650 SEK, so
+      // 9 + 6.63 = 15.63 SEK, i.e. $1.65 — one order, not one per share.
+      expect(cheapLeg.fee).toBeCloseTo(1.65, 2);
     });
 
     it('de-prioritizes a candidate whose category dominates the fund sleeve', () => {
@@ -546,6 +545,38 @@ describe('StrategiesService', () => {
       const symbols = balanced.legs.map((leg) => leg.symbol);
 
       expect(symbols).toContain('STRONG-OVERLAP'); // never excluded
+    });
+
+    // Regression: the penalty used to be `ev * 0.5`, which only demotes a
+    // POSITIVE expected value. Real candidates almost always have negative EV
+    // (they risk 2σ to make 1.5σ), and halving a negative number makes it
+    // larger — so the redundant name was promoted to the top of the ranking,
+    // the exact opposite of the intent. Every pre-existing redundancy test
+    // used positive-EV fixtures, which is why this went unnoticed.
+    it('still demotes a redundant candidate when both EVs are negative', () => {
+      // p=0.2, target 0.1, stop 0.4 -> EV = 0.02 - 0.32 = -0.30 (redundant)
+      // p=0.2, target 0.1, stop 0.5 -> EV = 0.02 - 0.40 = -0.38 (not redundant)
+      // Raw EV prefers OVERLAP (-0.30 > -0.38); the penalty must flip that.
+      const strategies = service.buildStrategies({
+        candidates: [
+          candidate('OVERLAP', 'global', 100, 70, {
+            reachProbability: 0.2,
+            stopLossPct: 0.4,
+            targetGainPct: 0.1
+          }),
+          candidate('FRESH', 'bank', 100, 70, {
+            reachProbability: 0.2,
+            stopLossPct: 0.5,
+            targetGainPct: 0.1
+          })
+        ],
+        cash: 1000,
+        fundValueByCategory: { global: 450, other: 550 }
+      });
+
+      const aggressive = strategies.find((s) => s.name === 'Aggressive');
+
+      expect(aggressive.legs[0].symbol).toBe('FRESH');
     });
 
     it('omitting fundValueByCategory is a no-op (existing tests stay unchanged)', () => {

@@ -1,5 +1,6 @@
 import { RedisCacheService } from '@ghostfolio/api/app/redis-cache/redis-cache.service';
 import { IndicatorsService } from '@ghostfolio/api/services/signals/indicators.service';
+import { Bar } from '@ghostfolio/api/services/signals/ohlc-bar.service';
 
 import { Injectable, Logger } from '@nestjs/common';
 
@@ -8,6 +9,14 @@ const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 const FETCH_TIMEOUT_MS = 8000;
+
+/**
+ * Chart ranges `getDatedBars` accepts. The short end exists for the nightly
+ * gather, which usually needs a single missing session and has no reason to ask
+ * for a year of bars to get it; the long end backs the historical backfill.
+ */
+export type BarRange = '1mo' | '3mo' | '1y' | '2y' | '5y' | '10y' | 'max';
+
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 const INTRADAY_CACHE_TTL = 4 * 60 * 1000; // 4 min — short enough to stay fresh for the 5-min trailing check
 
@@ -161,6 +170,86 @@ export class OhlcService {
     const avg = window.reduce((s, v) => s + v, 0) / window.length;
 
     return avg > 0 ? recent / avg : null;
+  }
+
+  /**
+   * Full daily OHLCV **with dates**, for persistence rather than live scoring.
+   *
+   * Deliberately uncached: this backs the historical backfill and the daily
+   * gather, where a 1h Redis TTL would be both useless (each symbol is asked
+   * for once) and wasteful (five years of bars per key). `fetchChart` stays the
+   * cached path for the live, per-evaluation reads.
+   *
+   * Rows with a null/zero OHLC are dropped — Yahoo emits those for halted or
+   * pre-listing sessions, and a zero would poison every downstream average.
+   * Never throws; returns null so a single bad symbol cannot abort a backfill.
+   */
+  public async getDatedBars(
+    symbol: string,
+    range: BarRange = '5y'
+  ): Promise<Bar[] | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(
+        `${CHART_URL}/${encodeURIComponent(symbol)}?range=${range}&interval=1d`,
+        { headers: { 'User-Agent': USER_AGENT }, signal: controller.signal }
+      );
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = await response.json();
+      const result = payload?.chart?.result?.[0];
+      const timestamps: (number | null)[] = result?.timestamp ?? [];
+      const quote = result?.indicators?.quote?.[0];
+
+      if (!quote?.close || timestamps.length === 0) {
+        return null;
+      }
+
+      const bars: Bar[] = [];
+
+      for (let i = 0; i < timestamps.length; i++) {
+        const epochSeconds = timestamps[i];
+        const open = quote.open?.[i];
+        const high = quote.high?.[i];
+        const low = quote.low?.[i];
+        const close = quote.close?.[i];
+        const volume = quote.volume?.[i];
+
+        if (
+          typeof epochSeconds !== 'number' ||
+          ![open, high, low, close].every(
+            (value) => typeof value === 'number' && value > 0
+          )
+        ) {
+          continue;
+        }
+
+        // Clamp to the bar's own extremes: Yahoo returns inconsistent OHLC for
+        // some thinly-traded listings (a high below the close), which is
+        // impossible and would yield a negative true range. Only ever repairs.
+        bars.push({
+          close,
+          date: new Date(epochSeconds * 1000).toISOString().slice(0, 10),
+          high: Math.max(high, open, close),
+          low: Math.min(low, open, close),
+          open,
+          volume: typeof volume === 'number' ? volume : 0
+        });
+      }
+
+      return bars.length > 0 ? bars : null;
+    } catch (error) {
+      this.logger.warn(`Dated OHLCV fetch failed for ${symbol}: ${error}`);
+
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   /**

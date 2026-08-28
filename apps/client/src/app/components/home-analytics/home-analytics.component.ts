@@ -32,7 +32,16 @@ import { refreshOutline } from 'ionicons/icons';
 import { DeviceDetectorService } from 'ngx-device-detector';
 import { NgxSkeletonLoaderModule } from 'ngx-skeleton-loader';
 
-const CATEGORY_ORDER = ['BUY', 'REVERSAL', 'SELL', 'REINVEST'];
+const CATEGORY_ORDER = [
+  'BUY',
+  'REVERSAL',
+  'LEADER',
+  'LEADER_GATED',
+  'TT8',
+  'WATCH',
+  'SELL',
+  'REINVEST'
+];
 
 const HEADER_ROW_1 = [
   'date',
@@ -47,12 +56,12 @@ const HEADER_ROW_2 = [
   'score',
   'rsi',
   'reach',
-  'conv',
+  'ev',
   'price',
   'currentScore',
   'currentRsi',
   'currentReach',
-  'currentConv',
+  'currentEv',
   'currentPrice',
   'days'
 ];
@@ -64,12 +73,12 @@ const DISPLAYED_COLUMNS = [
   'score',
   'rsi',
   'reach',
-  'conv',
+  'ev',
   'price',
   'currentScore',
   'currentRsi',
   'currentReach',
-  'currentConv',
+  'currentEv',
   'currentPrice',
   'days',
   'reason'
@@ -93,7 +102,20 @@ const DISPLAYED_COLUMNS = [
 })
 export class GfHomeAnalyticsComponent implements OnInit {
   protected readonly dataSource = new MatTableDataSource<SignalLogEntry>([]);
-  protected days = 30;
+  /**
+   * `null` means the whole history, and it is now the default.
+   *
+   * This was a hard-coded 30. The log always kept older signals; the dashboard
+   * simply never asked for them, so a real call the engine made in June looked
+   * from here as though it had never happened.
+   */
+  protected days: number | null = null;
+  protected readonly periodOptions: { days: number | null; label: string }[] = [
+    { days: 30, label: '30D' },
+    { days: 90, label: '90D' },
+    { days: 365, label: '1Y' },
+    { days: null, label: 'All' }
+  ];
   protected readonly displayedColumns = DISPLAYED_COLUMNS;
   protected entries: SignalLogEntry[] = [];
   protected readonly headerRow1 = HEADER_ROW_1;
@@ -131,14 +153,14 @@ export class GfHomeAnalyticsComponent implements OnInit {
           return entry.category ?? '';
         case 'reach':
           return entry.reachProbability ?? -1;
-        case 'conv':
-          return entry.conviction ?? -Infinity;
+        case 'ev':
+          return entry.expectedValue ?? -Infinity;
         case 'price':
           return entry.livePrice ?? -1;
         case 'currentReach':
           return entry.currentReachProbability ?? -1;
-        case 'currentConv':
-          return entry.currentConviction ?? -Infinity;
+        case 'currentEv':
+          return entry.currentExpectedValue ?? -Infinity;
         case 'currentPrice':
           return entry.currentPrice ?? -1;
         case 'days':
@@ -178,11 +200,14 @@ export class GfHomeAnalyticsComponent implements OnInit {
     let entries = this.entries;
 
     if (this.selectedCategory) {
+      // Chips come from the server's bucketing, which files REVERSAL / LEADER /
+      // LEADER_GATED / TT8 under their signalType rather than their raw
+      // category. Matching on category alone left every one of those chips
+      // filtering to an empty table.
       entries = entries.filter(
         (entry) =>
           entry.category === this.selectedCategory ||
-          (this.selectedCategory === 'REVERSAL' &&
-            entry.signalType === 'REVERSAL')
+          entry.signalType === this.selectedCategory
       );
     }
 
@@ -212,6 +237,11 @@ export class GfHomeAnalyticsComponent implements OnInit {
     });
   }
 
+  protected onSelectPeriod(days: number | null) {
+    this.days = days;
+    this.load();
+  }
+
   protected onRefresh() {
     this.load();
   }
@@ -237,7 +267,7 @@ export class GfHomeAnalyticsComponent implements OnInit {
     this.isLoading = true;
 
     this.dataService
-      .fetchSignalLog({ days: this.days })
+      .fetchSignalLog(this.days == null ? {} : { days: this.days })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((response: SignalLogResponse) => {
         this.entries = response.entries;

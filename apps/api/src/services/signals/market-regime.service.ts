@@ -83,6 +83,73 @@ export function isMonthlyPlanDue({
   return dayOfMonth >= 25 && lastSentMonth !== currentMonth;
 }
 
+/**
+ * The most recent leader-screen slot that has already passed: the latest
+ * weekday at `hour:minute` local time at or before `now`.
+ *
+ * The screen runs after the US close so the day's bar — and the breakout
+ * volume that confirms it — is final. Weekends are skipped, so a Sunday boot
+ * resolves back to Friday evening's slot.
+ */
+export function lastLeaderScreenSlot({
+  hour,
+  minute,
+  now
+}: {
+  hour: number;
+  minute: number;
+  now: Date;
+}): Date {
+  const slot = new Date(now);
+  slot.setHours(hour, minute, 0, 0);
+
+  if (slot > now) {
+    slot.setDate(slot.getDate() - 1);
+  }
+
+  // 0 = Sunday, 6 = Saturday.
+  while (slot.getDay() === 0 || slot.getDay() === 6) {
+    slot.setDate(slot.getDate() - 1);
+  }
+
+  return slot;
+}
+
+/**
+ * Whether the leader screen still owes a run, i.e. the most recent slot has
+ * passed and nothing has run since.
+ *
+ * This is what makes the screen survive a machine that is not awake at 22:40.
+ * A `@nestjs/schedule` cron does not catch up — a firing missed because the
+ * laptop was asleep or the dev server was stopped is simply lost, which is
+ * why the evening alert had never once fired. Running it late costs nothing:
+ * the previous US close is final, and final is all the screen wants.
+ */
+export function isLeaderScreenDue({
+  hour,
+  lastRunAt,
+  minute,
+  now
+}: {
+  hour: number;
+  /** ISO timestamp of the last completed run, or undefined when never run. */
+  lastRunAt?: string;
+  minute: number;
+  now: Date;
+}): boolean {
+  if (!lastRunAt) {
+    return true;
+  }
+
+  const lastRun = new Date(lastRunAt);
+
+  if (Number.isNaN(lastRun.getTime())) {
+    return true;
+  }
+
+  return lastRun < lastLeaderScreenSlot({ hour, minute, now });
+}
+
 @Injectable()
 export class MarketRegimeService {
   private readonly logger = new Logger(MarketRegimeService.name);

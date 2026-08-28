@@ -14,10 +14,37 @@
         </button>
       </div>
 
-      <p class="text-muted small mb-4" i18n>
-        Every triggered signal over the last {{ days }} days, with the exact
-        numbers behind it. Metric headers link to definitions in the
-        <a [routerLink]="['/home', 'metrics']">Metrics</a> tab.
+      <div class="btn-group mb-2" role="group">
+        @for (period of periodOptions; track period.label) {
+          <button
+            class="btn btn-sm"
+            type="button"
+            [class.btn-outline-secondary]="days !== period.days"
+            [class.btn-primary]="days === period.days"
+            (click)="onSelectPeriod(period.days)"
+          >
+            {{ period.label }}
+          </button>
+        }
+      </div>
+
+      <p class="text-muted small mb-4">
+        @if (days) {
+          <ng-container i18n
+            >Every triggered signal over the last {{ days }} days, with the
+            exact numbers behind it.</ng-container
+          >
+        } @else {
+          <ng-container i18n
+            >Every triggered signal the engine has ever logged, with the exact
+            numbers behind it.</ng-container
+          >
+        }
+        <ng-container i18n
+          >Metric headers link to definitions in the</ng-container
+        >
+        <a [routerLink]="['/home', 'metrics']">Metrics</a>
+        <span i18n>tab.</span>
       </p>
 
       <gf-ticker-search
@@ -281,7 +308,7 @@
                 </td>
               </ng-container>
 
-              <ng-container matColumnDef="conv">
+              <ng-container matColumnDef="ev">
                 <th
                   *matHeaderCellDef
                   class="text-end"
@@ -289,16 +316,16 @@
                   mat-sort-header
                 >
                   <a
-                    fragment="metric-conviction"
+                    fragment="metric-expected-value"
                     i18n
                     [routerLink]="['/home', 'metrics']"
-                    >Conv.</a
+                    >EV</a
                   >
                 </th>
                 <td *matCellDef="let entry" class="text-end" mat-cell>
                   {{
-                    entry.conviction != null
-                      ? (entry.conviction | number: '1.0-0')
+                    entry.expectedValue != null
+                      ? (entry.expectedValue | percent: '1.1-1')
                       : '—'
                   }}
                 </td>
@@ -380,7 +407,7 @@
                 </td>
               </ng-container>
 
-              <ng-container matColumnDef="currentConv">
+              <ng-container matColumnDef="currentEv">
                 <th
                   *matHeaderCellDef
                   class="text-end"
@@ -388,12 +415,12 @@
                   mat-header-cell
                   mat-sort-header
                 >
-                  Conv.
+                  EV
                 </th>
                 <td *matCellDef="let entry" class="text-end" mat-cell>
                   {{
-                    entry.currentConviction != null
-                      ? (entry.currentConviction | number: '1.0-0')
+                    entry.currentExpectedValue != null
+                      ? (entry.currentExpectedValue | percent: '1.1-1')
                       : '—'
                   }}
                 </td>

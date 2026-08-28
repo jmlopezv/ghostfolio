@@ -1,9 +1,23 @@
+import {
+  SIGNAL_TREND_TEMPLATE_MAX_BELOW_HIGH_PCT,
+  SIGNAL_TREND_TEMPLATE_MIN_ABOVE_LOW_PCT,
+  SIGNAL_TREND_TEMPLATE_MIN_RS,
+  SIGNAL_TREND_TEMPLATE_SMA200_RISING_DAYS,
+  SIGNAL_VCP_BREAKOUT_VOLUME_RATIO,
+  SIGNAL_VCP_MAX_DRYUP_RATIO
+} from '@ghostfolio/common/config';
 import { DATE_FORMAT } from '@ghostfolio/common/helper';
 import {
   AdminMarketDataDetails,
   AssetDetailResponse,
-  LineChartItem
+  LineChartItem,
+  TrendTemplateSnapshot
 } from '@ghostfolio/common/interfaces';
+import {
+  toPerplexityFinanceUrl,
+  toTradingViewUrl,
+  toYahooFinanceProfileUrl
+} from '@ghostfolio/common/symbol-links';
 import { GfDialogFooterComponent } from '@ghostfolio/ui/dialog-footer';
 import { GfDialogHeaderComponent } from '@ghostfolio/ui/dialog-header';
 import { DataService } from '@ghostfolio/ui/services';
@@ -29,6 +43,7 @@ import { IonIcon } from '@ionic/angular/standalone';
 import { format } from 'date-fns';
 import { addIcons } from 'ionicons';
 import {
+  analyticsOutline,
   contractOutline,
   expandOutline,
   gridOutline,
@@ -86,6 +101,7 @@ export class GfBenchmarkDetailDialogComponent implements OnInit {
     @Inject(MAT_DIALOG_DATA) public data: BenchmarkDetailDialogParams
   ) {
     addIcons({
+      analyticsOutline,
       contractOutline,
       expandOutline,
       gridOutline,
@@ -174,6 +190,142 @@ export class GfBenchmarkDetailDialogComponent implements OnInit {
   /** The trailing 1-year % return, if known — a plain static label, no chart interaction. */
   public get oneYearReturnPct(): number | undefined {
     return this.detail?.returns?.find((r) => r.period === '1Y')?.pct;
+  }
+
+  /**
+   * TradingView symbol page for this asset, or null when there is none to link
+   * to — see `toTradingViewUrl`. Kept as a getter rather than a template
+   * expression because the exchange resolution is real logic, not formatting.
+   */
+  public get tradingViewUrl(): string | null {
+    return toTradingViewUrl({
+      dataSource: this.data.dataSource,
+      symbol: this.data.symbol
+    });
+  }
+
+  /** Yahoo Finance profile page, or null for a listing with no public page. */
+  public get yahooFinanceUrl(): string | null {
+    return toYahooFinanceProfileUrl({
+      dataSource: this.data.dataSource,
+      symbol: this.data.symbol
+    });
+  }
+
+  /** Perplexity Finance page, or null for a listing with no public page. */
+  public get perplexityFinanceUrl(): string | null {
+    return toPerplexityFinanceUrl({
+      dataSource: this.data.dataSource,
+      symbol: this.data.symbol
+    });
+  }
+
+  public get trend(): TrendTemplateSnapshot | undefined {
+    return this.detail?.trendTemplate;
+  }
+
+  /**
+   * The 8 Trend Template criteria in Minervini's own order, each with the
+   * number it was decided on.
+   *
+   * The numbers are the point. A bare tick says a name passed; "303.97 >
+   * 285.40" says by how much, which is what separates a leader from something
+   * that scraped through and could fail tomorrow. Thresholds come from the
+   * shared config constants so the table can never drift from the engine.
+   */
+  public get trendCriteriaRows(): {
+    detail: string;
+    label: string;
+    ok: boolean;
+  }[] {
+    const trend = this.trend;
+
+    if (!trend) {
+      return [];
+    }
+
+    const { criteria, values } = trend;
+    const n = (value: number) => value.toFixed(2);
+
+    return [
+      {
+        detail: `${n(values.price)} vs ${n(values.sma50)} / ${n(values.sma150)} / ${n(values.sma200)}`,
+        label: $localize`Price above SMA50/150/200`,
+        ok: criteria.aboveAllMovingAverages
+      },
+      {
+        detail: `${n(values.sma150)} vs ${n(values.sma200)}`,
+        label: $localize`SMA150 above SMA200`,
+        ok: criteria.sma150AboveSma200
+      },
+      {
+        detail: $localize`${trend.sma200RisingDays} days rising (needs ${SIGNAL_TREND_TEMPLATE_SMA200_RISING_DAYS})`,
+        label: $localize`SMA200 trending up`,
+        ok: criteria.sma200Rising
+      },
+      {
+        detail: `${n(values.sma50)} > ${n(values.sma150)} > ${n(values.sma200)}`,
+        label: $localize`Moving averages stacked`,
+        ok: criteria.movingAveragesStacked
+      },
+      {
+        detail: `${n(values.price)} vs ${n(values.sma50)}`,
+        label: $localize`Price above SMA50`,
+        ok: criteria.aboveSma50
+      },
+      {
+        detail: $localize`+${(trend.aboveLowPct * 100).toFixed(1)}% (low ${n(values.low52)}, needs +${SIGNAL_TREND_TEMPLATE_MIN_ABOVE_LOW_PCT * 100}%)`,
+        label: $localize`Above the 52-week low`,
+        ok: criteria.above52WeekLow
+      },
+      {
+        detail: $localize`−${(trend.belowHighPct * 100).toFixed(1)}% (high ${n(values.high52)}, allows −${SIGNAL_TREND_TEMPLATE_MAX_BELOW_HIGH_PCT * 100}%)`,
+        label: $localize`Near the 52-week high`,
+        ok: criteria.near52WeekHigh
+      },
+      {
+        detail:
+          trend.rsRank === null
+            ? $localize`unranked — universe too small to rank`
+            : $localize`${trend.rsRank} (needs ${SIGNAL_TREND_TEMPLATE_MIN_RS})`,
+        label: $localize`Relative strength rank`,
+        ok: criteria.relativeStrength
+      }
+    ];
+  }
+
+  /**
+   * The two volume tests, which are a matched pair rather than one reading:
+   * supply has to dry up through the base, and demand has to show up on the
+   * breakout. A name can pass the first and fail the second — that is exactly
+   * what separates an unconfirmed AT_PIVOT from a BREAKOUT.
+   */
+  public get trendVolumeRows(): {
+    detail: string;
+    label: string;
+    ok: boolean;
+    value: string;
+  }[] {
+    const vcp = this.trend?.vcp;
+
+    if (!vcp) {
+      return [];
+    }
+
+    return [
+      {
+        detail: $localize`needs ≤ ${SIGNAL_VCP_MAX_DRYUP_RATIO}× — sellers exhausted`,
+        label: $localize`Dry-up (final contraction)`,
+        ok: vcp.dryUpRatio <= SIGNAL_VCP_MAX_DRYUP_RATIO,
+        value: `${vcp.dryUpRatio.toFixed(2)}×`
+      },
+      {
+        detail: $localize`needs ≥ ${SIGNAL_VCP_BREAKOUT_VOLUME_RATIO}× — demand confirms`,
+        label: $localize`Breakout volume (latest bar)`,
+        ok: vcp.breakoutVolumeRatio >= SIGNAL_VCP_BREAKOUT_VOLUME_RATIO,
+        value: `${vcp.breakoutVolumeRatio.toFixed(2)}×`
+      }
+    ];
   }
 
   /**

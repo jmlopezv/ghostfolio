@@ -25,6 +25,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatDialog } from '@angular/material/dialog';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { DeviceDetectorService } from 'ngx-device-detector';
 import { forkJoin, timer } from 'rxjs';
@@ -42,6 +43,7 @@ const WATCHLIST_METRICS_REFRESH_MS = 30 * 60 * 1000;
     GfFabComponent,
     GfPremiumIndicatorComponent,
     GfTickerSearchComponent,
+    MatSnackBarModule,
     RouterModule
   ],
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
@@ -54,6 +56,7 @@ export class GfHomeWatchlistComponent implements OnInit {
   protected hasImpersonationId: boolean;
   protected hasPermissionToCreateWatchlistItem: boolean;
   protected hasPermissionToDeleteWatchlistItem: boolean;
+  protected isSendingLeaderScreen = false;
   protected searchTerm = '';
   protected user: User;
   protected watchlist: Benchmark[];
@@ -67,6 +70,7 @@ export class GfHomeWatchlistComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly deviceDetectorService = inject(DeviceDetectorService);
   private readonly dialog = inject(MatDialog);
+  private readonly snackBar = inject(MatSnackBar);
   private readonly impersonationStorageService = inject(
     ImpersonationStorageService
   );
@@ -196,6 +200,50 @@ export class GfHomeWatchlistComponent implements OnInit {
       .subscribe({
         next: () => {
           return this.loadWatchlistData();
+        }
+      });
+  }
+
+  /**
+   * Runs the leader screen on demand and reports the outcome.
+   *
+   * The scheduled screen runs at 22:40 on weekday evenings, which a machine
+   * that is asleep or a dev server that is stopped simply misses — crons do not
+   * catch up. This is the manual path. The snackbar always states a result,
+   * including zero, because a silent alert and a broken alert are otherwise
+   * indistinguishable.
+   */
+  protected onSendLeaderScreen() {
+    if (this.isSendingLeaderScreen) {
+      return;
+    }
+
+    this.isSendingLeaderScreen = true;
+    this.changeDetectorRef.markForCheck();
+
+    this.dataService
+      .sendLeaderScreen()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        error: () => {
+          this.isSendingLeaderScreen = false;
+          this.snackBar.open(
+            $localize`Leader screen failed - check the API log`,
+            undefined,
+            { duration: 5000 }
+          );
+          this.changeDetectorRef.markForCheck();
+        },
+        next: ({ sent }) => {
+          this.isSendingLeaderScreen = false;
+          this.snackBar.open(
+            sent > 0
+              ? $localize`${sent} breakout(s) sent to Telegram`
+              : $localize`No new breakouts today`,
+            undefined,
+            { duration: 5000 }
+          );
+          this.changeDetectorRef.markForCheck();
         }
       });
   }

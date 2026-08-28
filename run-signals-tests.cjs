@@ -48,3 +48,11 @@ require('./dist-test-signals/apps/api/src/services/signals/screening.service.spe
 require('./dist-test-signals/apps/api/src/services/signals/simulation-performance.spec.js');
 require('./dist-test-signals/apps/api/src/services/signals/signal-trade-tracking.spec.js');
 require('./dist-test-signals/apps/api/src/app/endpoints/academy/academy.service.spec.js');
+require('./dist-test-signals/apps/api/src/services/signals/cross-sectional.service.spec.js');
+require('./dist-test-signals/apps/api/src/services/signals/leader-screen.service.spec.js');
+require('./dist-test-signals/apps/api/src/services/signals/ohlc-bar.service.spec.js');
+require('./dist-test-signals/libs/common/src/lib/nordnet-fees.spec.js');
+require('./dist-test-signals/libs/common/src/lib/tradingview.spec.js');
+require('./dist-test-signals/libs/common/src/lib/symbol-links.spec.js');
+require('./dist-test-signals/libs/common/src/lib/sectors.spec.js');
+require('./dist-test-signals/libs/common/src/lib/index-constituents.spec.js');

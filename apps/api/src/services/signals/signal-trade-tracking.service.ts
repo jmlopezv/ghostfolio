@@ -8,10 +8,14 @@ import {
   SIGNAL_INTRADAY_MIN_BARS,
   SIGNAL_INTRADAY_TRAIL_VOL_MULT,
   SIGNAL_STOP_VOL_MULT,
+  SIGNAL_TAG_PROVENANCE_BET,
+  SIGNAL_TAG_PROVENANCE_DIP,
+  SIGNAL_TAG_PROVENANCE_LEADER,
   SIGNAL_TAKE_PROFIT_FLOOR_PCT,
   SIGNAL_TAKE_PROFIT_VOL_MULT,
   SIGNAL_TRACKED_TRADE_LOOKBACK_DAYS,
-  SIGNAL_TRACKED_TRADE_MAX_MATCH_GAP_DAYS
+  SIGNAL_TRACKED_TRADE_MAX_MATCH_GAP_DAYS,
+  SIGNAL_TYPE_UNTAGGED
 } from '@ghostfolio/common/config';
 
 import { Injectable, Logger } from '@nestjs/common';
@@ -28,6 +32,8 @@ export interface TrackedMetrics {
   realBuyDate: string;
   realBuyPrice: number;
   trackedAlertedAt?: string;
+  /** Price the exit fired at. Absent on exits recorded before 2026-08-27. */
+  trackedExitPrice?: number;
   trackedOrderId: string;
   trackedPeakPrice?: number;
   trackedStatus: TrackedStatus;
@@ -66,6 +72,10 @@ export function readTrackedMetrics(
       typeof candidate.trackedAlertedAt === 'string'
         ? candidate.trackedAlertedAt
         : undefined,
+    trackedExitPrice:
+      typeof candidate.trackedExitPrice === 'number'
+        ? candidate.trackedExitPrice
+        : undefined,
     trackedOrderId: candidate.trackedOrderId,
     trackedPeakPrice:
       typeof candidate.trackedPeakPrice === 'number'
@@ -89,6 +99,30 @@ export function readTrackedMetrics(
 
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
+}
+
+/**
+ * The provenance tag on an order, which is the type of the position it opened.
+ *
+ * `SignalLog.signalType` describes a SIGNAL. A tracked position's type is a
+ * different question — where the decision to buy came from — and the answer
+ * lives on the order as a tag the user maintains. Conflating the two is what
+ * put BET positions inside the curve measuring the dip strategy.
+ *
+ * An order carrying several tags takes the first recognised provenance one, so
+ * unrelated tags (ACTIVE_TRADE and anything added later) cannot hijack it.
+ */
+export function provenanceTagOf(tags?: { name: string }[]): string {
+  const known: string[] = [
+    SIGNAL_TAG_PROVENANCE_DIP,
+    SIGNAL_TAG_PROVENANCE_LEADER,
+    SIGNAL_TAG_PROVENANCE_BET
+  ];
+
+  return (
+    tags?.map(({ name }) => name).find((name) => known.includes(name)) ??
+    SIGNAL_TYPE_UNTAGGED
+  );
 }
 
 /**
@@ -174,7 +208,13 @@ export class SignalTradeTrackingService {
         include: {
           SymbolProfile: {
             select: { dataSource: true, name: true, symbol: true }
-          }
+          },
+          // The provenance tag is the only authority on what kind of decision a
+          // purchase was. Without it the synthesised row below has to choose a
+          // type for itself, and every choice it has made has been wrong for
+          // some position — first DIP for everything, then MANUAL for
+          // everything. Being tracked and being a dip are unrelated facts.
+          tags: { select: { name: true } }
         },
         orderBy: { date: 'asc' },
         where: { date: { gte: since }, isDraft: false, type: 'BUY', userId }
@@ -321,7 +361,12 @@ export class SignalTradeTrackingService {
   }: {
     dataSource: DataSource;
     name: string | null;
-    order: { currency: string | null; date: Date; unitPrice: number };
+    order: {
+      currency: string | null;
+      date: Date;
+      tags?: { name: string }[];
+      unitPrice: number;
+    };
     symbol: string;
     userId: string;
   }) {
@@ -353,7 +398,13 @@ export class SignalTradeTrackingService {
         name,
         reason:
           'No engine signal fired close enough to this real purchase — target/stop computed fresh from your actual entry price.',
-        signalType: 'DIP',
+        // Read from the order's provenance tag, never chosen here. This row
+        // exists so the exit machinery has something to watch; it is not
+        // evidence that any strategy produced anything, and it is not this
+        // service's place to decide what kind of decision the purchase was.
+        // UNTAGGED marks a genuine gap in the record rather than inventing a
+        // strategy to fill it.
+        signalType: provenanceTagOf(order.tags),
         stopLoss,
         symbol,
         takeProfit,
@@ -414,6 +465,11 @@ export class SignalTradeTrackingService {
         await this.updateMetrics(log.id, log.metrics, {
           ...tracked,
           trackedAlertedAt: now,
+          // The price the exit actually fired at. Without it the Simulation
+          // has to reconstruct the exit from that day's close, which is close
+          // but not the same number — and there is no reason to guess at
+          // something we are holding in a variable right here.
+          trackedExitPrice: livePrice,
           trackedStatus: 'STOP_HIT'
         });
       } else {
@@ -531,6 +587,9 @@ export class SignalTradeTrackingService {
     await this.updateMetrics(log.id, log.metrics, {
       ...tracked,
       trackedAlertedAt: new Date().toISOString(),
+      // See the STOP_HIT branch: record what the exit actually fired at rather
+      // than leaving the Simulation to infer it from a daily close.
+      trackedExitPrice: livePrice,
       trackedPeakPrice: peak,
       trackedStatus: 'TRAILING_EXIT'
     });

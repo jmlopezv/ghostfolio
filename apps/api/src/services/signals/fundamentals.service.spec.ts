@@ -1,4 +1,7 @@
-import { FundamentalsService } from './fundamentals.service';
+import {
+  FundamentalsService,
+  normalizeForwardPE
+} from './fundamentals.service';
 
 describe('FundamentalsService', () => {
   let service: FundamentalsService;
@@ -81,6 +84,44 @@ describe('FundamentalsService', () => {
 
       expect(score).toBeLessThanOrEqual(100);
       expect(score).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('normalizeForwardPE', () => {
+    it('rescales a pence-denominated LSE multiple', () => {
+      // AZN.L reports 1065.22 for a real 10.7.
+      expect(normalizeForwardPE(1065.2203, 'GBp')).toBeCloseTo(10.65, 2);
+    });
+
+    it('leaves an LSE multiple that already arrived in pounds alone', () => {
+      // UKW.L and BBOX.L come through un-inflated despite the GBp label.
+      expect(normalizeForwardPE(9.48638, 'GBp')).toBeCloseTo(9.486, 3);
+      expect(normalizeForwardPE(16.7563, 'GBp')).toBeCloseTo(16.756, 3);
+    });
+
+    it('leaves a EUR-quoted LSE line alone', () => {
+      // MTLN.L lists in London but quotes in euros.
+      expect(normalizeForwardPE(9.321411, 'EUR')).toBeCloseTo(9.321, 3);
+    });
+
+    it('never rescales a non-GBp currency, however large the multiple', () => {
+      expect(normalizeForwardPE(180, 'USD')).toBe(180);
+      expect(normalizeForwardPE(180, 'SEK')).toBe(180);
+    });
+
+    it('discards rather than inventing a bargain out of a genuine 100x name', () => {
+      // 120x / 100 = 1.2x, which is not a cheap stock, it is a bad divide.
+      expect(normalizeForwardPE(120, 'GBp')).toBeNull();
+    });
+
+    it('passes through missing values', () => {
+      expect(normalizeForwardPE(null, 'GBp')).toBeNull();
+      expect(normalizeForwardPE(undefined, 'GBp')).toBeNull();
+      expect(normalizeForwardPE(12, null)).toBe(12);
+    });
+
+    it('leaves a negative multiple negative so the flat penalty still applies', () => {
+      expect(normalizeForwardPE(-5, 'GBp')).toBe(-5);
     });
   });
 });

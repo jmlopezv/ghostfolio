@@ -26,6 +26,14 @@
     "apps/api/src/services/signals/screening.service.spec.ts",
     "apps/api/src/services/signals/simulation-performance.spec.ts",
     "apps/api/src/services/signals/signal-trade-tracking.spec.ts",
-    "apps/api/src/app/endpoints/academy/academy.service.spec.ts"
+    "apps/api/src/app/endpoints/academy/academy.service.spec.ts",
+    "apps/api/src/services/signals/cross-sectional.service.spec.ts",
+    "apps/api/src/services/signals/leader-screen.service.spec.ts",
+    "apps/api/src/services/signals/ohlc-bar.service.spec.ts",
+    "libs/common/src/lib/nordnet-fees.spec.ts",
+    "libs/common/src/lib/tradingview.spec.ts",
+    "libs/common/src/lib/symbol-links.spec.ts",
+    "libs/common/src/lib/sectors.spec.ts",
+    "libs/common/src/lib/index-constituents.spec.ts"
   ]
 }

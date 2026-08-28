@@ -88,10 +88,7 @@ export interface SignalLogEntry {
   bearMarket: boolean;
   bollingerPctB?: number;
   category: string;
-  conviction?: number;
   createdAt: string;
-  /** Conviction recomputed from today's live metrics (for comparison against `conviction`). */
-  currentConviction?: number;
   currency?: string;
   /** Live price at read time (for comparison against `livePrice`). */
   currentPrice?: number;
@@ -104,7 +101,10 @@ export interface SignalLogEntry {
   dataSource: DataSource;
   /** Calendar days elapsed between `createdAt` and now. */
   daysSinceSignal?: number;
+  /** Expected value at fire time, as a fraction (see StrategiesService.expectedValue). */
   expectedValue?: number;
+  /** Expected value recomputed from today's live metrics (for comparison against `expectedValue`). */
+  currentExpectedValue?: number;
   forecastLower?: number;
   forecastUpper?: number;
   id: string;
@@ -128,7 +128,8 @@ export interface SignalLogEntry {
 export interface WatchlistMetric {
   annualVol?: number;
   bollingerPctB?: number;
-  conviction?: number;
+  /** Expected value per trade as a fraction: p × target − (1 − p) × stop. */
+  expectedValue?: number;
   /** Ongoing annual fee % (ETFs: TER catalog; funds: Nordnet/Avanza). */
   feePct?: number;
   macdHistogram?: number;
@@ -144,6 +145,39 @@ export interface WatchlistMetric {
   /** Simple moving averages of the close, for trend-at-a-glance columns. */
   sma50?: number;
   sma200?: number;
+
+  // --- Leader screening (Minervini). Research surface, not a buy trigger. ---
+  /** Cross-sectional relative-strength percentile (1-99) across the watchlist. */
+  rsRank?: number;
+  /** How many of the 8 Trend Template criteria pass right now. */
+  trendTemplatePasses?: number;
+  /** Number of tightening contractions detected in the current base. */
+  vcpContractions?: number;
+  /** Each contraction's depth as a %, oldest first (e.g. [18, 12, 6]). */
+  vcpDepthsPct?: number[];
+  /** Buy trigger: the high of the final, tightest contraction. */
+  vcpPivot?: number;
+  /** Distance from the pivot as a fraction; negative means still below it. */
+  vcpPivotDistancePct?: number;
+  /** Latest volume as a multiple of the 50-day average. */
+  vcpVolumeRatio?: number;
+  /**
+   * Mean volume across the FINAL contraction as a multiple of the 50-day
+   * average; <= 0.85 to qualify. Set only when the VCP is valid — the detector
+   * reports 0 for a rejected base, and a rendered 0 is indistinguishable from
+   * "extremely dry" when it actually means "never measured".
+   */
+  vcpDryUpRatio?: number;
+  /**
+   * BREAKOUT        - through the pivot on >=1.4x volume.
+   * AT_PIVOT        - within 2% BELOW the pivot, coiled.
+   * FAILED_BREAKOUT - above the pivot, but volume never confirmed it.
+   * FORMING         - a valid contraction sequence, price not at the pivot yet.
+   * null            - no valid VCP (see vcpRejectedReason).
+   */
+  vcpStatus?: 'AT_PIVOT' | 'BREAKOUT' | 'FAILED_BREAKOUT' | 'FORMING';
+  /** Why no valid VCP was found — shown as a tooltip rather than a blank cell. */
+  vcpRejectedReason?: string;
 }
 
 export interface WatchlistMetricsResponse {
@@ -155,8 +189,8 @@ export interface SimulatedTrade {
   assumedNotionalUsd: number;
   buyDate: string;
   buyPrice: number;
-  /** Conviction (0-100) computed at BUY time (the SignalLog row's `conviction`). */
-  convictionAtBuy?: number;
+  /** Expected value (fraction) computed at BUY time (the SignalLog row's `expectedValue`). */
+  expectedValueAtBuy?: number;
   currency?: string;
   /** Live price at read time — OPEN trades only, lets the UI show where price sits between stopLoss and takeProfit. */
   currentPrice?: number;
@@ -184,11 +218,37 @@ export interface SimulatedTrade {
   scoreAtBuy?: number;
   sellDate?: string;
   sellPrice?: number;
-  /** BUY archetype the trade opened under (DIP = uptrend dip, REVERSAL = bear-market). */
-  signalType: 'DIP' | 'REVERSAL';
+  /**
+   * BUY archetype the trade opened under.
+   *
+   * DIP / REVERSAL   - the measured engine (uptrend dip, bear-market reversal).
+   * LEADER           - any alerted Minervini VCP breakout.
+   * LEADER_GATED     - a breakout that also cleared healthy market + RS >= 90.
+   * TT8              - a Trend Template 8/8 name the user actually bought.
+   */
+  signalType:
+    | 'BET'
+    | 'DIP'
+    | 'LEADER'
+    | 'LEADER_GATED'
+    | 'REVERSAL'
+    | 'TT8'
+    | 'UNTAGGED';
   /** Downside exit level set at BUY time (the SignalLog row's `stopLoss`). */
   stopLoss?: number;
-  status: 'CLOSED' | 'OPEN';
+  /**
+   * How far this signal has got, as four distinct facts:
+   *
+   *   OPEN    - the signal fired and nothing was bought.
+   *   BOUGHT  - a real purchase is linked to it.
+   *   CLOSED  - the engine signalled an exit; the position is still held.
+   *   SOLD    - a real sale happened, whether or not a signal asked for it.
+   *
+   * CLOSED and SOLD are deliberately different. The engine recommending a sale
+   * and the user making one are separate events, and the two-state model this
+   * replaced could not express "told to sell, chose to hold".
+   */
+  status: 'BOUGHT' | 'CLOSED' | 'OPEN' | 'SOLD';
   symbol: string;
   /** Upside target price set at BUY time (the SignalLog row's `takeProfit`). */
   takeProfit?: number;
@@ -220,6 +280,27 @@ export interface SimulationSummary {
   reversalAvgNetReturnPct?: number;
   reversalClosedTrades?: number;
   reversalWinRate?: number;
+  /**
+   * LEADER breakdown, reported separately and DELIBERATELY EXCLUDED from the
+   * headline `avgNetReturnPct` / `winRate` / `closedTrades` above.
+   *
+   * The two strategies are not comparable: DIP/REVERSAL buy weakness with a
+   * volatility-scaled exit, LEADER buys strength with a flat 7.5% stop and no
+   * take-profit. Blending them would silently redefine what the headline
+   * numbers have meant since the engine started, and would do it at the exact
+   * moment the LEADER sample is smallest and noisiest.
+   */
+  leaderAvgNetReturnPct?: number;
+  leaderClosedTrades?: number;
+  leaderWinRate?: number;
+  /** Breakouts that also cleared the healthy-market + RS>=90 gate. */
+  leaderGatedAvgNetReturnPct?: number;
+  leaderGatedClosedTrades?: number;
+  leaderGatedWinRate?: number;
+  /** Trend Template 8/8 names actually bought — real positions only. */
+  tt8AvgNetReturnPct?: number;
+  tt8ClosedTrades?: number;
+  tt8WinRate?: number;
 }
 
 /** A trailing-return readout period, from "as of today" out to 1 year back. */
@@ -258,16 +339,124 @@ export interface SimulationResponse {
    */
   dipSeries: LineChartItem[];
   generatedAt: string;
+  /**
+   * Same shape as dipSeries, filtered to LEADER (Minervini VCP breakout)
+   * trades. Recorded forward-only from the first alerted breakout, so it is
+   * empty until one fires and stays sparse while the sample builds — there is
+   * no backfilled history behind this line.
+   */
+  leaderSeries: LineChartItem[];
+  /**
+   * Same, restricted to breakouts that also cleared healthy market + RS >= 90.
+   * Roughly 11 events a year historically, so this line is deliberately sparse.
+   */
+  leaderGatedSeries: LineChartItem[];
+  /**
+   * Trend Template 8/8 positions the user actually opened.
+   *
+   * NOT every 8/8 entrant: at ~3.9 qualifying entrants a day, auto-logging them
+   * would be ~1,000 lots a year — an equal-weight index of the screen rather
+   * than a strategy, and it would swamp every other curve. Entrant alerts are
+   * logged under category 'WATCH', which computeSimulation never reads. This
+   * line exists only once a real purchase is recorded.
+   */
+  tt8Series: LineChartItem[];
   /** Same shape as dipSeries, filtered to REVERSAL (bear-market) trades. */
   reversalSeries: LineChartItem[];
   summary: SimulationSummary;
   /** Closed + open trades, newest buyDate first. */
   trades: SimulatedTrade[];
   /**
-   * Same shape as dipSeries, filtered to real tracked positions (see
-   * SignalTradeTrackingService) — how the user's own tracked buys are doing.
+   * Every Trend Template entrant the engine has ALERTED, from the alert price.
+   *
+   * The running record of what was recommended, as opposed to tt8Series, which
+   * is the far shorter list of entrants actually bought. Built from category
+   * 'WATCH' rows, so it answers "was the shortlist any good?" independently of
+   * whether the user acted on it. Never exits.
+   */
+  watchLeaderSeries: LineChartItem[];
+  /**
+   * The real portfolio's stock and ETF positions, FIFO-reconstructed from
+   * activities and equal-weighted like every other line here.
+   *
+   * NOT the account's actual performance — that is what Overview and Holdings
+   * report. This treats every position as the same size so it can be compared
+   * with the hypothetical signal lines, which is the only question this chart
+   * exists to answer. Funds are excluded: they are the buy-and-hold core.
    */
   trackedSeries: LineChartItem[];
+  /** trackedSeries restricted to positions tagged BET — the user's own calls. */
+  trackedBetSeries: LineChartItem[];
+  /** trackedSeries restricted to positions tagged DIP — bought off a dip signal. */
+  trackedDipSeries: LineChartItem[];
+  /** trackedSeries restricted to positions tagged LEADER — bought off the screen. */
+  trackedLeaderSeries: LineChartItem[];
+  /** One row per real open position, for the table under the chart. */
+  trackedPositions: TrackedPosition[];
+  /** Every exit the engine actually signalled, for the chart's markers. */
+  exitMarkers: SignalExitMarker[];
+}
+
+/**
+ * A sell the engine told the user to take.
+ *
+ * These are the events the Simulation chart marks on the strategy lines. They
+ * come from `SignalTradeTrackingService`'s terminal statuses, not from SELL
+ * rows — the engine has never written one.
+ */
+export interface SignalExitMarker {
+  /** ISO date the exit alert fired. */
+  date: string;
+  entryPrice: number;
+  exitPrice: number;
+  holdingDays: number;
+  name?: string;
+  /** Return net of the round-trip commission, in percent. */
+  netReturnPct: number;
+  /**
+   * True when the exit price was inferred from the stored daily close because
+   * the tracker did not record it. Shown to the reader — an inferred number
+   * must never be presented as a recorded one.
+   */
+  reconstructed: boolean;
+  /** Which strategy line this marker belongs on. */
+  signalType: string;
+  /** STOP_HIT or TRAILING_EXIT. */
+  status: string;
+  symbol: string;
+  /**
+   * The date a real sale actually happened, if one did.
+   *
+   * Deliberately separate from `date`, which is when the engine ASKED. The two
+   * are different events — AMZN was signalled on 2026-08-03 and never sold — and
+   * collapsing them was hiding the single most interesting fact on this table:
+   * whether the advice was taken.
+   */
+  soldDate?: string;
+  /** Realised return on the actual sale, net of both real commissions. */
+  soldNetReturnPct?: number;
+  soldPrice?: number;
+}
+
+/** A real, still-open position — what was paid, where it is, where it is going. */
+export interface TrackedPosition {
+  currency?: string;
+  currentPrice?: number;
+  entryDate: string;
+  entryPrice: number;
+  name?: string;
+  netReturnPct?: number;
+  /** Where this position came from: BET, DIP or LEADER. */
+  provenance?: string;
+  quantity: number;
+  symbol: string;
+  /**
+   * Hand-set target where one exists, otherwise the engine's own take-profit.
+   * Absent for ETFs, which have no single thesis price.
+   */
+  targetPrice?: number;
+  /** Distance from the live price to the target, as a percentage. */
+  toTargetPct?: number;
 }
 
 export interface SignalLogResponse {
@@ -327,14 +516,14 @@ export interface BacktestTrade {
 
 export interface StrategyLeg {
   category: string | null;
-  /** Conviction score 0-100 (solid × likely); absent for the index/fund leg. */
-  conviction?: number;
   cost: number;
+  /** Expected value per trade as a fraction — the key legs are ranked by. Absent for the index/fund leg. */
+  expectedValue?: number;
   fee: number;
   /** Probability [0-1] of a worthwhile gain over the horizon (the "why"). */
   hitProbability?: number;
   name: string;
-  /** One-line explanation of the pick (conviction, probability, indicators). */
+  /** One-line explanation of the pick (expected value, probability, indicators). */
   rationale?: string;
   shares: number;
   symbol: string;
@@ -544,6 +733,11 @@ export interface AssetDetailResponse {
   sectors: { name: string; weight: number }[];
   styleBox?: AssetStyleBox;
   symbol: string;
+  /**
+   * Minervini Trend Template + current base. Absent for anything without
+   * persisted OHLC bars (MANUAL funds) or with less than ~a year of history.
+   */
+  trendTemplate?: TrendTemplateSnapshot;
 }
 
 export interface BacktestSummary {
@@ -608,4 +802,153 @@ export interface BacktestResult {
   trades: BacktestTrade[];
   trailingExits: number;
   winRate: number;
+}
+
+/**
+ * One name that passes the Minervini leader screen, with everything needed to
+ * judge it by hand.
+ *
+ * Explicitly a *shortlist entry*, not a buy instruction. The 2026-08-21 event
+ * study found breakout entries did not beat the universe base rate at 21/63/126
+ * days, so these are surfaced for judgement rather than fired as signals — see
+ * docs/TRADING_SIGNALS.md §0.3b.
+ */
+/**
+ * One name on the Trend Template shortlist.
+ *
+ * The shortlist is a QUALITY filter, not a timing signal, and the distinction
+ * is measured rather than stylistic: Trend Template 8/8 beats the universe base
+ * rate by +2.49pp at 126 days (t=24.14, n=116,555), while buying at the VCP
+ * pivot does not beat it at any horizon. So this carries no pivot distance and
+ * is never ordered by one — ranking on proximity would rebuild the entry the
+ * event study rejected. See docs/TRADING_SIGNALS.md §0.3b-bis.
+ */
+export interface ShortlistEntry {
+  /** How far below the 52-week high, as a fraction. Context, not a rank key. */
+  belowHighPct: number;
+  currency?: string;
+  dataSource: DataSource;
+  name?: string;
+  /** Sector/category the peer rank is computed within. */
+  peerGroup?: string;
+  /** 1-99 percentile of the GROUP against other groups (IBD's "L"). */
+  peerGroupPercentile?: number;
+  /** Position inside the peer group, 1 = strongest. */
+  peerRank?: number;
+  peerSize?: number;
+  price: number;
+  /** Cross-sectional relative-strength percentile, 1-99. */
+  rsRank?: number;
+  /** 3-month direction of the peer group as a whole. */
+  sectorTailwind?: 'RISING' | 'FALLING' | 'MIXED';
+  symbol: string;
+  /** Present only when the name also happens to have a valid base. */
+  vcpStatus?: 'AT_PIVOT' | 'BREAKOUT' | 'FAILED_BREAKOUT' | 'FORMING';
+}
+
+export interface ShortlistResponse {
+  /** Market direction at the time of the run; null when unavailable. */
+  breadth?: {
+    breadth: number;
+    healthy: boolean;
+    total: number;
+  };
+  entries: ShortlistEntry[];
+  /** How many names were evaluated, so an empty list is legible. */
+  evaluated: number;
+  generatedAt: string;
+}
+
+export interface LeaderCandidate {
+  /** ATR(14) as a fraction of price — how much daily noise a stop must survive. */
+  atrPct?: number;
+  currency?: string;
+  dataSource: DataSource;
+  /** Average daily dollar volume over 50 days; the liquidity check. */
+  dollarVolume?: number;
+  name?: string;
+  price: number;
+  /** Suggested position size in the base currency. */
+  positionSize?: number;
+  /** Cross-sectional relative-strength percentile, 1-99. */
+  rsRank?: number;
+  /** Minervini's maximum: 7-8% below entry. */
+  stopPrice?: number;
+  symbol: string;
+  /** Which of the 8 Trend Template criteria pass, by name. */
+  trendCriteria: Record<string, boolean>;
+  trendPasses: number;
+  vcpContractionsPct?: number[];
+  vcpPivot?: number;
+  vcpPivotDistancePct?: number;
+  /** FAILED_BREAKOUT = above the pivot but volume never confirmed it. */
+  vcpStatus?: 'AT_PIVOT' | 'BREAKOUT' | 'FAILED_BREAKOUT' | 'FORMING';
+  vcpVolumeRatio?: number;
+  /** Final-contraction volume vs the 50-day average; <= 0.85 to qualify. */
+  vcpDryUpRatio?: number;
+  /** Non-price context reused from the existing pre-buy screen. */
+  analystTrend?: string;
+  daysToEarnings?: number;
+  sectorTailwind?: string;
+}
+
+/**
+ * Everything the ticker dialog's Trend tab renders: the 8 Trend Template
+ * criteria with the number each was decided on, plus the current base.
+ *
+ * Carried on AssetDetailResponse rather than passed through the dialog's params
+ * because the dialog is opened from four places (watchlist, Analytics,
+ * Correlation, Simulation) and only the watchlist has a metrics row to hand.
+ */
+export interface TrendTemplateSnapshot {
+  /** Distance above the 52-week low, as a fraction. */
+  aboveLowPct: number;
+  /** Distance below the 52-week high, as a fraction. */
+  belowHighPct: number;
+  /** The 8 criteria by name; keys match TrendTemplateResult['criteria']. */
+  criteria: Record<string, boolean>;
+  passCount: number;
+  /**
+   * Cross-sectional percentile, 1-99, or null when the universe was too small
+   * to rank. Null means UNRANKED, not weak — criterion 8 renders accordingly.
+   */
+  rsRank: number | null;
+  /** Consecutive days the SMA200 has been non-decreasing. */
+  sma200RisingDays: number;
+  /** The raw numbers behind each criterion. */
+  values: {
+    high52: number;
+    low52: number;
+    price: number;
+    sma50: number;
+    sma150: number;
+    sma200: number;
+  };
+  /** The current base, when one is valid. */
+  vcp?: {
+    baseDays: number;
+    breakoutVolumeRatio: number;
+    depthsPct: number[];
+    dryUpRatio: number;
+    pivot: number;
+    pivotDistancePct: number;
+    status: 'AT_PIVOT' | 'BREAKOUT' | 'FAILED_BREAKOUT' | 'FORMING';
+  };
+  /** Why no valid base was found, when there is none. */
+  vcpRejectedReason?: string;
+}
+
+export interface LeaderCandidatesResponse {
+  /** Market direction at the time of the run; null when unavailable. */
+  breadth?: {
+    breadth: number;
+    healthy: boolean;
+    total: number;
+  };
+  candidates: LeaderCandidate[];
+  /** How many names were evaluated, so an empty list is legible. */
+  evaluated: number;
+  generatedAt: string;
+  /** How many passed all 8 Trend Template criteria (before the VCP filter). */
+  trendPassCount: number;
 }

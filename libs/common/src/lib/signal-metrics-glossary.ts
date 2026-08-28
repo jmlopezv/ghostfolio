@@ -148,18 +148,7 @@ export const SIGNAL_METRIC_DEFINITIONS: SignalMetricDefinition[] = [
       'EV = p · targetGainPct − (1 − p) · stopLossPct\n' +
       'where p = reach probability',
     notes:
-      'Replaces score×probability (no double-count). Score is only an eligibility gate; EV decides the ranking. Often negative — which correctly suppresses weak buys.'
-  },
-  {
-    id: 'conviction',
-    label: 'Conviction (display)',
-    summary:
-      'A 0–100 rendering of expected value for the UI, plus small situational bonuses.',
-    formula:
-      'conviction = 50 + EV · 1000\n' +
-      '(+ buy-zone and recent-re-confirmation bonuses)',
-    notes:
-      '50 = break-even EV; > 50 = positive edge. A presentation of EV, not a separate model.'
+      'Score is only an eligibility gate; EV alone decides the ranking. Read it as an average outcome per trade: −28.7% means "over many repetitions this bet loses 28.7% of what you stake". Usually negative, because the engine risks 2σ to make 1.5σ — that needs a ~57% hit rate to break even, while the honest zero-drift probability is far lower. That is the model declining to invent edge, not a defect.'
   },
   {
     id: 'eligibility-gates',
@@ -193,7 +182,7 @@ export const SIGNAL_METRIC_DEFINITIONS: SignalMetricDefinition[] = [
       'score = 100 · Σ wᵢ·nᵢ  (re-normalized over whichever of the 4 inputs are available)\n' +
       'valuation (P/E) 0.30, quality (ROE) 0.25, growth (earnings) 0.25, analyst consensus 0.20',
     notes:
-      'Answers "is this a fundamentally sound business at a reasonable price," never "is this technically oversold right now" (that is the composite score). Not a BUY gate and not yet folded into conviction ranking — shown alongside the technical score for context. Fetched lazily (same population as the news gate) and cached 24h, since fundamentals move on an earnings cadence, not daily. Absent for most funds/ETFs and any name outside Yahoo coverage.'
+      'Answers "is this a fundamentally sound business at a reasonable price," never "is this technically oversold right now" (that is the composite score). Not a BUY gate and not yet folded into the EV ranking — shown alongside the technical score for context. Fetched lazily (same population as the news gate) and cached 24h, since fundamentals move on an earnings cadence, not daily. Absent for most funds/ETFs and any name outside Yahoo coverage.'
   },
   {
     id: 'buy-dip',
@@ -215,7 +204,7 @@ export const SIGNAL_METRIC_DEFINITIONS: SignalMetricDefinition[] = [
       'AND higher-low AND price ≥ SMA20\n' +
       'AND volume ≥ 1.3 × 20-day avg',
     notes:
-      'Tagged signalType = REVERSAL, bearMarket = true, labelled "⚠️ REVERSAL BUY". Still must clear EV/conviction + the vol cap — never auto-promoted for being cheap.'
+      'Tagged signalType = REVERSAL, bearMarket = true, labelled "⚠️ REVERSAL BUY". Still must clear EV + the vol cap — never auto-promoted for being cheap.'
   },
   {
     id: 'exit-machine',
@@ -227,7 +216,7 @@ export const SIGNAL_METRIC_DEFINITIONS: SignalMetricDefinition[] = [
       'TRAILING: price ≤ peak·(1−band) → SELL\n' +
       'hold-with-stop: price ≤ peak·(1 − 0.22) → SELL',
     notes:
-      'Core (non-active-trade) holdings are never sold by the engine. SELL reasons report net gain after the $10 round-trip fee.'
+      'Core (non-active-trade) holdings are never sold by the engine. SELL reasons report net gain after the real round-trip commission — max(0.25% × trade value, 9 SEK) per order on the Mini class, charged separately on the buy and the sell.'
   },
   {
     id: 'backtest-metrics',
@@ -242,5 +231,47 @@ export const SIGNAL_METRIC_DEFINITIONS: SignalMetricDefinition[] = [
       'edge = netReturn − benchmark(buy-and-hold)',
     notes:
       'Includes 10 bps/side slippage, an out-of-sample (last 30%) check, and a buy-and-hold benchmark. Honest finding: trading usually loses to holding — lean on the fund core.'
+  },
+  {
+    id: 'trend-template',
+    label: 'Trend Template (n/8)',
+    summary:
+      "Minervini's eight-part test for whether a stock is in a confirmed uptrend — a gate on structure, not a score.",
+    formula:
+      '1. price > SMA50, SMA150, SMA200\n' +
+      '2. SMA150 > SMA200\n' +
+      '3. SMA200 rising ≥ 21 sessions\n' +
+      '4. SMA50 > SMA150 > SMA200\n' +
+      '5. price > SMA50\n' +
+      '6. price ≥ 1.30 × low₅₂w\n' +
+      '7. price ≥ 0.75 × high₅₂w\n' +
+      '8. rsRank ≥ 70',
+    notes:
+      'Criterion 8 is cross-sectional: it comes from ranking the whole watchlist, so a name with no rank is UNRANKED rather than failed. The Trend Template runs the opposite sign to the composite score, which rewards low RSI and low %B — that is deliberate, see docs §0.3.'
+  },
+  {
+    id: 'vcp',
+    label: 'VCP (Volatility Contraction Pattern)',
+    summary:
+      'A base of successively tighter pullbacks, ending at a pivot — the buy trigger.',
+    formula:
+      'contraction depth = (peak − trough) / peak\n' +
+      'depths must shrink: e.g. 7.5% → 3.5% → 2.6%\n' +
+      'pivot = high of the FINAL contraction\n' +
+      'BREAKOUT ⟺ close > pivot AND breakoutRatio ≥ 1.40\n' +
+      'AT_PIVOT ⟺ |close − pivot| / pivot ≤ 0.02',
+    notes:
+      'Needs 3–6 contractions, a base of 20–60 sessions, and a final contraction no wider than 10%. AT_PIVOT tests price only and says nothing about volume — a name can sit at its pivot indefinitely without ever confirming. This is a quantitative proxy for a pattern traders read visually, so it will disagree with a human eye at the edges.'
+  },
+  {
+    id: 'vcp-volume',
+    label: 'VCP volume: dry-up and breakout',
+    summary:
+      'The two-phase volume signature — supply exhausting through the base, then demand confirming the breakout.',
+    formula:
+      'dryUpRatio    = meanVolume(final contraction) / avgVolume₅₀   ≤ 0.85\n' +
+      'breakoutRatio = volume(latest bar)            / avgVolume₅₀   ≥ 1.40',
+    notes:
+      'A matched pair, and both are required. Dry-up is a hard gate: a base whose final contraction trades above 0.85× average is rejected outright, so a valid VCP has already passed it. The breakout ratio then separates BREAKOUT from AT_PIVOT — identical structure, opposite verdict. The 1.40 threshold is Minervini\'s "40–50% above average". Volume is read as a proxy for institutional participation; that interpretation is conventional, not something this engine measures directly.'
   }
 ];

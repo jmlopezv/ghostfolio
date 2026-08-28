@@ -5,7 +5,9 @@ import {
 
 import {
   classifyRegime,
+  isLeaderScreenDue,
   isMonthlyPlanDue,
+  lastLeaderScreenSlot,
   regimeAdvice
 } from './market-regime.service';
 
@@ -90,5 +92,83 @@ describe('isMonthlyPlanDue', () => {
         lastSentMonth: '2026-07'
       })
     ).toBe(false);
+  });
+});
+
+describe('lastLeaderScreenSlot', () => {
+  // Local time throughout: the cron that this mirrors is local-time too.
+  const slot = (now: Date) =>
+    lastLeaderScreenSlot({ hour: 22, minute: 40, now });
+
+  it('returns today when the slot has already passed', () => {
+    // Monday 2026-08-24, 23:30 local -> that evening's 22:40.
+    const result = slot(new Date(2026, 7, 24, 23, 30));
+
+    expect(result.getDate()).toBe(24);
+    expect(result.getHours()).toBe(22);
+    expect(result.getMinutes()).toBe(40);
+  });
+
+  it('steps back a day when the slot has not arrived yet', () => {
+    // Monday 10:49 local - the exact time the API was found running with no
+    // screen ever having fired.
+    const result = slot(new Date(2026, 7, 24, 10, 49));
+
+    expect(result.getDate()).toBe(21);
+  });
+
+  it('skips the weekend back to Friday', () => {
+    // Sunday 2026-08-23, 12:00 local.
+    const result = slot(new Date(2026, 7, 23, 12, 0));
+
+    expect(result.getDate()).toBe(21);
+    expect(result.getDay()).toBe(5);
+  });
+
+  it('treats Saturday morning as Friday evening, not Saturday', () => {
+    const result = slot(new Date(2026, 7, 22, 9, 0));
+
+    expect(result.getDate()).toBe(21);
+  });
+});
+
+describe('isLeaderScreenDue', () => {
+  const due = (now: Date, lastRunAt?: string) =>
+    isLeaderScreenDue({ hour: 22, lastRunAt, minute: 40, now });
+
+  it('is due when the screen has never run', () => {
+    expect(due(new Date(2026, 7, 24, 10, 49))).toBe(true);
+  });
+
+  it('is due when the last run predates the most recent slot', () => {
+    // Booting Monday morning after Friday evening's slot was missed - the
+    // laptop-asleep case that made the alert silently never fire.
+    expect(
+      due(
+        new Date(2026, 7, 24, 10, 49),
+        new Date(2026, 7, 20, 22, 41).toISOString()
+      )
+    ).toBe(true);
+  });
+
+  it('is not due when the most recent slot has already been served', () => {
+    expect(
+      due(
+        new Date(2026, 7, 24, 10, 49),
+        new Date(2026, 7, 21, 22, 41).toISOString()
+      )
+    ).toBe(false);
+  });
+
+  it('does not re-run on a second restart minutes later', () => {
+    const firstRun = new Date(2026, 7, 24, 10, 50);
+
+    expect(due(new Date(2026, 7, 24, 10, 55), firstRun.toISOString())).toBe(
+      false
+    );
+  });
+
+  it('is due when the stored timestamp is unparseable', () => {
+    expect(due(new Date(2026, 7, 24, 10, 49), 'not-a-date')).toBe(true);
   });
 });

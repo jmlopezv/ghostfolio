@@ -2,6 +2,10 @@ import { SignalsService } from '@ghostfolio/api/services/signals/signals.service
 import {
   EVALUATE_TRADING_SIGNALS_PROCESS_JOB_NAME,
   FUND_SIGNALS_PROCESS_JOB_NAME,
+  LEADER_SCREEN_PROCESS_JOB_NAME,
+  OHLC_REFRESH_PROCESS_JOB_NAME,
+  SHORTLIST_PROCESS_JOB_NAME,
+  TT8_ENTRANTS_PROCESS_JOB_NAME,
   INTRADAY_TRAILING_CHECK_PROCESS_JOB_NAME,
   PORTFOLIO_REPORT_PROCESS_JOB_NAME,
   TRADING_SIGNALS_QUEUE
@@ -55,6 +59,54 @@ export class TradingSignalsProcessor {
       await this.signalsService.sendFundRecommendationsToAllUsers();
 
       this.logger.log('Weekly fund recommendation has been completed');
+    } catch (error) {
+      this.logger.error(error);
+
+      throw error;
+    }
+  }
+
+  @Process({ concurrency: 1, name: LEADER_SCREEN_PROCESS_JOB_NAME })
+  public async sendLeaderScreen() {
+    try {
+      this.logger.log('Daily leader screen has been started');
+
+      await this.signalsService.sendLeaderCandidatesToAllUsers();
+
+      this.logger.log('Daily leader screen has been completed');
+    } catch (error) {
+      this.logger.error(error);
+
+      throw error;
+    }
+  }
+
+  @Process({ concurrency: 1, name: TT8_ENTRANTS_PROCESS_JOB_NAME })
+  public async sendTrendTemplateEntrants() {
+    try {
+      await this.signalsService.sendTrendTemplateEntrantsIfDue();
+    } catch (error) {
+      this.logger.error(error);
+
+      throw error;
+    }
+  }
+
+  @Process({ concurrency: 1, name: OHLC_REFRESH_PROCESS_JOB_NAME })
+  public async refreshOhlcBars() {
+    try {
+      await this.signalsService.refreshOhlcBarsIfDue();
+    } catch (error) {
+      this.logger.error(error);
+
+      throw error;
+    }
+  }
+
+  @Process({ concurrency: 1, name: SHORTLIST_PROCESS_JOB_NAME })
+  public async sendShortlist() {
+    try {
+      await this.signalsService.sendShortlistIfDue();
     } catch (error) {
       this.logger.error(error);
 

@@ -9,11 +9,11 @@ export interface Benchmark {
   assetSubClass?: EnhancedSymbolProfile['assetSubClass'];
   /** Bollinger %B(20) (watchlist metrics). */
   bollingerPctB?: number;
-  /** Conviction (0-100, EV-based) (watchlist metrics). */
-  conviction?: number;
   /** Native currency of the asset (watchlist price column). */
   currency?: string;
   dataSource: EnhancedSymbolProfile['dataSource'];
+  /** Expected value per trade as a fraction: p × target − (1 − p) × stop (watchlist metrics). */
+  expectedValue?: number;
   /** Ongoing annual fee % (ETFs/funds; watchlist metrics). */
   feePct?: number;
   /** True when a BUY signal fired for this symbol in the last 30 days (watchlist). */

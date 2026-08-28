@@ -99,8 +99,18 @@ export class TelegramBotService {
   /**
    * Sends a message to the configured Telegram chat. Never throws: a failure to
    * notify must not break the surrounding cron / queue processing.
+   *
+   * `parseMode` defaults to Telegram's legacy 'Markdown', which every existing
+   * caller is written against. Pass 'HTML' for messages carrying links: legacy
+   * Markdown mis-parses an underscore inside a URL, and TradingView writes
+   * Nordic share classes with one (`ASSA-B.ST` -> `OMXSTO-ASSA_B`), so inline
+   * links would break on exactly the Nordic names. HTML also needs only
+   * `& < >` escaped rather than Markdown's much larger reserved set.
    */
-  public async sendMessage(text: string): Promise<void> {
+  public async sendMessage(
+    text: string,
+    parseMode: 'HTML' | 'Markdown' = 'Markdown'
+  ): Promise<void> {
     if (!this.isConfigured()) {
       this.logger.warn(
         'Telegram is not configured (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID missing) - skipping notification'
@@ -114,7 +124,7 @@ export class TelegramBotService {
     const payload = JSON.stringify({
       chat_id: chatId,
       disable_web_page_preview: true,
-      parse_mode: 'Markdown',
+      parse_mode: parseMode,
       text
     });
 
@@ -160,7 +170,26 @@ export class TelegramBotService {
 
         return;
       } catch (error) {
-        this.logger.error(error);
+        // A network-level throw (ECONNRESET / ENOTFOUND / connect timeout) is
+        // exactly the case worth retrying, and until now it was the one case
+        // that was not: this caught and returned, so the loop only ever
+        // retried HTTP 429. A two-second blip on a home connection therefore
+        // cost the whole message, silently, with nothing but a log line.
+        if (attempt < 3) {
+          this.logger.warn(
+            `Telegram send failed (attempt ${attempt}/3), retrying: ${
+              error?.message ?? error
+            }`
+          );
+
+          await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+
+          continue;
+        }
+
+        this.logger.error(
+          `Telegram send failed after 3 attempts: ${error?.message ?? error}`
+        );
 
         return;
       }

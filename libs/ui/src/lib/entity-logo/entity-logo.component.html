@@ -1,5 +1,8 @@
 @if (src) {
+  <!-- A watchlist renders hundreds of these at once and does not paginate, so
+       without lazy loading every off-screen row fetched immediately. -->
   <img
+    loading="lazy"
     onerror="this.style.display = 'none'"
     [class.large]="size === 'large'"
     [src]="src"
