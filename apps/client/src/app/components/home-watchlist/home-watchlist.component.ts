@@ -4,7 +4,8 @@ import { locale as defaultLocale } from '@ghostfolio/common/config';
 import {
   AssetProfileIdentifier,
   Benchmark,
-  User
+  User,
+  WatchlistMetric
 } from '@ghostfolio/common/interfaces';
 import { hasPermission, permissions } from '@ghostfolio/common/permissions';
 import { GfBenchmarkComponent } from '@ghostfolio/ui/benchmark';
@@ -28,13 +29,20 @@ import { MatDialog } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { DeviceDetectorService } from 'ngx-device-detector';
-import { forkJoin, timer } from 'rxjs';
+import { timer } from 'rxjs';
 
 import { GfCreateWatchlistItemDialogComponent } from './create-watchlist-item-dialog/create-watchlist-item-dialog.component';
 import { CreateWatchlistItemDialogParams } from './create-watchlist-item-dialog/interfaces/interfaces';
 
-/** Refresh the live watchlist metrics (score/RSI/reach/...) every 30 minutes. */
-const WATCHLIST_METRICS_REFRESH_MS = 30 * 60 * 1000;
+/**
+ * Refresh cadence for the watchlist and its metrics.
+ *
+ * Matched to the server's five-minute cache (WATCHLIST_ITEMS_CACHE_TTL and
+ * SIGNAL_WATCHLIST_METRICS_CACHE_TTL). At the previous 30 minutes the cache had
+ * always expired by the time the page asked again, so every visit paid a full
+ * cold rebuild and the cache never actually served anyone.
+ */
+const WATCHLIST_METRICS_REFRESH_MS = 5 * 60 * 1000;
 
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -60,6 +68,10 @@ export class GfHomeWatchlistComponent implements OnInit {
   protected searchTerm = '';
   protected user: User;
   protected watchlist: Benchmark[];
+
+  // Latest metrics snapshot, held separately because it arrives on its own
+  // request and the two can land in either order. See loadWatchlistData.
+  private latestMetrics: Record<string, WatchlistMetric> = {};
 
   protected readonly deviceType = computed(
     () => this.deviceDetectorService.deviceInfo().deviceType
@@ -126,9 +138,49 @@ export class GfHomeWatchlistComponent implements OnInit {
       });
   }
 
+  /**
+   * Cached derivations of `watchlist`.
+   *
+   * These were plain getters bound in the template, so each one rescanned the
+   * ~860-item array on EVERY change-detection pass — and `filteredWatchlist`
+   * returned a fresh array identity each time, which re-fired the table's
+   * effect and made it re-sort and re-render all 860 rows continuously. They are
+   * now recomputed only when the data or a filter actually changes.
+   */
+  private derived: {
+    etfCount: number;
+    filtered: Benchmark[];
+    fundCount: number;
+    stockCount: number;
+  } = { etfCount: 0, filtered: [], fundCount: 0, stockCount: 0 };
+
   protected get filteredWatchlist(): Benchmark[] {
+    return this.derived.filtered;
+  }
+
+  protected get etfCount(): number {
+    return this.derived.etfCount;
+  }
+
+  protected get fundCount(): number {
+    return this.derived.fundCount;
+  }
+
+  protected get stockCount(): number {
+    return this.derived.stockCount;
+  }
+
+  /** Recompute the cached derivations. Call after any change to the inputs. */
+  private refreshDerived() {
     if (!this.watchlist) {
-      return this.watchlist;
+      this.derived = {
+        etfCount: 0,
+        filtered: this.watchlist,
+        fundCount: 0,
+        stockCount: 0
+      };
+
+      return;
     }
 
     let items = this.watchlist;
@@ -152,28 +204,21 @@ export class GfHomeWatchlistComponent implements OnInit {
       });
     }
 
-    return items;
-  }
-
-  protected get etfCount(): number {
-    return (
-      this.watchlist?.filter((item) => item.assetSubClass === 'ETF').length ?? 0
-    );
-  }
-
-  protected get fundCount(): number {
-    return this.watchlist?.filter(this.isFund).length ?? 0;
-  }
-
-  protected get stockCount(): number {
-    return (
-      this.watchlist?.filter((item) => item.assetSubClass === 'STOCK').length ??
-      0
-    );
+    this.derived = {
+      etfCount: this.watchlist.filter((item) => {
+        return item.assetSubClass === 'ETF';
+      }).length,
+      filtered: items,
+      fundCount: this.watchlist.filter(this.isFund).length,
+      stockCount: this.watchlist.filter((item) => {
+        return item.assetSubClass === 'STOCK';
+      }).length
+    };
   }
 
   protected onSearchChange(searchTerm: string) {
     this.searchTerm = searchTerm;
+    this.refreshDerived();
     this.changeDetectorRef.markForCheck();
   }
 
@@ -181,6 +226,7 @@ export class GfHomeWatchlistComponent implements OnInit {
     assetTypeFilter: 'ALL' | 'ETF' | 'FUND' | 'STOCK'
   ) {
     this.assetTypeFilter = assetTypeFilter;
+    this.refreshDerived();
     this.changeDetectorRef.markForCheck();
   }
 
@@ -248,16 +294,53 @@ export class GfHomeWatchlistComponent implements OnInit {
       });
   }
 
+  /**
+   * Loads the rows and their metrics INDEPENDENTLY, rather than waiting for
+   * both.
+   *
+   * The two requests are not comparable in cost: the watchlist itself is a
+   * cheap read, while the metrics snapshot spans every watched symbol and
+   * takes seconds on a cold cache. Joining them meant the table stayed empty
+   * for as long as the slower one took, which read as the page being broken
+   * rather than busy.
+   *
+   * Rows therefore render as soon as they arrive, and each metric merges into
+   * its existing row afterwards. The merge is keyed on `symbol`, the same key
+   * the joined version used, so row identity is unchanged.
+   */
   private loadWatchlistData() {
-    forkJoin({
-      metrics: this.dataService.fetchWatchlistMetrics(),
-      watchlist: this.dataService.fetchWatchlist()
-    })
+    this.dataService
+      .fetchWatchlist()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(({ metrics, watchlist: { watchlist } }) => {
+      .subscribe(({ watchlist }) => {
+        // Carries whatever metrics are already known, so a 30-minute refresh
+        // never blanks columns that are still valid.
         this.watchlist = watchlist.map((item) => {
-          return { ...item, ...metrics[item.symbol] };
+          return { ...item, ...this.latestMetrics[item.symbol] };
         });
+
+        this.refreshDerived();
+        this.changeDetectorRef.markForCheck();
+      });
+
+    this.dataService
+      .fetchWatchlistMetrics()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((metrics) => {
+        this.latestMetrics = metrics;
+
+        // Rows normally land first, but not necessarily. If they have not, the
+        // handler above merges from `latestMetrics` when they do.
+        if (this.watchlist) {
+          // Mutated in place rather than respread: a new object per row would
+          // change every row's identity, and the table would discard and
+          // rebuild all ~860 of them purely to show columns that just arrived.
+          for (const item of this.watchlist) {
+            Object.assign(item, metrics[item.symbol]);
+          }
+
+          this.refreshDerived();
+        }
 
         this.changeDetectorRef.markForCheck();
       });

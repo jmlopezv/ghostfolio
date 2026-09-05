@@ -7,6 +7,32 @@ services:
     container_name: gf-postgres-dev
     ports:
       - ${POSTGRES_PORT:-5432}:5432
+    # Development tuning for a 32 GB SSD workstation. Postgres ships defaults
+    # sized for a machine far smaller than this one, and two of them were
+    # actively hurting:
+    #   random_page_cost=4 assumes a spinning disk and biases the planner away
+    #     from index scans, which is the class of misplan that made the
+    #     watchlist queries pathological in the first place.
+    #   work_mem=4MB was too small for the signals engine's sorts, which were
+    #     measured spilling to disk ("external merge Disk: 12232kB").
+    # shared_buffers is raised because the two hot tables are ~1.1 GB together
+    # and only 128 MB was cacheable inside Postgres.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=6GB
+      - -c
+      - work_mem=64MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - max_parallel_workers_per_gather=4
 
   redis:
     extends:

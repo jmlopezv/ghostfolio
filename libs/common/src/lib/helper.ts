@@ -95,7 +95,12 @@ export function calculateBenchmarkTrend({
   historicalData
 }: {
   days: number;
-  historicalData: MarketData[];
+  /**
+   * Most recent first. Only `marketPrice` and the length are read, so a lean
+   * three-column projection satisfies this as well as a full row — which is what
+   * lets the watchlist fetch every symbol's window in one query.
+   */
+  historicalData: Pick<MarketData, 'marketPrice'>[];
 }): BenchmarkTrend {
   const hasEnoughData = historicalData.length >= 2 * days;
 

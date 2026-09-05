@@ -549,19 +549,26 @@ export class DataProviderService implements OnModuleInit {
     // Get items from cache
     const itemsToFetch: AssetProfileIdentifier[] = [];
 
-    for (const { dataSource, symbol } of items) {
-      if (useCache) {
-        const quoteString = await this.redisCacheService.get(
-          this.redisCacheService.getQuoteKey({ dataSource, symbol })
-        );
+    // One round trip for every key rather than one per item: a watchlist
+    // refresh asks for ~930 quotes, and awaiting each lookup in turn made the
+    // cache hit path itself the slow part.
+    const cachedQuotes = useCache
+      ? await this.redisCacheService.getMany(
+          items.map(({ dataSource, symbol }) => {
+            return this.redisCacheService.getQuoteKey({ dataSource, symbol });
+          })
+        )
+      : [];
 
-        if (quoteString) {
-          try {
-            const cachedDataProviderResponse = JSON.parse(quoteString);
-            response[symbol] = cachedDataProviderResponse;
-            continue;
-          } catch {}
-        }
+    for (const [index, { dataSource, symbol }] of items.entries()) {
+      const quoteString = cachedQuotes[index];
+
+      if (quoteString) {
+        try {
+          const cachedDataProviderResponse = JSON.parse(quoteString);
+          response[symbol] = cachedDataProviderResponse;
+          continue;
+        } catch {}
       }
 
       itemsToFetch.push({ dataSource, symbol });

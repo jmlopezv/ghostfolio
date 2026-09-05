@@ -4,7 +4,10 @@ import { MarketDataService } from '@ghostfolio/api/services/market-data/market-d
 import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
 import { DataGatheringService } from '@ghostfolio/api/services/queues/data-gathering/data-gathering.service';
 import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
-import { SIGNAL_WATCHLIST_HISTORY_YEARS } from '@ghostfolio/common/config';
+import {
+  SIGNAL_WATCHLIST_HISTORY_YEARS,
+  WATCHLIST_ITEMS_CACHE_TTL
+} from '@ghostfolio/common/config';
 import { WatchlistResponse } from '@ghostfolio/common/interfaces';
 
 import { BadRequestException, Injectable } from '@nestjs/common';
@@ -74,6 +77,10 @@ export class WatchlistService {
       },
       where: { id: userId }
     });
+
+    // Adding or removing a symbol must show on the next load, not in five
+    // minutes.
+    this.itemsCache.delete(userId);
   }
 
   public async deleteWatchlistItem({
@@ -95,9 +102,54 @@ export class WatchlistService {
       },
       where: { id: userId }
     });
+
+    // Adding or removing a symbol must show on the next load, not in five
+    // minutes.
+    this.itemsCache.delete(userId);
   }
 
+  /**
+   * Assembled watchlist rows, reused for WATCHLIST_ITEMS_CACHE_TTL.
+   *
+   * Holds the PROMISE rather than the resolved value so concurrent callers join
+   * one build instead of each starting their own — the same shape
+   * SignalsService.getWatchlistMetrics uses, and for the same reason: the page
+   * issues both requests at once, and a cold rebuild is expensive enough that
+   * doing it twice is worth preventing.
+   */
+  private readonly itemsCache = new Map<
+    string,
+    { expiresAt: number; value: Promise<WatchlistResponse['watchlist']> }
+  >();
+
   public async getWatchlistItems(
+    userId: string
+  ): Promise<WatchlistResponse['watchlist']> {
+    const cached = this.itemsCache.get(userId);
+
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+
+    const value = this.buildWatchlistItems(userId);
+
+    this.itemsCache.set(userId, {
+      expiresAt: Date.now() + WATCHLIST_ITEMS_CACHE_TTL,
+      value
+    });
+
+    // A failure must not be cached; the identity guard keeps a later successful
+    // build from being evicted by an older rejection.
+    value.catch(() => {
+      if (this.itemsCache.get(userId)?.value === value) {
+        this.itemsCache.delete(userId);
+      }
+    });
+
+    return value;
+  }
+
+  private async buildWatchlistItems(
     userId: string
   ): Promise<WatchlistResponse['watchlist']> {
     const user = await this.prismaService.user.findUnique({
@@ -132,47 +184,58 @@ export class WatchlistService {
 
     const recentBuySymbols = new Set(recentBuyLogs.map(({ symbol }) => symbol));
 
-    const watchlist = await Promise.all(
-      user.watchlist.map(async ({ dataSource, symbol }) => {
-        const assetProfile = assetProfiles.find((profile) => {
-          return profile.dataSource === dataSource && profile.symbol === symbol;
-        });
+    // Two bulk reads instead of two per symbol. Previously this method issued
+    // 2 x 932 = ~1,864 queries per page open — getMax alone measured 843ms each,
+    // roughly 786 SECONDS of database work — and held the Prisma pool for the
+    // duration, which is why every other tab stalled while the Watchlist loaded.
+    const [allTimeHighs, trendsByKey] = await Promise.all([
+      this.marketDataService.getMaxBySymbols(user.watchlist),
+      this.benchmarkService.getBenchmarkTrendsForSymbols(user.watchlist)
+    ]);
 
-        const [allTimeHigh, trends] = await Promise.all([
-          this.marketDataService.getMax({
-            dataSource,
-            symbol
-          }),
-          this.benchmarkService.getBenchmarkTrends({ dataSource, symbol })
-        ]);
-
-        const performancePercent =
-          this.benchmarkService.calculateChangeInPercentage(
-            allTimeHigh?.marketPrice,
-            quotes[symbol]?.marketPrice
-          );
-
-        return {
-          dataSource,
-          symbol,
-          assetSubClass: assetProfile?.assetSubClass,
-          currency: assetProfile?.currency,
-          hasRecentBuySignal: recentBuySymbols.has(symbol),
-          marketCondition:
-            this.benchmarkService.getMarketCondition(performancePercent),
-          marketPrice: quotes[symbol]?.marketPrice,
-          name: assetProfile?.name,
-          performances: {
-            allTimeHigh: {
-              performancePercent,
-              date: allTimeHigh?.date
-            }
-          },
-          trend50d: trends.trend50d,
-          trend200d: trends.trend200d
-        };
+    const profileByKey = new Map(
+      assetProfiles.map((profile) => {
+        return [`${profile.dataSource}:${profile.symbol}`, profile];
       })
     );
+
+    const watchlist = user.watchlist.map(({ dataSource, symbol }) => {
+      const key = `${dataSource}:${symbol}`;
+      // find() over ~932 profiles per symbol was quietly O(n^2); the map is
+      // built once.
+      const assetProfile = profileByKey.get(key);
+      const allTimeHigh = allTimeHighs.get(key);
+      const trends = trendsByKey.get(key) ?? {
+        trend200d: 'UNKNOWN' as const,
+        trend50d: 'UNKNOWN' as const
+      };
+
+      const performancePercent =
+        this.benchmarkService.calculateChangeInPercentage(
+          allTimeHigh?.marketPrice,
+          quotes[symbol]?.marketPrice
+        );
+
+      return {
+        dataSource,
+        symbol,
+        assetSubClass: assetProfile?.assetSubClass,
+        currency: assetProfile?.currency,
+        hasRecentBuySignal: recentBuySymbols.has(symbol),
+        marketCondition:
+          this.benchmarkService.getMarketCondition(performancePercent),
+        marketPrice: quotes[symbol]?.marketPrice,
+        name: assetProfile?.name,
+        performances: {
+          allTimeHigh: {
+            performancePercent,
+            date: allTimeHigh?.date
+          }
+        },
+        trend50d: trends.trend50d,
+        trend200d: trends.trend200d
+      };
+    });
 
     return watchlist.sort((a, b) => {
       return a.name.localeCompare(b.name);

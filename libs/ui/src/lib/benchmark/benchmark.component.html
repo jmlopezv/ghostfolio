@@ -214,7 +214,27 @@
             >{{ element.trendTemplatePasses }}/8</span
           >
           @if (isNumber(element?.rsRank)) {
-            <small class="text-muted d-block">RS {{ element.rsRank }}</small>
+            <small class="text-muted d-block"
+              >RS {{ element.rsRank }}
+              <!--
+                The screen is computed on the last settled close, so a name can
+                have moved a long way since the rank was struck. Showing that
+                gap is what separates "still at the level it was ranked at" from
+                "already ran" — folding a live tick into the rank instead would
+                make the percentile churn all day and mean nothing.
+              -->
+              @if (
+                isNumber(element?.gapSinceRsAsOf) && absGap(element) >= 0.02
+              ) {
+                <span
+                  title="Live price versus the close this screen was computed on"
+                  [class.text-danger]="element.gapSinceRsAsOf < 0"
+                  [class.text-success]="element.gapSinceRsAsOf > 0"
+                  >({{ element.gapSinceRsAsOf > 0 ? '+' : ''
+                  }}{{ (element.gapSinceRsAsOf * 100).toFixed(1) }}%)</span
+                >
+              }
+            </small>
           }
         } @else {
           —
@@ -525,35 +545,19 @@
           <button
             class="mx-1 no-min-width px-2"
             mat-button
+            [matMenuTriggerData]="{ $implicit: element }"
             [matMenuTriggerFor]="benchmarkMenu"
             (click)="$event.stopPropagation()"
           >
             <ion-icon name="ellipsis-horizontal" />
           </button>
         }
-        <mat-menu #benchmarkMenu="matMenu" xPosition="before">
-          <button
-            mat-menu-item
-            [disabled]="!hasPermissionToDeleteItem()"
-            (click)="
-              onDeleteItem({
-                dataSource: element.dataSource,
-                symbol: element.symbol
-              })
-            "
-          >
-            <span class="align-items-center d-flex">
-              <ion-icon class="mr-2" name="trash-outline" />
-              <span i18n>Delete</span>
-            </span>
-          </button>
-        </mat-menu>
       </td>
     </ng-container>
 
     <tr *matHeaderRowDef="displayedColumns()" mat-header-row></tr>
     <tr
-      *matRowDef="let row; columns: displayedColumns()"
+      *matRowDef="let row; columns: displayedColumns(); trackBy: trackBySymbol"
       class="cursor-pointer"
       mat-row
       (click)="
@@ -565,6 +569,32 @@
     ></tr>
   </table>
 </div>
+
+<!--
+  ONE menu for the table, not one per row. Declared inside *matCellDef it was
+  instantiated ~860 times — every MatMenu, its template and its overlay built up
+  front so that a single one could eventually be opened. The row arrives through
+  matMenuTriggerData when the menu actually opens.
+-->
+<mat-menu #benchmarkMenu="matMenu" xPosition="before">
+  <ng-template let-element matMenuContent>
+    <button
+      mat-menu-item
+      [disabled]="!hasPermissionToDeleteItem()"
+      (click)="
+        onDeleteItem({
+          dataSource: element.dataSource,
+          symbol: element.symbol
+        })
+      "
+    >
+      <span class="align-items-center d-flex">
+        <ion-icon class="mr-2" name="trash-outline" />
+        <span i18n>Delete</span>
+      </span>
+    </button>
+  </ng-template>
+</mat-menu>
 
 @if (showSignalColumns() && !isLoading && benchmarks()?.length > 0) {
   <div

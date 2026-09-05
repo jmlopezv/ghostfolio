@@ -149,6 +149,19 @@ export interface WatchlistMetric {
   // --- Leader screening (Minervini). Research surface, not a buy trigger. ---
   /** Cross-sectional relative-strength percentile (1-99) across the watchlist. */
   rsRank?: number;
+  /**
+   * How far the live price has moved since the close the screen was computed
+   * on, as a fraction.
+   *
+   * RS and the Trend Template are end-of-day statistics by construction — IBD,
+   * MSCI and Minervini all define them on settled closes, and an intraday
+   * percentile would churn all day without saying anything. That leaves a real
+   * gap between what the row scores and what the stock currently costs, and the
+   * honest answer is to show the gap rather than to hide it by folding a live
+   * tick into the rank. This is what makes a name that has run since the rank
+   * was struck visible as exactly that.
+   */
+  gapSinceRsAsOf?: number;
   /** How many of the 8 Trend Template criteria pass right now. */
   trendTemplatePasses?: number;
   /** Number of tightening contractions detected in the current base. */
@@ -178,6 +191,25 @@ export interface WatchlistMetric {
   vcpStatus?: 'AT_PIVOT' | 'BREAKOUT' | 'FAILED_BREAKOUT' | 'FORMING';
   /** Why no valid VCP was found — shown as a tooltip rather than a blank cell. */
   vcpRejectedReason?: string;
+}
+
+/**
+ * The cross-sectional RS map as published for per-symbol readers.
+ *
+ * A bare `{ symbol: rank }` was not enough to render honestly. A percentile
+ * only means something relative to a cohort and a session, and two passes with
+ * DIFFERENT cohorts (the watchlist, and the wider holdings-inclusive universe
+ * the nightly leader screen ranks) write this same key — so a reader that shows
+ * "RS 94" without saying what it was measured against, and when, is stating
+ * more than it knows.
+ */
+export interface RsRankPublication {
+  /** Session every window was anchored to (YYYY-MM-DD); null if unknown. */
+  asOf: string | null;
+  cohort: 'universe' | 'watchlist';
+  /** How many names carry a rank in `ranks`. */
+  cohortSize: number;
+  ranks: { [symbol: string]: number };
 }
 
 export interface WatchlistMetricsResponse {
@@ -909,10 +941,28 @@ export interface TrendTemplateSnapshot {
   criteria: Record<string, boolean>;
   passCount: number;
   /**
-   * Cross-sectional percentile, 1-99, or null when the universe was too small
-   * to rank. Null means UNRANKED, not weak — criterion 8 renders accordingly.
+   * Cross-sectional percentile, 1-99, or null when no rank is available. Null
+   * means UNRANKED, not weak — criterion 8 renders accordingly, and
+   * `rsUnavailableReason` says which of the three causes applies rather than
+   * letting the UI guess.
    */
   rsRank: number | null;
+  /**
+   * Why `rsRank` is null. Absent when there is a rank.
+   *
+   * The dialog used to print "universe too small to rank" for every null, which
+   * named a cause it had never checked — and the cause was almost always
+   * NOT_PUBLISHED (the published map had expired). Three genuinely different
+   * situations, and conflating them hid a cache bug for as long as it existed.
+   */
+  rsUnavailableReason?:
+    | 'INSUFFICIENT_HISTORY'
+    | 'NOT_PUBLISHED'
+    | 'UNIVERSE_TOO_SMALL';
+  /** Session the percentile describes (YYYY-MM-DD), when one is known. */
+  rsAsOf?: string;
+  /** How many names the percentile was measured against. */
+  rsCohortSize?: number;
   /** Consecutive days the SMA200 has been non-decreasing. */
   sma200RisingDays: number;
   /** The raw numbers behind each criterion. */

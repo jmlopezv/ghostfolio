@@ -10,7 +10,9 @@ import { LeaderScreenService } from '@ghostfolio/api/services/signals/leader-scr
 import { OhlcBarService } from '@ghostfolio/api/services/signals/ohlc-bar.service';
 import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
 import {
+  SIGNAL_ASSET_DETAIL_INPUT_CACHE_TTL,
   SIGNAL_HISTORY_FETCH_DAYS,
+  SIGNAL_RS_MIN_UNIVERSE,
   SIGNAL_RS_RANK_CACHE_KEY
 } from '@ghostfolio/common/config';
 import {
@@ -20,6 +22,7 @@ import {
   AssetPeriodReturn,
   AssetStyleBox,
   CorrelationMatrixResponse,
+  RsRankPublication,
   TrendTemplateSnapshot
 } from '@ghostfolio/common/interfaces';
 
@@ -334,6 +337,21 @@ export class AssetDetailService {
     suppressNotices: ['yahooSurvey']
   });
 
+  // Watchlist-wide inputs that every asset-detail call rebuilds identically.
+  // See SIGNAL_ASSET_DETAIL_INPUT_CACHE_TTL.
+  private readonly holdingsCache = new Map<
+    string,
+    { expiresAt: number; value: Promise<Map<string, AssetHolding[]>> }
+  >();
+
+  private readonly ownershipCache = new Map<
+    string,
+    {
+      expiresAt: number;
+      value: Promise<{ ownedKeys: Set<string>; ownedStockNames: Set<string> }>;
+    }
+  >();
+
   public constructor(
     private readonly activitiesService: ActivitiesService,
     private readonly fundHistoryService: FundHistoryService,
@@ -345,6 +363,40 @@ export class AssetDetailService {
     private readonly symbolProfileService: SymbolProfileService
   ) {}
 
+  /**
+   * Serves `cache` for `userId`, building at most one value per TTL window.
+   *
+   * The promise is stored before it settles, so callers arriving mid-build
+   * join it rather than starting a second one; a rejection is evicted so a
+   * transient failure is not held for the rest of the window.
+   */
+  private memoizeByUser<T>(
+    cache: Map<string, { expiresAt: number; value: Promise<T> }>,
+    userId: string,
+    build: () => Promise<T>
+  ): Promise<T> {
+    const cached = cache.get(userId);
+
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+
+    const value = build();
+
+    cache.set(userId, {
+      expiresAt: Date.now() + SIGNAL_ASSET_DETAIL_INPUT_CACHE_TTL,
+      value
+    });
+
+    value.catch(() => {
+      if (cache.get(userId)?.value === value) {
+        cache.delete(userId);
+      }
+    });
+
+    return value;
+  }
+
   public async getAssetDetail(
     userId: string,
     dataSource: DataSource,
@@ -353,7 +405,9 @@ export class AssetDetailService {
     const [facts, watchlist, ownership] = await Promise.all([
       this.fundHistoryService.getFacts(),
       this.getWatchlist(userId),
-      this.getOwnership(userId)
+      this.memoizeByUser(this.ownershipCache, userId, () => {
+        return this.getOwnership(userId);
+      })
     ]);
     const { ownedKeys, ownedStockNames } = ownership;
 
@@ -362,7 +416,15 @@ export class AssetDetailService {
     );
 
     // Holdings of every watchlist fund/ETF, keyed by "dataSource:symbol".
-    const holdingsByKey = await this.collectHoldings(watchlist, facts);
+    // Watchlist-wide and identical for every symbol, so it is memoised rather
+    // than reloading ~870 symbol profiles once per dialog open.
+    const holdingsByKey = await this.memoizeByUser(
+      this.holdingsCache,
+      userId,
+      () => {
+        return this.collectHoldings(watchlist, facts);
+      }
+    );
     const key = `${dataSource}:${symbol}`;
     const holdings = holdingsByKey.get(key) ?? [];
 
@@ -447,7 +509,8 @@ export class AssetDetailService {
 
     try {
       const bars = await this.ohlcBarService.getBars({ dataSource, symbol });
-      const rsRank = await this.getCachedRsRank(symbol);
+      const { rsAsOf, rsCohortSize, rsRank, rsUnavailableReason } =
+        await this.getCachedRsRank(symbol);
       const trend = this.leaderScreenService.trendTemplate({ bars, rsRank });
 
       if (!trend) {
@@ -462,7 +525,10 @@ export class AssetDetailService {
         belowHighPct: trend.belowHighPct,
         criteria: trend.criteria as unknown as Record<string, boolean>,
         passCount: trend.passCount,
+        rsAsOf,
+        rsCohortSize,
         rsRank: trend.rsRank,
+        rsUnavailableReason,
         sma200RisingDays: trend.sma200RisingDays,
         values: trend.values
       };
@@ -499,21 +565,59 @@ export class AssetDetailService {
     }
   }
 
-  /** The symbol's RS percentile from the published map, or null if unavailable. */
-  private async getCachedRsRank(symbol: string): Promise<number | null> {
+  /**
+   * The symbol's RS percentile from the published map, with the cohort it was
+   * measured against — and, when there is no rank, WHY.
+   *
+   * The three causes are genuinely different and used to be reported as one:
+   * an expired publication, a symbol with too little history to be scored, and
+   * a cohort too small for a percentile to mean anything. Only the first is a
+   * fault, and it stayed invisible for as long as the dialog blamed the third.
+   */
+  private async getCachedRsRank(symbol: string): Promise<{
+    rsAsOf?: string;
+    rsCohortSize?: number;
+    rsRank: number | null;
+    rsUnavailableReason?: TrendTemplateSnapshot['rsUnavailableReason'];
+  }> {
+    let publication: RsRankPublication | undefined;
+
     try {
       const cached = await this.redisCacheService.get(SIGNAL_RS_RANK_CACHE_KEY);
 
-      if (!cached) {
-        return null;
+      if (cached) {
+        publication = JSON.parse(cached) as RsRankPublication;
       }
-
-      const map = JSON.parse(cached) as { [symbol: string]: number };
-
-      return map[symbol] ?? null;
     } catch {
-      return null;
+      // A malformed or unreachable cache is indistinguishable from an empty
+      // one for this purpose: there is no rank to show either way.
     }
+
+    if (!publication?.ranks) {
+      return { rsRank: null, rsUnavailableReason: 'NOT_PUBLISHED' };
+    }
+
+    const shared = {
+      rsAsOf: publication.asOf ?? undefined,
+      rsCohortSize: publication.cohortSize
+    };
+    const rsRank = publication.ranks[symbol];
+
+    if (rsRank === undefined) {
+      return {
+        ...shared,
+        rsRank: null,
+        // The publisher drops a symbol only when the ranking excluded it, and
+        // `CrossSectionalService.rank` excludes on history alone — unless the
+        // whole cohort fell under the floor, in which case nothing is ranked.
+        rsUnavailableReason:
+          publication.cohortSize < SIGNAL_RS_MIN_UNIVERSE
+            ? 'UNIVERSE_TOO_SMALL'
+            : 'INSUFFICIENT_HISTORY'
+      };
+    }
+
+    return { ...shared, rsRank };
   }
 
   /**

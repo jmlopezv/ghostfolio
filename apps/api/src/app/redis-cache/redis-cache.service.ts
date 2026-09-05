@@ -37,6 +37,21 @@ export class RedisCacheService {
     return this.cache.get(key);
   }
 
+  /**
+   * Reads many keys in one round trip, positionally aligned with `keys`.
+   *
+   * A quote refresh looks up one key per symbol, and awaiting them one at a
+   * time made the watchlist's ~930 lookups 930 sequential round trips (0.56s
+   * measured, against 0.004s for a single call).
+   */
+  public async getMany(keys: string[]): Promise<(string | undefined)[]> {
+    if (keys.length === 0) {
+      return [];
+    }
+
+    return this.cache.mget(keys);
+  }
+
   public async getKeys(aPrefix?: string): Promise<string[]> {
     const keys: string[] = [];
     const prefix = aPrefix;

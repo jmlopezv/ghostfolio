@@ -4,9 +4,11 @@ import {
   input,
   output
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { closeOutline, searchOutline } from 'ionicons/icons';
+import { Subject, debounceTime, distinctUntilChanged } from 'rxjs';
 
 /**
  * A plain, page-local ticker/name search box — reused across Watchlist,
@@ -28,15 +30,31 @@ export class GfTickerSearchComponent {
 
   public readonly valueChange = output<string>();
 
+  /**
+   * Keystrokes are debounced before they reach the page.
+   *
+   * Every consumer filters a large list on this value — the Watchlist re-filters
+   * and re-sorts ~860 rows — so emitting per character made typing re-render the
+   * whole table on each letter. 300ms matches the assistant's search.
+   */
+  private readonly input$ = new Subject<string>();
+
   public constructor() {
     addIcons({ closeOutline, searchOutline });
+
+    this.input$
+      .pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed())
+      .subscribe((value) => {
+        this.valueChange.emit(value);
+      });
   }
 
   protected onInput(event: Event) {
-    this.valueChange.emit((event.target as HTMLInputElement).value);
+    this.input$.next((event.target as HTMLInputElement).value);
   }
 
   protected onClear() {
+    // Clearing is a deliberate action, not typing — emit it immediately.
     this.valueChange.emit('');
   }
 }

@@ -5,6 +5,7 @@ import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
 import { PropertyService } from '@ghostfolio/api/services/property/property.service';
 import { SymbolProfileService } from '@ghostfolio/api/services/symbol-profile/symbol-profile.service';
 import {
+  BENCHMARK_TREND_WINDOW_DAYS,
   CACHE_TTL_INFINITE,
   PROPERTY_BENCHMARKS
 } from '@ghostfolio/common/config';
@@ -18,7 +19,7 @@ import {
 import { BenchmarkTrend } from '@ghostfolio/common/types';
 
 import { Injectable, Logger } from '@nestjs/common';
-import { SymbolProfile } from '@prisma/client';
+import { MarketDataState, SymbolProfile } from '@prisma/client';
 import { Big } from 'big.js';
 import { addHours, isAfter, subDays } from 'date-fns';
 import { uniqBy } from 'lodash';
@@ -60,7 +61,7 @@ export class BenchmarkService {
       where: {
         dataSource,
         symbol,
-        date: { gte: subDays(new Date(), 400) }
+        date: { gte: subDays(new Date(), BENCHMARK_TREND_WINDOW_DAYS) }
       }
     });
 
@@ -74,6 +75,71 @@ export class BenchmarkService {
     });
 
     return { trend50d: fiftyDayAverage, trend200d: twoHundredDayAverage };
+  }
+
+  /**
+   * 50- and 200-day trends for many symbols in ONE query.
+   *
+   * The per-symbol `getBenchmarkTrends` above pulls a symbol's whole window and
+   * was called once per watchlist entry — 932 queries materialising ~307,000
+   * rows to compute two moving-average comparisons. Everything it does after the
+   * fetch is pure, so the fetch is the only part worth batching.
+   *
+   * Passing every `MarketDataState` keeps the series identical to the
+   * single-symbol path, which applies no state filter — today's live tick
+   * included. That matters here: the row count is what decides whether a trend
+   * is computable at all.
+   */
+  public async getBenchmarkTrendsForSymbols(
+    assetProfileIdentifiers: AssetProfileIdentifier[]
+  ): Promise<
+    Map<string, { trend50d: BenchmarkTrend; trend200d: BenchmarkTrend }>
+  > {
+    const byKey = new Map<
+      string,
+      { trend50d: BenchmarkTrend; trend200d: BenchmarkTrend }
+    >();
+
+    if (assetProfileIdentifiers.length === 0) {
+      return byKey;
+    }
+
+    const rows = await this.marketDataService.getDatedCloses({
+      assetProfileIdentifiers,
+      dateQuery: {
+        gte: subDays(new Date(), BENCHMARK_TREND_WINDOW_DAYS)
+      },
+      states: Object.values(MarketDataState)
+    });
+
+    // getDatedCloses returns date-ascending; calculateBenchmarkTrend reads the
+    // most recent period from the FRONT of the array, so each series is
+    // reversed once here rather than re-sorted per trend.
+    const seriesBySymbol = new Map<string, { marketPrice: number }[]>();
+
+    for (const row of rows) {
+      let series = seriesBySymbol.get(row.symbol);
+
+      if (!series) {
+        series = [];
+        seriesBySymbol.set(row.symbol, series);
+      }
+
+      series.push({ marketPrice: row.marketPrice });
+    }
+
+    for (const { dataSource, symbol } of assetProfileIdentifiers) {
+      const historicalData = (seriesBySymbol.get(symbol) ?? [])
+        .slice()
+        .reverse();
+
+      byKey.set(`${dataSource}:${symbol}`, {
+        trend50d: calculateBenchmarkTrend({ historicalData, days: 50 }),
+        trend200d: calculateBenchmarkTrend({ historicalData, days: 200 })
+      });
+    }
+
+    return byKey;
   }
 
   public async getBenchmarks({

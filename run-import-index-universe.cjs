@@ -146,7 +146,17 @@ function toBars(result) {
 
     bars.push({
       close,
-      date: new Date(timestamps[i] * 1000),
+      // UTC MIDNIGHT, not the raw epoch. Yahoo timestamps a daily bar at the
+      // market OPEN (13:30 UTC for US names, 07:00/08:00 for European ones), and
+      // both target tables key a day by its timestamp. Storing the open instant
+      // here wrote a second row for days the gather had already stored at
+      // midnight - invisible to `skipDuplicates`, which compares the full
+      // timestamp - and every indexed-by-position indicator (RS lookbacks, SMA,
+      // ATR, 52-week high) then read a series with duplicated days.
+      date: new Date(
+        new Date(timestamps[i] * 1000).toISOString().slice(0, 10) +
+          'T00:00:00.000Z'
+      ),
       high: Math.max(high, open, close),
       low: Math.min(low, open, close),
       open,

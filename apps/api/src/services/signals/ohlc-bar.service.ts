@@ -1,3 +1,4 @@
+import { identifierFilter } from '@ghostfolio/api/services/market-data/market-data.service';
 import { PrismaService } from '@ghostfolio/api/services/prisma/prisma.service';
 import { SIGNAL_OHLC_REFRESH_RANGES } from '@ghostfolio/common/config';
 import { AssetProfileIdentifier } from '@ghostfolio/common/interfaces';
@@ -201,9 +202,10 @@ export class OhlcBarService {
               }
             }
           : {}),
-        OR: assetProfileIdentifiers.map(({ dataSource, symbol }) => {
-          return { dataSource, symbol };
-        })
+        // One IN list per data source rather than one OR branch per pair; see
+        // identifierFilter. Measured 20.8s -> 3.8s over 930 identifiers, with
+        // an identical per-symbol result for all 857 symbols.
+        OR: identifierFilter(assetProfileIdentifiers)
       }
     });
 

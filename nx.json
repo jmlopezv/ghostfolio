@@ -124,7 +124,7 @@
       "!{projectRoot}/webpack.config.js"
     ]
   },
-  "parallel": 1,
+  "parallel": 4,
   "defaultBase": "origin/main",
   "analytics": false
 }

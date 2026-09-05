@@ -173,6 +173,27 @@ export class GfBenchmarkComponent {
     return parts.join(' · ');
   }
 
+  /**
+   * Row identity for the table's differ.
+   *
+   * Without it Material falls back to object identity, so any change that
+   * produces new row objects reads as "every row removed, every row added" and
+   * all ~860 rows — with their menus, logos and value components — are destroyed
+   * and rebuilt. A symbol is stable and unique here.
+   */
+  public trackBySymbol(_index: number, row: { symbol?: string }): string {
+    return row?.symbol ?? String(_index);
+  }
+
+  /**
+   * Magnitude of the live-versus-ranked gap, so the template can hide the
+   * noise. Below a couple of percent the number says nothing a reader would
+   * act on, and a badge on every row would bury the ones that matter.
+   */
+  public absGap(element: { gapSinceRsAsOf?: number }): number {
+    return Math.abs(element?.gapSinceRsAsOf ?? 0);
+  }
+
   protected isLoading = true;
   protected readonly isNumber = isNumber;
   protected readonly resolveMarketCondition = resolveMarketCondition;

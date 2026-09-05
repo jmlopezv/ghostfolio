@@ -62,6 +62,26 @@ export const BULL_BOARD_COOKIE_NAME = 'bull_board_token';
  */
 export const BULL_BOARD_ROUTE = '/admin/queues';
 
+/**
+ * Trailing window the 50/200-day benchmark trends are computed over, in days.
+ *
+ * MUST exceed 2 x 200, because calculateBenchmarkTrend needs two full periods
+ * to compare and MarketData carries at most one row per calendar day. The
+ * previous value was exactly 400, which yields at most 400 calendar days and
+ * measured 399 rows in practice - so trend200d evaluated to UNKNOWN for EVERY
+ * symbol, while still paying to fetch the whole window. 420 restores the
+ * comparison with a fortnight of slack for gaps.
+ */
+export const BENCHMARK_TREND_WINDOW_DAYS = 420;
+
+/**
+ * How long the assembled watchlist rows are reused, in milliseconds.
+ *
+ * Matches SIGNAL_WATCHLIST_METRICS_CACHE_TTL so both halves of the Watchlist
+ * page expire together rather than one refetching while the other is still warm.
+ */
+export const WATCHLIST_ITEMS_CACHE_TTL = 5 * 60 * 1000;
+
 export const CACHE_TTL_NO_CACHE = 1;
 export const CACHE_TTL_INFINITE = 0;
 
@@ -920,6 +940,22 @@ export const SIGNAL_SHORTLIST_MAX = 12;
  */
 export const SIGNAL_WATCHLIST_METRICS_CACHE_TTL = 5 * 60 * 1000;
 
+/**
+ * TTL for the watchlist-wide inputs the asset-detail view rebuilds per call.
+ *
+ * Opening one ticker dialog needs the holdings of EVERY watchlist fund/ETF (to
+ * compute overlap) and the user's whole activity history (to flag which of the
+ * overlapping names are owned). Both are the same for every symbol, yet were
+ * recomputed once per request — invisible when a human opens one dialog, but
+ * the scheduled research task walks the watchlist symbol by symbol, and dozens
+ * of back-to-back rebuilds is what took the API down.
+ *
+ * A minute is far shorter than either input actually changes (holdings refresh
+ * with the nightly profile gather; activities change when the user files a
+ * trade) and still collapses any burst onto one build.
+ */
+export const SIGNAL_ASSET_DETAIL_INPUT_CACHE_TTL = 60 * 1000;
+
 // Liquidity floor for the screen (average daily dollar volume). A breakout on
 // an illiquid name is unfillable at the quoted price, which is precisely the
 // failure mode a backtest cannot see.
@@ -946,4 +982,13 @@ export const SIGNAL_RS_MIN_UNIVERSE = 30;
 // renders as UNRANKED rather than as a failed criterion - the same distinction
 // CrossSectionalService already draws for a newly listed stock.
 export const SIGNAL_RS_RANK_CACHE_KEY = 'signals:rs-rank-map';
-export const SIGNAL_RS_RANK_CACHE_TTL = 60 * 60; // seconds
+/**
+ * Lifetime of the published map, in MILLISECONDS.
+ *
+ * The unit is not cosmetic: `RedisCacheService.set` hands this straight to
+ * Keyv, whose TTL is milliseconds. Written as `60 * 60` under a "seconds"
+ * comment it meant 3.6 SECONDS, so the map expired before any reader could use
+ * it and every Trend tab rendered UNRANKED - which also failed criterion 8 and
+ * made 8/8 unreachable there. Keep the `* 1000`.
+ */
+export const SIGNAL_RS_RANK_CACHE_TTL = 60 * 60 * 1000;

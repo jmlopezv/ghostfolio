@@ -718,6 +718,135 @@ The label sits **below** a winning exit rather than above it. That is the opposi
 
 Both chart faults compiled, typechecked, passed 328 tests and built cleanly. They were configuration that referred to something absent. The only thing that finds this class of fault is rendering the chart and looking at it, which is now part of the verification for any chart change: a standalone harness loads the same Chart.js registration and options, screenshots it, and asserts from the live chart object that the legend has entries, that clicking one hides a dataset, and that both annotations per exit exist.
 
+### 0.3p The hang was a text selection; the slowness was one query shape (2026-08-31)
+
+Two complaints arrived together — the API "hangs", and the watchlist takes forever to show its rows — and they turned out to share nothing.
+
+#### The hang was not in the code
+
+An automated client reported the server going completely unresponsive mid-run: no status code, no error, every endpoint affected once it started, no recovery on retry. Measured on the live process while it was hung:
+
+| observation                    | value                            |
+| ------------------------------ | -------------------------------- |
+| `GET /health` (no auth, no DB) | **0 bytes**, three 25 s timeouts |
+| TCP connect to :3333           | succeeds, 0.22 s                 |
+| process CPU over 12 s          | **0.00 s**                       |
+| working set                    | flat, 44 MB                      |
+| main thread                    | `Wait` / `WaitReason: Executive` |
+| debugger on :9229              | none attached                    |
+
+0% CPU while an unauthenticated request gets zero bytes rules out slow queries, GC and pool exhaustion alike — none of those can stop a 401 being written. The event loop was not executing at all.
+
+The cause was the console. `npm run start:server` runs under a `powershell.exe` whose window title was **`Select C:\WINDOWS\system32\cmd.exe`** — Windows prepends `Select ` while a text selection is active, and with `HKCU\Console\QuickEdit = 1` an active selection suspends console output. The server blocked on its next `stdout` write and stayed blocked. A stray click, or dragging to copy a log line, is enough.
+
+**There is nothing to fix in the repository for this.** Turn off QuickEdit Mode for that console (right-click title bar → Properties → Options), or run the server under Windows Terminal, which does not stop a process on selection. Worth knowing before spending another day inside the application: an unresponsive server at 0% CPU that still completes TCP handshakes is not an application fault.
+
+#### The slowness was `getRange`'s filter shape
+
+`MarketDataService.getRange` built its filter as one `OR` branch per `(dataSource, symbol)` pair. At 930 watchlist symbols that is 930 branches and ~1,861 bind parameters, and Postgres abandons the index. Grouping the pairs by data source and using `symbol: { in: [...] }` per group is the same predicate factored differently — two branches instead of 930.
+
+Measured against the live database, warm:
+
+| query                            | as shipped | grouped `IN` | result                         |
+| -------------------------------- | ---------- | ------------ | ------------------------------ |
+| `MarketData` (`getRange`)        | **42.8 s** | **4.3 s**    | byte-identical, 404,345 rows   |
+| `OhlcBar` (`getBarsForSymbols`)  | 20.8 s     | 3.8 s        | identical per-symbol structure |
+| `MarketData`, three columns only | —          | **1.4 s**    | (`getDatedCloses`)             |
+
+Equivalence was verified by hashing the full ordered result of both forms, not by comparing counts. `OhlcBar` needed the per-symbol structure compared instead: it orders by `date` alone, so rows sharing a date have no defined order and the two plans return them differently — irrelevant, because the method groups by symbol and dates stay ascending within each.
+
+#### This does not contradict §0.3i, it succeeds it
+
+§0.3i measured 205,998 bars hydrating in 993 ms and concluded the database was not the problem. That was correct then. The pathology here is a **planner cliff, not a linear cost**: the universe has since grown to 930 names and the window to 520 days, which doubled the rows and pushed the OR list past the point where the planner keeps using the index. The same measurement taken today reads 42.8 s. A "not the database" finding has a scale attached to it, and this one expired.
+
+#### What else was in the way
+
+- **No stampede guard.** `getWatchlistMetrics` cached the resolved value, so concurrent misses each ran the full ~700 MB pipeline. It now caches the **promise**: five concurrent cold requests are served by one build in 3.5 s, verified. A rejection evicts the entry so a failure is not held for the whole TTL.
+- **`asset-detail` rebuilt watchlist-wide inputs per call.** Every ticker dialog reloaded all 867 symbol profiles (`collectHoldings`) and ran the whole activities pipeline (`getOwnership`) — invisible for one dialog, ruinous for a scheduled task walking the watchlist symbol by symbol, which is exactly what was running when the API went down. Both are now memoised per user for `SIGNAL_ASSET_DETAIL_INPUT_CACHE_TTL` (60 s).
+- **930 sequential Redis GETs** in `getQuotes`, one per symbol, replaced by a single `mget` (0.56 s → 0.004 s). Small, but it was on the hottest path.
+- **The watchlist blocked on its slowest request.** `loadWatchlistData` used `forkJoin`, so nothing rendered until the full metrics payload arrived. Rows and metrics are now fetched independently: rows render immediately and each metric merges into its row on arrival, keyed on `symbol` as before.
+
+End to end on the live server afterwards: `watchlist-metrics` cold **3.5 s** with quotes cached (**17.3 s** when the quote cache is also cold — that residue is Yahoo's network latency, not ours), 0.04 s warm; `asset-detail` ~0.4 s each across a burst of eight, with `/health` still answering in 0.01 s throughout — the scenario that previously wedged the server.
+
+**Not measured, and left alone:** `SIGNAL_HISTORY_FETCH_DAYS` (520) would cut the row count further, but it changes what the 52-week and SMA200 criteria can see — a signal-semantics change wearing a performance costume. The `MarketData`/`OhlcBar` overlap (444 MB + 346 MB of largely parallel daily data) is real duplication worth revisiting on its own terms.
+
+**Unrelated, found while verifying:** the test suite would not start — `jest-resolve` could not resolve any preset because `@unrs/resolver-binding-win32-x64-msvc` was installed without its `.node` binary (the npm optional-dependency bug). Restoring that one file brought 315 tests back. Worth checking whenever "the tests are broken" arrives with a resolution error rather than a test failure.
+
+### 0.3q Relative strength was ranking on duplicated bars, and its map lived 3.6 seconds (2026-09-04)
+
+Two reports arrived together: every ticker's Trend tab said `unranked — universe too
+small to rank` while the Watchlist showed a real RS for the same names, and RS looked
+desynced from live prices. Both were symptoms. Neither cause was the one named, and
+auditing them surfaced a third defect larger than either.
+
+**The RS map expired in 3.6 seconds, not an hour.** `SIGNAL_RS_RANK_CACHE_TTL` was
+`60 * 60` under a `// seconds` comment, passed straight into Keyv, whose TTL is
+milliseconds — the only TTL in the repo not already in ms. `getCachedRsRank` therefore
+returned null on essentially every dialog open. That is not merely cosmetic:
+`relativeStrength` fails on a null rank and `passed` needs 8 of 8, so **no symbol could
+ever show 8/8 in the Trend tab**, while the same symbol showed 8/8 on the row it was
+opened from. Verified live: the key read `-2` (absent) before, and holds an hour-long
+TTL after.
+
+**The dialog named a cause it had never checked.** `rsRank === null` has three causes —
+nothing published, too little history, cohort under `SIGNAL_RS_MIN_UNIVERSE` — and only
+the third was ever printed. With ~850 rankable names against a floor of 30 that branch is
+unreachable, so the message was not just vague but wrong, and it hid the cache bug for as
+long as it existed. The API now sends `rsUnavailableReason` and the dialog says which.
+
+**61% of the universe carried duplicate daily bars.** `run-import-index-universe.cjs`
+wrote `new Date(timestamp * 1000)` — the raw Yahoo epoch, i.e. the market OPEN (13:30 UTC
+for US names, 07:00/08:00 for European) — while the gather writes UTC midnight. The unique
+index is on the full timestamp, so `skipDuplicates` never saw them as the same day and
+both rows persisted: 651,284 such rows across 527 of 866 symbols, and 15,549 more in
+`MarketData`.
+
+This mattered because every lookback counted ARRAY POSITIONS. Over one year the affected
+symbols held ~272 rows for ~252 trading days (~8% surplus), so "63 bars back" — the 3-month
+term carrying **40% of `rsScore`** — landed anywhere from 2026-06-04 to 2026-07-07. A
+33-day spread on a window that must mean the same thing for every name, and the spread
+tracked which script last touched a symbol rather than how it traded. The same corruption
+reached SMA50/150/200, ATR, the 252-bar 52-week high/low and the VCP detector.
+
+Fixed in three parts: a migration collapsing each `(dataSource, symbol, calendar day)` to
+one UTC-midnight row, a CHECK constraint so a writer that forgets to normalise fails
+loudly instead of silently duplicating a day, and the importer itself. After it, rows
+equal distinct calendar days for all 866 symbols and the "63 bars back" spread is 5 days —
+what real market calendars justify.
+
+**Lookbacks are now calendar months, not bar counts.** Belt and braces on the above, and
+independently more correct: `periodReturn` walks back to the last bar at or before a date
+cutoff, the convention `computeSeriesMetrics` already uses, and every symbol is anchored to
+ONE reference date for the whole universe rather than to its own last bar. A name whose
+gather has stalled is now excluded rather than scored over a shifted window.
+
+**What was NOT wrong.** RS never touched the live price, and should not: IBD, MSCI and
+Minervini all define it on settled closes, and an intraday percentile would churn all day
+saying nothing. The formula itself is faithful to IBD (0.4/0.2/0.2/0.2 on 3/6/9/12-month
+returns, 1-99 percentile). The real desync was elsewhere — `getQuotes` writes today's price
+back as an INTRADAY `MarketData` row and `getDatedCloses` had no `state` filter, so the
+indicator series ended on a partial tick for whichever markets were open (303 of 859
+symbols at one measurement) and on yesterday's close for the rest. That filter is now
+`CLOSE` only.
+
+Rather than hide the remaining lag, the row shows it: `gapSinceRsAsOf` is the live price
+against the close the screen was computed on, reusing a value the pipeline already computed
+and previously discarded. That is what isolates a name that has run since the rank was
+struck, without contaminating the percentile.
+
+**Measured impact** (851 names ranked before and after, on deduplicated data): the
+date-anchoring alone moves a median 2 percentile points, p90 5, and changes 9 of the 256
+names passing criterion 8. Currency normalisation moves far more where it applies — median
+7 points, up to 92 — because the universe spans ten quote currencies and a local-currency
+return ranks a stock partly on what its currency did.
+
+**Known gap.** That normalisation is currently inert for 288 of 861 symbols (EUR 177, GBp
+42, SEK 40, DKK 15, NOK 13, HKD 1): their `USD<CCY>` history in `MarketData` begins
+2025-12-01, so the 12-month boundary has no rate. Factors are applied all-or-nothing per
+currency — converting one end of a window and not the other would be an error the size of
+the exchange rate itself — so those names stay on local-currency returns until FX history
+is backfilled past 13 months. USD (556), CHF, PLN and CAD are covered.
+
 ### 0.4 Where ETFs fit
 
 The thematic/sector ETFs (semiconductors, AI, blockchain, lithium/battery, EV, copper/silver miners, space, new-energy, data-centre REITs, Korea/Japan/World-Value) are **equity baskets** — less risky than a single stock, more than a broad index fund. They live in the **40% stock sleeve** and receive the **same expected-value signals as individual stocks** (they have full price history, so indicators work immediately). They are **not** in the weekly _fund_ recommendation (that's the safe index-fund core). See §15.

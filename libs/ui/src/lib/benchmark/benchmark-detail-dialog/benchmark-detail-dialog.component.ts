@@ -284,14 +284,43 @@ export class GfBenchmarkDetailDialogComponent implements OnInit {
         ok: criteria.near52WeekHigh
       },
       {
-        detail:
-          trend.rsRank === null
-            ? $localize`unranked — universe too small to rank`
-            : $localize`${trend.rsRank} (needs ${SIGNAL_TREND_TEMPLATE_MIN_RS})`,
+        detail: this.relativeStrengthDetail,
         label: $localize`Relative strength rank`,
         ok: criteria.relativeStrength
       }
     ];
+  }
+
+  /**
+   * What the RS cell says, including the case where there is no rank.
+   *
+   * This used to print "universe too small to rank" for every null — a cause it
+   * had never checked, and in practice the wrong one: the ranking cohort is
+   * ~850 names against a floor of 30, so that branch is effectively
+   * unreachable, while an unpublished map is not. Saying the wrong reason
+   * confidently is worse than saying nothing, and it kept a real cache bug
+   * invisible for as long as it was there.
+   */
+  public get relativeStrengthDetail(): string {
+    const trend = this.trend;
+
+    if (trend?.rsRank != null) {
+      const cohort = trend.rsCohortSize
+        ? $localize` of ${trend.rsCohortSize} names`
+        : '';
+      const asOf = trend.rsAsOf ? $localize`, as of ${trend.rsAsOf}` : '';
+
+      return $localize`${trend.rsRank} (needs ${SIGNAL_TREND_TEMPLATE_MIN_RS})${cohort}${asOf}`;
+    }
+
+    switch (trend?.rsUnavailableReason) {
+      case 'INSUFFICIENT_HISTORY':
+        return $localize`unranked — needs a full year of history`;
+      case 'UNIVERSE_TOO_SMALL':
+        return $localize`unranked — universe too small to rank`;
+      default:
+        return $localize`unranked — no ranking published yet`;
+    }
   }
 
   /**

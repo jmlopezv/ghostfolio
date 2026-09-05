@@ -12,7 +12,11 @@ import { PropertyService } from '@ghostfolio/api/services/property/property.serv
 import { AssetDetailService } from '@ghostfolio/api/services/signals/asset-detail.service';
 import { BacktestService } from '@ghostfolio/api/services/signals/backtest.service';
 import { resolveBuyCalibration } from '@ghostfolio/api/services/signals/buy-calibration';
-import { CrossSectionalService } from '@ghostfolio/api/services/signals/cross-sectional.service';
+import {
+  CrossSectionalService,
+  FxFactorLookup,
+  monthsBefore
+} from '@ghostfolio/api/services/signals/cross-sectional.service';
 import { ForecastService } from '@ghostfolio/api/services/signals/forecast.service';
 import { FundDataService } from '@ghostfolio/api/services/signals/fund-data.service';
 import {
@@ -138,6 +142,7 @@ import {
   ShortlistEntry,
   ShortlistResponse,
   PortfolioReport,
+  RsRankPublication,
   SignalLogResponse,
   SimulatedTrade,
   SimulationReadoutPeriod,
@@ -348,9 +353,15 @@ export class SignalsService implements OnApplicationBootstrap {
   private readonly yahooFeeRefillInFlight = new Set<string>();
   // Short-lived per-user memo of the watchlist metrics snapshot, keyed by user
   // id. See SIGNAL_WATCHLIST_METRICS_CACHE_TTL.
+  //
+  // Holds the PROMISE rather than the resolved value so that callers arriving
+  // during a cold rebuild join the one in flight instead of each starting
+  // their own. A snapshot spans ~930 symbols and allocates several hundred MB,
+  // so two concurrent rebuilds are not merely wasteful — they are how a burst
+  // of requests turned into an unresponsive server.
   private readonly watchlistMetricsCache = new Map<
     string,
-    { expiresAt: number; value: Record<string, WatchlistMetric> }
+    { expiresAt: number; value: Promise<Record<string, WatchlistMetric>> }
   >();
 
   public constructor(
@@ -3954,9 +3965,11 @@ export class SignalsService implements OnApplicationBootstrap {
    */
   private computeLeaderScreen({
     bars,
+    livePrice,
     rsRank
   }: {
     bars: Bar[];
+    livePrice?: number;
     rsRank: number | null;
   }): Partial<WatchlistMetric> {
     if (bars.length === 0) {
@@ -3965,8 +3978,15 @@ export class SignalsService implements OnApplicationBootstrap {
 
     const trend = this.leaderScreenService.trendTemplate({ bars, rsRank });
     const vcp = this.leaderScreenService.vcpStructure(bars);
+    const rankedClose = bars[bars.length - 1].close;
 
     const screen: Partial<WatchlistMetric> = {
+      // Everything else in this object is measured on `bars`, i.e. on the last
+      // settled close. The row also carries a live price, so the distance
+      // between the two is the one number that says how much has happened since
+      // the screen was struck — see gapSinceRsAsOf.
+      gapSinceRsAsOf:
+        livePrice && rankedClose > 0 ? livePrice / rankedClose - 1 : undefined,
       rsRank: rsRank ?? undefined,
       trendTemplatePasses: trend?.passCount
     };
@@ -3999,20 +4019,119 @@ export class SignalsService implements OnApplicationBootstrap {
   }
 
   /**
+   * FX factors for the handful of (currency, date) pairs an RS pass needs.
+   *
+   * Relative strength ranks names quoted in ten different currencies against
+   * each other. Comparing raw local-currency returns ranks a stock partly on
+   * what its currency did, which is not strength — so both ends of every window
+   * are converted into one numéraire first.
+   *
+   * USD, fixed, rather than the user's base currency: the ranking is published
+   * to a single shared cache and read by everyone, so a user-dependent numéraire
+   * would make one reader's percentiles wrong. Only consistency matters for a
+   * ranking; the choice of unit does not.
+   *
+   * Precomputed because `toCurrencyAtDate` is async and DB-backed. The windows
+   * share their cutoff dates across the whole universe, so this is ten
+   * currencies times five dates — not one lookup per bar.
+   */
+  private async buildRsFxFactors({
+    asOf,
+    currencies
+  }: {
+    asOf: string | null;
+    currencies: string[];
+  }): Promise<{ factors: Map<string, number>; lookup: FxFactorLookup }> {
+    const factors = new Map<string, number>();
+    const lookup: FxFactorLookup = (currency, date) => {
+      return factors.get(`${currency}:${date}`) ?? 1;
+    };
+
+    if (!asOf) {
+      return { factors, lookup };
+    }
+
+    const dates = [
+      asOf,
+      ...[3, 6, 9, 12].map((months) => {
+        return monthsBefore(asOf, months);
+      })
+    ];
+
+    await Promise.all(
+      currencies.map(async (currency) => {
+        if (currency === DEFAULT_CURRENCY) {
+          for (const date of dates) {
+            factors.set(`${currency}:${date}`, 1);
+          }
+
+          return;
+        }
+
+        const resolved = await Promise.all(
+          dates.map(async (date) => {
+            try {
+              return await this.exchangeRateDataService.toCurrencyAtDate(
+                1,
+                currency,
+                DEFAULT_CURRENCY,
+                new Date(`${date}T00:00:00.000Z`)
+              );
+            } catch {
+              return undefined;
+            }
+          })
+        );
+
+        // All of a currency's boundaries or none of them. Converting one end of
+        // a window and not the other would divide a USD price by a local one —
+        // an error the size of the exchange rate itself, far worse than the
+        // local-currency comparison this otherwise falls back to. The lookup
+        // defaults to 1, so skipping a currency here simply leaves its names on
+        // the footing they had before.
+        if (resolved.some((factor) => !(factor > 0))) {
+          return;
+        }
+
+        resolved.forEach((factor, index) => {
+          factors.set(`${currency}:${dates[index]}`, factor);
+        });
+      })
+    );
+
+    return { factors, lookup };
+  }
+
+  /**
    * Publishes the cross-sectional RS map so per-symbol callers can read a rank
    * they cannot compute alone. Best-effort by design — see the call site.
    */
-  private async publishRsRankMap(rankMap: {
-    [symbol: string]: number;
+  private async publishRsRankMap({
+    asOf,
+    cohort,
+    ranks
+  }: {
+    asOf: string | null;
+    cohort: RsRankPublication['cohort'];
+    ranks: { [symbol: string]: number };
   }): Promise<void> {
-    if (Object.keys(rankMap).length === 0) {
+    const cohortSize = Object.keys(ranks).length;
+
+    if (cohortSize === 0) {
       return;
     }
+
+    const publication: RsRankPublication = {
+      asOf,
+      cohort,
+      cohortSize,
+      ranks
+    };
 
     try {
       await this.redisCacheService.set(
         SIGNAL_RS_RANK_CACHE_KEY,
-        JSON.stringify(rankMap),
+        JSON.stringify(publication),
         SIGNAL_RS_RANK_CACHE_TTL
       );
     } catch {
@@ -4090,6 +4209,8 @@ export class SignalsService implements OnApplicationBootstrap {
   private async computeMetricsSnapshot(
     items: {
       assetSubClass?: AssetSubClass | null;
+      /** Quote currency, so relative strength can rank in one numéraire. */
+      currency?: string;
       dataSource: DataSource;
       symbol: string;
     }[]
@@ -4117,7 +4238,25 @@ export class SignalsService implements OnApplicationBootstrap {
 
     // Relative strength is cross-sectional, so it is computed once over the
     // whole universe rather than per symbol inside the loop.
+    const rsAsOf = this.crossSectionalService.referenceDateFor({
+      seriesBySymbol: barsBySymbol
+    });
+    const currencyBySymbol = Object.fromEntries(
+      items
+        .filter(({ currency }) => {
+          return Boolean(currency);
+        })
+        .map(({ currency, symbol }) => {
+          return [symbol, currency];
+        })
+    );
+    const { lookup: rsFxFactor } = await this.buildRsFxFactors({
+      asOf: rsAsOf,
+      currencies: [...new Set(Object.values(currencyBySymbol))]
+    });
     const rsRankBySymbol = this.crossSectionalService.rankMap({
+      currencyBySymbol,
+      fxFactor: rsFxFactor,
       seriesBySymbol: barsBySymbol
     });
 
@@ -4125,7 +4264,11 @@ export class SignalsService implements OnApplicationBootstrap {
     // AssetDetailService's Trend tab would otherwise have to re-rank every
     // watchlist name on each dialog open. Best-effort: a cache failure must not
     // fail the metrics refresh, and a missing rank degrades to "unranked".
-    void this.publishRsRankMap(rsRankBySymbol);
+    void this.publishRsRankMap({
+      asOf: rsAsOf,
+      cohort: 'watchlist',
+      ranks: rsRankBySymbol
+    });
 
     // Ongoing annual fee, resolved once per symbol before the loop: the
     // static ETF_TER_CATALOG only covers ~12 of the ~54 watchlist ETFs — for
@@ -4241,6 +4384,7 @@ export class SignalsService implements OnApplicationBootstrap {
 
       const screen = this.computeLeaderScreen({
         bars: barsBySymbol[symbol] ?? [],
+        livePrice,
         rsRank: rsRankBySymbol[symbol] ?? null
       });
 
@@ -4339,7 +4483,23 @@ export class SignalsService implements OnApplicationBootstrap {
       })
     ]);
 
+    // Same numéraire discipline as the other two ranking passes: this cohort
+    // spans the same ten quote currencies, so ranking raw local returns would
+    // rank part of the currency move as if it were strength.
+    const shortlistCurrencyBySymbol = Object.fromEntries(
+      items.map(({ currency, symbol }) => {
+        return [symbol, currency];
+      })
+    );
+    const { lookup: shortlistFxFactor } = await this.buildRsFxFactors({
+      asOf: this.crossSectionalService.referenceDateFor({
+        seriesBySymbol: barsBySymbol
+      }),
+      currencies: [...new Set(Object.values(shortlistCurrencyBySymbol))]
+    });
     const rsRankBySymbol = this.crossSectionalService.rankMap({
+      currencyBySymbol: shortlistCurrencyBySymbol,
+      fxFactor: shortlistFxFactor,
       seriesBySymbol: barsBySymbol
     });
 
@@ -4870,14 +5030,36 @@ export class SignalsService implements OnApplicationBootstrap {
       this.dataProviderService.getQuotes({ items, useCache: true })
     ]);
 
+    const leaderRsAsOf = this.crossSectionalService.referenceDateFor({
+      seriesBySymbol: barsBySymbol
+    });
+    const leaderCurrencyBySymbol = Object.fromEntries(
+      universe.map(({ currency, symbol }) => {
+        return [symbol, currency];
+      })
+    );
+    const { lookup: leaderRsFxFactor } = await this.buildRsFxFactors({
+      asOf: leaderRsAsOf,
+      currencies: [...new Set(Object.values(leaderCurrencyBySymbol))]
+    });
     const rsRankBySymbol = this.crossSectionalService.rankMap({
+      currencyBySymbol: leaderCurrencyBySymbol,
+      fxFactor: leaderRsFxFactor,
       seriesBySymbol: barsBySymbol
     });
 
     // Also published here, not only from the watchlist pass: this runs on the
     // nightly cron, so the Trend tab has a rank to show even when the watchlist
-    // page has not been opened since the cache last expired.
-    void this.publishRsRankMap(rsRankBySymbol);
+    // page has not been opened since the cache last expired. The cohort is
+    // named because it is WIDER than the watchlist one (it includes holdings),
+    // so the same symbol can carry a different percentile depending on which
+    // pass published last — a reader showing the number must be able to say
+    // what it was measured against.
+    void this.publishRsRankMap({
+      asOf: leaderRsAsOf,
+      cohort: 'universe',
+      ranks: rsRankBySymbol
+    });
 
     const candidates: LeaderCandidate[] = [];
     let evaluated = 0;
@@ -5403,29 +5585,42 @@ export class SignalsService implements OnApplicationBootstrap {
       return cached.value;
     }
 
-    const watchlist = await this.getWatchlist(userId);
-    const metrics = await this.computeMetricsSnapshot(watchlist);
+    const value = (async () => {
+      const watchlist = await this.getWatchlist(userId);
+      const metrics = await this.computeMetricsSnapshot(watchlist);
 
-    const result: Record<string, WatchlistMetric> = {};
+      const result: Record<string, WatchlistMetric> = {};
 
-    for (const [symbol, metric] of metrics) {
-      // Strip the internal `livePrice` field (computeMetricsSnapshot's own
-      // marked-to-market helper) before returning the public WatchlistMetric
-      // shape — a shallow-copy + delete instead of a destructure-to-omit
-      // avoids an unused-binding lint error while keeping the same result.
-      const watchlistMetric: WatchlistMetric & { livePrice?: number } = {
-        ...metric
-      };
-      delete watchlistMetric.livePrice;
-      result[symbol] = watchlistMetric;
-    }
+      for (const [symbol, metric] of metrics) {
+        // Strip the internal `livePrice` field (computeMetricsSnapshot's own
+        // marked-to-market helper) before returning the public WatchlistMetric
+        // shape — a shallow-copy + delete instead of a destructure-to-omit
+        // avoids an unused-binding lint error while keeping the same result.
+        const watchlistMetric: WatchlistMetric & { livePrice?: number } = {
+          ...metric
+        };
+        delete watchlistMetric.livePrice;
+        result[symbol] = watchlistMetric;
+      }
 
+      return result;
+    })();
+
+    // Published before it settles, so a concurrent caller joins this rebuild.
     this.watchlistMetricsCache.set(userId, {
       expiresAt: Date.now() + SIGNAL_WATCHLIST_METRICS_CACHE_TTL,
-      value: result
+      value
     });
 
-    return result;
+    // A rejection must not be cached for the full TTL — drop the entry so the
+    // next caller retries, but only if it is still the one stored here.
+    value.catch(() => {
+      if (this.watchlistMetricsCache.get(userId)?.value === value) {
+        this.watchlistMetricsCache.delete(userId);
+      }
+    });
+
+    return value;
   }
 
   /**
@@ -5455,14 +5650,17 @@ export class SignalsService implements OnApplicationBootstrap {
   private async getHistory(
     items: { dataSource: DataSource; symbol: string }[]
   ): Promise<{ [symbol: string]: DatedClose[] }> {
-    const marketData = await this.marketDataService.getRange({
+    // Only the close series is built below, so this takes the three-column
+    // read rather than full MarketData models — at 400k+ rows per watchlist
+    // snapshot the unread columns are the bulk of the cost.
+    const marketData = await this.marketDataService.getDatedCloses({
       assetProfileIdentifiers: items,
       dateQuery: { gte: subDays(new Date(), SIGNAL_HISTORY_FETCH_DAYS) }
     });
 
     const bySymbol: { [symbol: string]: DatedClose[] } = {};
 
-    // getRange returns rows ordered by date asc, so pushed closes stay ordered.
+    // Rows come back ordered by date asc, so pushed closes stay ordered.
     for (const row of marketData) {
       (bySymbol[row.symbol] ??= []).push({
         close: row.marketPrice,

@@ -1,11 +1,15 @@
-import { CrossSectionalService, DatedClose } from './cross-sectional.service';
+import {
+  CrossSectionalService,
+  DatedClose,
+  monthsBefore
+} from './cross-sectional.service';
 
 /**
  * Builds a daily series ending on `endDate` where each step compounds by
  * `dailyRate`, so a symbol's trailing returns are exactly predictable.
  */
 function series({
-  bars = 300,
+  bars = 450,
   dailyRate,
   endDate = '2026-08-20',
   start = 100
@@ -165,17 +169,75 @@ describe('CrossSectionalService', () => {
 
   describe('momentum12m2', () => {
     it('excludes the most recent month', () => {
-      const closes = Array.from({ length: 300 }, (_, i) => 100 + i);
+      const points = series({ bars: 450, dailyRate: 0.001 });
+      const reference = points[points.length - 1].date;
+      const closeOn = (date: string) =>
+        [...points].reverse().find((point) => point.date <= date).close;
 
-      // From index (len-1-252) to (len-1-21): 47 -> 278 on this ramp.
       const expected =
-        closes[closes.length - 1 - 21] / closes[closes.length - 1 - 252] - 1;
+        closeOn(monthsBefore(reference, 1)) /
+          closeOn(monthsBefore(reference, 12)) -
+        1;
 
-      expect(service.momentum12m2(closes)).toBeCloseTo(expected, 10);
+      expect(service.momentum12m2(points)).toBeCloseTo(expected, 10);
     });
 
     it('returns null without a full year of history', () => {
-      expect(service.momentum12m2([1, 2, 3])).toBeNull();
+      expect(
+        service.momentum12m2(series({ bars: 40, dailyRate: 0.001 }))
+      ).toBeNull();
+    });
+  });
+
+  describe('calendar anchoring', () => {
+    it('is unmoved by duplicated rows for the same day', () => {
+      // The regression this anchoring exists for: 527 of 866 symbols carried a
+      // second row on some days, and positional lookbacks silently shortened
+      // every window by however many duplicates fell inside it.
+      const clean = series({ bars: 450, dailyRate: 0.001 });
+      const duplicated = clean.flatMap((point, index) =>
+        index % 10 === 0 ? [point, { ...point }] : [point]
+      );
+
+      const bySymbol = universe();
+      bySymbol['CLEAN'] = clean;
+      bySymbol['DUPED'] = duplicated;
+
+      const ranked = service.rank({ seriesBySymbol: bySymbol });
+      const cleanEntry = ranked.find(({ symbol }) => symbol === 'CLEAN');
+      const dupedEntry = ranked.find(({ symbol }) => symbol === 'DUPED');
+
+      expect(dupedEntry.return3m).toBeCloseTo(cleanEntry.return3m, 12);
+      expect(dupedEntry.return12m).toBeCloseTo(cleanEntry.return12m, 12);
+      expect(dupedEntry.rsScore).toBeCloseTo(cleanEntry.rsScore, 12);
+    });
+
+    it('measures every name over the same window, not each from its own last bar', () => {
+      // A name whose gather stalled must not be scored over a window shifted by
+      // however many days it is behind — that is bookkeeping dressed up as
+      // strength. Two months behind is well past the staleness tolerance.
+      const bySymbol = universe();
+      bySymbol['STALE'] = series({
+        bars: 450,
+        dailyRate: 0.002,
+        endDate: '2026-06-20'
+      });
+
+      const ranked = service.rank({ seriesBySymbol: bySymbol });
+
+      expect(ranked.some(({ symbol }) => symbol === 'STALE')).toBe(false);
+    });
+  });
+
+  describe('monthsBefore', () => {
+    it('steps back whole calendar months', () => {
+      expect(monthsBefore('2026-08-20', 3)).toBe('2026-05-20');
+      expect(monthsBefore('2026-08-20', 12)).toBe('2025-08-20');
+    });
+
+    it('clamps to the last real day of a shorter month', () => {
+      // 31 March minus one month is 28 February, not 3 March.
+      expect(monthsBefore('2026-03-31', 1)).toBe('2026-02-28');
     });
   });
 });

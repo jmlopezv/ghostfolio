@@ -25,13 +25,98 @@ export interface RelativeStrength {
   symbol: string;
 }
 
-/** Trading days per period — the series is daily bars, not calendar days. */
-const PERIOD_DAYS = {
-  month1: 21,
-  month3: 63,
-  month6: 126,
-  month9: 189,
-  month12: 252
+/** Lookback windows, in CALENDAR months. See `periodReturn`. */
+const PERIOD_MONTHS = {
+  month1: 1,
+  month3: 3,
+  month6: 6,
+  month9: 9,
+  month12: 12
+};
+
+/**
+ * A sanity floor on how many points a series must carry before it is ranked.
+ *
+ * The real eligibility test is date-based (see `periodReturn`), but a series
+ * spanning a year in a handful of points is not a daily series at all, and its
+ * "12-month return" would be measured between two arbitrary dots.
+ */
+const MIN_BARS_FOR_RANK = 200;
+
+/**
+ * How far before a window boundary the anchoring bar may sit, in calendar days.
+ *
+ * A cutoff routinely lands on a weekend or a holiday, so the nearest earlier bar
+ * is normally 1-4 days off, and a Christmas or Easter cluster stretches that.
+ * Beyond this the series does not merely align awkwardly, it has a hole, and
+ * anchoring to whatever bar precedes the gap would silently measure a different
+ * window from the rest of the universe.
+ *
+ * Applied to the numerator as well, which is what keeps a symbol whose gather
+ * has stalled out of the cohort instead of ranking stale prices against fresh.
+ */
+const MAX_ANCHOR_STALENESS_DAYS = 15;
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** `date` shifted back by whole calendar months, clamped to a real day. */
+export function monthsBefore(date: string, months: number): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const targetMonth = month - 1 - months;
+  // 31 March minus one month is 28 February, not 3 March.
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(year, targetMonth + 1, 0)
+  ).getUTCDate();
+
+  return new Date(
+    Date.UTC(year, targetMonth, Math.min(day, lastDayOfTargetMonth))
+  )
+    .toISOString()
+    .slice(0, 10);
+}
+
+function daysBetween(from: string, to: string): number {
+  return Math.round(
+    (Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) /
+      MILLISECONDS_PER_DAY
+  );
+}
+
+/**
+ * The close on `cutoff`, else the most recent one before it.
+ *
+ * Null when the nearest earlier bar is more than `MAX_ANCHOR_STALENESS_DAYS`
+ * away. The series is ascending, so this walks back from the end and stops at
+ * the first hit.
+ */
+function closeAsOf(series: DatedClose[], cutoff: string): number | null {
+  for (let index = series.length - 1; index >= 0; index--) {
+    const point = series[index];
+
+    if (point.date <= cutoff) {
+      if (daysBetween(point.date, cutoff) > MAX_ANCHOR_STALENESS_DAYS) {
+        return null;
+      }
+
+      return point.close > 0 ? point.close : null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Converts a local-currency close to the shared numéraire on a given date.
+ *
+ * Passed in rather than resolved here so this service stays pure and testable —
+ * and because the rate lookup is asynchronous and DB-backed, which a scoring
+ * loop must not be doing per bar. Callers precompute the handful of factors the
+ * shared cutoff dates need; see `SignalsService.buildRsFxFactors`.
+ */
+export type FxFactorLookup = (currency: string, date: string) => number;
+
+const IDENTITY_FX: FxFactorLookup = () => {
+  return 1;
 };
 
 /**
@@ -59,20 +144,33 @@ export class CrossSectionalService {
    * double the others — so the rank responds to a stock turning up without being
    * whipsawed by a single strong month.
    *
+   * Every symbol is measured over the SAME calendar windows, anchored to one
+   * reference date for the whole universe: `asOf` when the caller pins it, else
+   * the newest bar date anywhere in the universe. Anchoring per symbol instead
+   * would let a name whose data is a few days behind be scored over a shifted
+   * window — a difference in bookkeeping masquerading as a difference in
+   * strength, which is exactly the contamination a percentile must not carry.
+   *
    * Names with too little history are excluded rather than given a low rank: a
    * newly listed stock is *unranked*, not *weak*, and conflating the two would
    * quietly bias the screen against recent IPOs.
    */
   public rank({
     asOf,
+    currencyBySymbol,
+    fxFactor = IDENTITY_FX,
     seriesBySymbol
   }: {
     asOf?: Date;
+    /** Quote currency per symbol. Omit to compare raw local-currency returns. */
+    currencyBySymbol?: { [symbol: string]: string };
+    fxFactor?: FxFactorLookup;
     seriesBySymbol: { [symbol: string]: DatedClose[] };
   }): RelativeStrength[] {
     const cutoff = asOf ? asOf.toISOString().slice(0, 10) : null;
 
-    const scored: Omit<RelativeStrength, 'rsRank'>[] = [];
+    const visibleBySymbol = new Map<string, DatedClose[]>();
+    let referenceDate = cutoff;
 
     for (const [symbol, series] of Object.entries(seriesBySymbol)) {
       // Point-in-time: never look at a bar dated after `asOf`.
@@ -80,16 +178,51 @@ export class CrossSectionalService {
         ? series.filter(({ date }) => date <= cutoff)
         : series;
 
-      if (visible.length < PERIOD_DAYS.month12 + 1) {
+      if (visible.length < MIN_BARS_FOR_RANK) {
         continue;
       }
 
-      const closes = visible.map(({ close }) => close);
+      visibleBySymbol.set(symbol, visible);
 
-      const return3m = this.periodReturn(closes, PERIOD_DAYS.month3);
-      const return6m = this.periodReturn(closes, PERIOD_DAYS.month6);
-      const return9m = this.periodReturn(closes, PERIOD_DAYS.month9);
-      const return12m = this.periodReturn(closes, PERIOD_DAYS.month12);
+      const newest = visible[visible.length - 1].date;
+
+      if (!referenceDate || newest > referenceDate) {
+        referenceDate = newest;
+      }
+    }
+
+    const scored: Omit<RelativeStrength, 'rsRank'>[] = [];
+
+    for (const [symbol, visible] of visibleBySymbol) {
+      const currency = currencyBySymbol?.[symbol];
+      const inNumeraire = (close: number, date: string) => {
+        return currency ? close * fxFactor(currency, date) : close;
+      };
+
+      const return3m = this.periodReturn(
+        visible,
+        PERIOD_MONTHS.month3,
+        referenceDate,
+        inNumeraire
+      );
+      const return6m = this.periodReturn(
+        visible,
+        PERIOD_MONTHS.month6,
+        referenceDate,
+        inNumeraire
+      );
+      const return9m = this.periodReturn(
+        visible,
+        PERIOD_MONTHS.month9,
+        referenceDate,
+        inNumeraire
+      );
+      const return12m = this.periodReturn(
+        visible,
+        PERIOD_MONTHS.month12,
+        referenceDate,
+        inNumeraire
+      );
 
       if (
         return3m === null ||
@@ -101,7 +234,7 @@ export class CrossSectionalService {
       }
 
       scored.push({
-        momentum12m2: this.momentum12m2(closes),
+        momentum12m2: this.momentum12m2(visible, referenceDate),
         return12m,
         return3m,
         return6m,
@@ -141,9 +274,44 @@ export class CrossSectionalService {
       .sort((a, b) => b.rsRank - a.rsRank);
   }
 
+  /**
+   * The date `rank` would anchor every window to for these same inputs — what a
+   * caller publishes alongside the ranks so a reader knows which session the
+   * percentile actually describes.
+   */
+  public referenceDateFor({
+    asOf,
+    seriesBySymbol
+  }: {
+    asOf?: Date;
+    seriesBySymbol: { [symbol: string]: DatedClose[] };
+  }): string | null {
+    if (asOf) {
+      return asOf.toISOString().slice(0, 10);
+    }
+
+    let newest: string | null = null;
+
+    for (const series of Object.values(seriesBySymbol)) {
+      if (series.length < MIN_BARS_FOR_RANK) {
+        continue;
+      }
+
+      const last = series[series.length - 1].date;
+
+      if (!newest || last > newest) {
+        newest = last;
+      }
+    }
+
+    return newest;
+  }
+
   /** Convenience lookup: `{ [symbol]: rsRank }` for the screen's criterion 8. */
   public rankMap(params: {
     asOf?: Date;
+    currencyBySymbol?: { [symbol: string]: string };
+    fxFactor?: FxFactorLookup;
     seriesBySymbol: { [symbol: string]: DatedClose[] };
   }): { [symbol: string]: number } {
     const map: { [symbol: string]: number } = {};
@@ -279,34 +447,75 @@ export class CrossSectionalService {
    * about to give back a recent spike. Dropping the last month is the standard
    * academic correction (Jegadeesh-Titman, and Gray & Vogel's *Quantitative
    * Momentum* build on it).
+   *
+   * Reported alongside the IBD-style `rsScore` rather than folded into it: the
+   * two conventions disagree by design, and collapsing them would hide which
+   * one a given number follows.
    */
-  public momentum12m2(closes: number[]): number | null {
-    if (closes.length < PERIOD_DAYS.month12 + 1) {
+  public momentum12m2(
+    series: DatedClose[],
+    referenceDate?: string
+  ): number | null {
+    const anchor = referenceDate ?? series[series.length - 1]?.date;
+
+    if (!anchor) {
       return null;
     }
 
-    const end = closes[closes.length - 1 - PERIOD_DAYS.month1];
-    const start = closes[closes.length - 1 - PERIOD_DAYS.month12];
+    const end = closeAsOf(series, monthsBefore(anchor, PERIOD_MONTHS.month1));
+    const start = closeAsOf(
+      series,
+      monthsBefore(anchor, PERIOD_MONTHS.month12)
+    );
 
-    if (!(start > 0) || !(end > 0)) {
+    if (start === null || end === null) {
       return null;
     }
 
     return end / start - 1;
   }
 
-  private periodReturn(closes: number[], days: number): number | null {
-    if (closes.length < days + 1) {
+  /**
+   * Trailing return over whole CALENDAR months, not a fixed number of bars.
+   *
+   * Counting array positions assumes exactly one row per trading day, and the
+   * moment that assumption slips the window moves silently. Duplicated rows
+   * shortened every lookback here — 527 of 866 symbols carried ~8% surplus
+   * rows, putting "63 bars back" anywhere inside a 33-day range — and differing
+   * market holiday calendars shift it between exchanges even on clean data.
+   * Anchoring to dates makes the window mean the same thing for every name,
+   * which is the minimum a cross-sectional percentile requires, and matches how
+   * IBD and MSCI define their momentum windows.
+   *
+   * `inNumeraire` converts both ends into one currency before they are divided.
+   * The universe spans ten quote currencies, and a raw local-currency return
+   * ranks a name partly on what its currency did — a 20% gain in a currency
+   * that fell 10% is not the same 20% as one in a currency that held. The rate
+   * is taken at each window boundary rather than at the bar that anchors it;
+   * those differ by at most a few days, which is noise against a 3-to-12-month
+   * return.
+   */
+  private periodReturn(
+    series: DatedClose[],
+    months: number,
+    referenceDate: string,
+    inNumeraire: (close: number, date: string) => number
+  ): number | null {
+    const startCutoff = monthsBefore(referenceDate, months);
+    const end = closeAsOf(series, referenceDate);
+    const start = closeAsOf(series, startCutoff);
+
+    if (start === null || end === null) {
       return null;
     }
 
-    const start = closes[closes.length - 1 - days];
-    const end = closes[closes.length - 1];
+    const endValue = inNumeraire(end, referenceDate);
+    const startValue = inNumeraire(start, startCutoff);
 
-    if (!(start > 0) || !(end > 0)) {
+    if (!(startValue > 0) || !(endValue > 0)) {
       return null;
     }
 
-    return end / start - 1;
+    return endValue / startValue - 1;
   }
 }
